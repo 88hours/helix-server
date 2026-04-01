@@ -147,8 +147,13 @@ jira:
 #   Required scopes: chat:write, chat:write.public
 
 slack:
-  approval_channel_env: SLACK_APPROVAL_CHANNEL   # env var holding channel ID/name
-  token_env: SLACK_BOT_TOKEN                     # env var holding the bot token
+  token_env: SLACK_BOT_TOKEN                     # bot token (xoxb-...) with chat:write scope
+  signing_secret_env: SLACK_SIGNING_SECRET       # signing secret — used to verify button-click payloads
+  approval_channel_env: SLACK_APPROVAL_CHANNEL   # channel ID or name for approval messages
+
+  # Human Approval webhook server port (receives Slack button-click interactions)
+  # Override: HELIX_APPROVAL_PORT
+  approval_port: 8001
 
 # ---------------------------------------------------------------------------
 # Email integration

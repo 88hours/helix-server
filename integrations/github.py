@@ -187,6 +187,36 @@ async def create_pull_request(
     return pr_number, pr_url
 
 
+async def merge_pull_request(
+    repo: str,
+    pr_number: int,
+    commit_title: str = "",
+    merge_method: str = "squash",
+) -> None:
+    """
+    Merge a pull request via the GitHub API.
+
+    Args:
+        repo:         Repository in "owner/name" format.
+        pr_number:    Pull request number.
+        commit_title: Optional title for the merge commit. Defaults to the PR title.
+        merge_method: One of "merge", "squash", or "rebase". Defaults to "squash".
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails (e.g. PR not mergeable).
+    """
+    url = f"{_GITHUB_API}/repos/{repo}/pulls/{pr_number}/merge"
+    payload: dict = {"merge_method": merge_method}
+    if commit_title:
+        payload["commit_title"] = commit_title
+
+    async with httpx.AsyncClient() as client:
+        response = await client.put(url, json=payload, headers=_api_headers())
+        response.raise_for_status()
+
+    logger.info("pull request merged", extra={"repo": repo, "pr_number": pr_number})
+
+
 async def get_pr_diff(repo: str, pr_number: int) -> str:
     """
     Fetch the unified diff of a pull request.

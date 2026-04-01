@@ -96,6 +96,7 @@ class JiraConfig:
 class SlackConfig:
     """Slack integration settings."""
     token: str              # Slack bot token (xoxb-...)
+    signing_secret: str     # Slack app signing secret — used to verify interaction payloads
     approval_channel: str   # channel ID or name for approval/escalation messages
 
 
@@ -300,10 +301,12 @@ def get_slack_config() -> SlackConfig:
     slack = raw.get("slack", {})
 
     token_env = slack.get("token_env", "SLACK_BOT_TOKEN")
+    signing_secret_env = slack.get("signing_secret_env", "SLACK_SIGNING_SECRET")
     channel_env = slack.get("approval_channel_env", "SLACK_APPROVAL_CHANNEL")
 
     return SlackConfig(
         token=_require_env(token_env),
+        signing_secret=_require_env(signing_secret_env),
         approval_channel=_require_env(channel_env),
     )
 

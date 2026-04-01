@@ -4,8 +4,12 @@ Slack integration for the Helix agent pipeline.
 Provides async helpers for posting messages and interactive approval requests
 to Slack using the Web API (chat.postMessage).
 
+Also provides verify_signature() for validating interaction payloads received
+by the Human Approval agent when a reviewer clicks Approve or Reject.
+
 Required environment variables:
     SLACK_BOT_TOKEN        — Bot token with chat:write scope (xoxb-...)
+    SLACK_SIGNING_SECRET   — Signing secret for verifying interaction payloads
     SLACK_APPROVAL_CHANNEL — Channel ID or name for human approval messages
 
 The approval message uses Slack Block Kit with Approve / Reject buttons.
@@ -13,8 +17,11 @@ When a reviewer clicks a button, Slack sends an interaction payload to the
 configured Interactivity Request URL — that handler is in agents/human_approval/.
 """
 
+import hashlib
+import hmac
 import logging
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -24,6 +31,52 @@ from core.models import QualityReport
 logger = logging.getLogger(__name__)
 
 _SLACK_API = "https://slack.com/api"
+
+# Slack rejects requests older than this many seconds (replay attack prevention).
+_MAX_TIMESTAMP_AGE = 300
+
+
+# ---------------------------------------------------------------------------
+# Signature verification (for interaction payloads)
+# ---------------------------------------------------------------------------
+
+def verify_signature(
+    body: bytes,
+    timestamp: str,
+    signature: str,
+    signing_secret: str,
+) -> bool:
+    """
+    Verify a Slack request signature.
+
+    Slack signs every request it sends (webhooks, interactions) using
+    HMAC-SHA256 with the app's Signing Secret. This must be verified before
+    processing any inbound Slack payload to prevent spoofing.
+
+    Args:
+        body:           Raw request body bytes.
+        timestamp:      Value of the X-Slack-Request-Timestamp header.
+        signature:      Value of the X-Slack-Signature header (format: "v0=<hex>").
+        signing_secret: Slack app Signing Secret (from the app settings page).
+
+    Returns:
+        True if the signature is valid and the request is recent; False otherwise.
+    """
+    # Reject stale requests to prevent replay attacks.
+    try:
+        request_age = abs(time.time() - int(timestamp))
+    except (ValueError, TypeError):
+        return False
+    if request_age > _MAX_TIMESTAMP_AGE:
+        return False
+
+    base = f"v0:{timestamp}:{body.decode('utf-8')}"
+    expected = "v0=" + hmac.new(
+        signing_secret.encode("utf-8"),
+        base.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 # ---------------------------------------------------------------------------

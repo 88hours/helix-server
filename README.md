@@ -36,6 +36,9 @@ agents/
     agent.py           Fetches PR diff, LLM review, Slack approval or quality_rejected
     prompts.py
     main.py            Entry point: subscriber loop
+  human_approval/      FastAPI webhook — receives Slack Approve/Reject button clicks
+    agent.py           handle_approve: merges PR + notifies; handle_reject: posts Slack note
+    main.py            Entry point: POST /slack/interactions, GET /healthz
 core/
   config.py            Typed config loaders for all agents and integrations
   events.py            EventBridge / Redis Pub/Sub publish and subscribe helpers
@@ -101,6 +104,7 @@ Required variables:
 | `JIRA_TOKEN` | JIRA API token |
 | `JIRA_PROJECT_KEY` | JIRA project key, e.g. `PROJ` |
 | `SLACK_BOT_TOKEN` | Slack bot token (`xoxb-...`) with `chat:write` scope |
+| `SLACK_SIGNING_SECRET` | Slack app signing secret — from app settings → Basic Information |
 | `SLACK_APPROVAL_CHANNEL` | Channel ID or name for approval messages |
 | `SMTP_HOST` | SMTP server, e.g. `smtp.sendgrid.net` or `smtp.gmail.com` |
 | `SMTP_USER` | SMTP username or API key username |
@@ -126,6 +130,10 @@ uv run python -m agents.dev.main
 
 # Code Quality Agent — subscribes to pr_created
 uv run python -m agents.code_quality.main
+
+# Human Approval Agent — receives Slack button clicks (Approve / Reject)
+# Configure Slack Interactivity Request URL: http://<host>:8001/slack/interactions
+uv run uvicorn agents.human_approval.main:app --host 0.0.0.0 --port 8001
 ```
 
 Point your Sentry webhook at `http://<host>:8000/webhook/sentry`.
