@@ -116,6 +116,55 @@ See `.env.example` for the full list including optional variables.
 
 ## Running
 
+### Docker (recommended)
+
+The fastest way to run the full stack locally. Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
+
+**1. Configure secrets**
+
+```bash
+cp .env.example .env
+# edit .env and fill in all required values
+```
+
+**2. Set the target repository in `config.yaml`**
+
+```yaml
+github:
+  target_repo: "88hours/helix"
+```
+
+**3. Start everything**
+
+```bash
+docker compose up --build
+```
+
+This starts Redis plus all five agents. The crash handler is available at `http://localhost:8000` and the Slack approval webhook at `http://localhost:8001`.
+
+**Individual agent logs**
+
+```bash
+docker compose logs -f dev
+docker compose logs -f crash_handler
+```
+
+**Rebuild after code changes**
+
+```bash
+docker compose up --build
+```
+
+**Stop the stack**
+
+```bash
+docker compose down
+```
+
+---
+
+### Without Docker
+
 Each agent runs as its own process. Start them all:
 
 ```bash
