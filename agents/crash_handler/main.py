@@ -1,0 +1,96 @@
+"""
+Crash Handler Agent — FastAPI entry point.
+
+Exposes a single POST /webhook/sentry endpoint that:
+  1. Verifies the Sentry HMAC-SHA256 signature.
+  2. Parses the raw payload into a SentryEvent.
+  3. Hands off to the Crash Handler Agent logic (agent.py).
+
+Run with:
+    uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
+"""
+
+import json
+import logging
+import os
+
+import redis.asyncio as aioredis
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Request, status
+
+from agents.crash_handler.agent import handle
+from core.config import get_redis_url, get_sentry_config
+from integrations.sentry import parse_event, verify_signature
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Create the Redis client on startup and close it on shutdown."""
+    app.state.redis = aioredis.from_url(get_redis_url(), decode_responses=False)
+    logger.info("crash handler started — redis connected")
+    yield
+    await app.state.redis.aclose()
+    logger.info("crash handler shut down")
+
+
+app = FastAPI(
+    title="Helix — Crash Handler",
+    description="Receives Sentry webhooks and triggers the incident response pipeline.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+
+@app.get("/healthz")
+async def healthz():
+    """Liveness probe — always returns 200 if the server is running."""
+    return {"status": "ok"}
+
+
+@app.post("/webhook/sentry", status_code=status.HTTP_202_ACCEPTED)
+async def sentry_webhook(request: Request):
+    """
+    Receive a Sentry issue-alert webhook.
+
+    Verifies the HMAC-SHA256 signature, parses the payload, and delegates
+    to the Crash Handler Agent.  Returns 202 immediately — processing is
+    async (the agent publishes a Redis event; the QA Agent picks it up).
+
+    Headers expected:
+        sentry-hook-signature: <hex-encoded HMAC-SHA256 digest>
+    """
+    body = await request.body()
+    signature = request.headers.get("sentry-hook-signature", "")
+
+    sentry_cfg = get_sentry_config()
+    if not verify_signature(body, signature, sentry_cfg.webhook_secret):
+        logger.warning("sentry webhook signature mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook signature",
+        )
+
+    try:
+        raw = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid JSON payload: {exc}",
+        )
+
+    sentry_event = parse_event(raw)
+
+    report = await handle(sentry_event, request.app.state.redis)
+
+    logger.info(
+        "webhook accepted",
+        extra={"incident_id": report.incident_id, "severity": report.severity.value},
+    )
+    return {"incident_id": report.incident_id, "status": "accepted"}

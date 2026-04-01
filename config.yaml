@@ -149,3 +149,42 @@ jira:
 slack:
   approval_channel_env: SLACK_APPROVAL_CHANNEL   # env var holding channel ID/name
   token_env: SLACK_BOT_TOKEN                     # env var holding the bot token
+
+# ---------------------------------------------------------------------------
+# Pipeline behaviour
+# ---------------------------------------------------------------------------
+#
+# Settings that control agent runtime behaviour.
+# All values can be overridden by environment variables at runtime.
+
+pipeline:
+  # Maximum number of fix attempts the Dev Agent makes before escalating.
+  # Counts across both test-suite failures and code-quality rejections.
+  # Override: HELIX_DEV_MAX_ITERATIONS
+  dev_max_iterations: 3
+
+  # Maximum number of source files the QA Agent reads from the repo when
+  # generating the test case (keeps LLM prompt size manageable).
+  # Override: HELIX_QA_MAX_SOURCE_FILES
+  qa_max_source_files: 8
+
+  # Maximum characters read per source file by the QA Agent.
+  # Override: HELIX_QA_MAX_FILE_CHARS
+  qa_max_file_chars: 4000
+
+  # Maximum characters of PR diff the Code Quality Agent sends to the LLM.
+  # Diffs larger than this are truncated with a notice.
+  # Override: HELIX_CQ_MAX_DIFF_CHARS
+  cq_max_diff_chars: 12000
+
+# ---------------------------------------------------------------------------
+# Server (Crash Handler FastAPI app)
+# ---------------------------------------------------------------------------
+#
+# Host and port for the Crash Handler webhook server.
+# These are passed to uvicorn at startup — override via CLI args or env vars.
+# Override: HELIX_SERVER_HOST, HELIX_SERVER_PORT
+
+server:
+  host: 0.0.0.0
+  port: 8000
