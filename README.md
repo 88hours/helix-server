@@ -102,6 +102,11 @@ Required variables:
 | `JIRA_PROJECT_KEY` | JIRA project key, e.g. `PROJ` |
 | `SLACK_BOT_TOKEN` | Slack bot token (`xoxb-...`) with `chat:write` scope |
 | `SLACK_APPROVAL_CHANNEL` | Channel ID or name for approval messages |
+| `SMTP_HOST` | SMTP server, e.g. `smtp.sendgrid.net` or `smtp.gmail.com` |
+| `SMTP_USER` | SMTP username or API key username |
+| `SMTP_PASSWORD` | SMTP password or API key |
+| `EMAIL_FROM` | Sender address, e.g. `helix@acme.com` |
+| `EMAIL_TO` | Comma-separated recipients, e.g. `oncall@acme.com` |
 
 See `.env.example` for the full list including optional variables.
 

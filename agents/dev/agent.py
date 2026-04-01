@@ -4,7 +4,7 @@ Dev Agent — core logic.
 Clones the target repository, writes the QA Agent's failing test, then uses
 the claude-code CLI to iteratively run the test, write a fix, and verify the
 full suite.  Retries up to MAX_ITERATIONS times.  On exhaustion, escalates
-to Slack.  On success, opens a GitHub PR and publishes the pr_created event.
+to Slack and email.  On success, opens a GitHub PR and publishes the pr_created event.
 
 Entry points:
   handle()         — called on test_case_generated events (initial fix)
@@ -18,7 +18,7 @@ import tempfile
 import redis.asyncio as redis
 
 from agents.dev import prompts
-from core.config import get_github_config, get_slack_config
+from core.config import get_email_config, get_github_config, get_slack_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, PRResult, QAResult
@@ -28,7 +28,7 @@ from core.state import (
     write_pr_result,
     write_status,
 )
-from integrations import github, slack
+from integrations import email, github, slack
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ async def _run(
 
     current_iterations = await read_iterations(redis_client, incident_id)
     if current_iterations >= MAX_ITERATIONS:
-        await _escalate(crash_report, [], get_slack_config())
+        await _escalate(crash_report, [], get_slack_config(), get_email_config())
         raise RuntimeError(
             f"Dev Agent for incident {incident_id} has exhausted all {MAX_ITERATIONS} iterations."
         )
@@ -231,7 +231,7 @@ async def _run(
         shutil.rmtree(repo_dir, ignore_errors=True)
 
     # All iterations exhausted.
-    await _escalate(crash_report, prior_attempts, get_slack_config())
+    await _escalate(crash_report, prior_attempts, get_slack_config(), get_email_config())
     raise RuntimeError(
         f"Dev Agent for incident {incident_id} exhausted all {MAX_ITERATIONS} iterations."
     )
@@ -303,8 +303,9 @@ async def _escalate(
     crash_report: CrashReport,
     prior_attempts: list[str],
     slack_config,
+    email_config,
 ) -> None:
-    """Post an escalation message to Slack when all retries are exhausted."""
+    """Post an escalation message to Slack and email when all retries are exhausted."""
     context = "\n\n---\n\n".join(
         f"Attempt {i + 1}:\n{attempt}"
         for i, attempt in enumerate(prior_attempts)
@@ -319,4 +320,16 @@ async def _escalate(
         context=context,
         channel=slack_config.approval_channel,
         token=slack_config.token,
+    )
+    await email.send_escalation(
+        incident_id=crash_report.incident_id,
+        crash_summary=crash_report.summary,
+        attempts=MAX_ITERATIONS,
+        context=context,
+        from_addr=email_config.from_addr,
+        to_addr=email_config.to_addrs,
+        smtp_host=email_config.smtp_host,
+        smtp_port=email_config.smtp_port,
+        smtp_user=email_config.smtp_user,
+        smtp_password=email_config.smtp_password,
     )

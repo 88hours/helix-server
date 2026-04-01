@@ -99,6 +99,17 @@ class SlackConfig:
     approval_channel: str   # channel ID or name for approval/escalation messages
 
 
+@dataclass
+class EmailConfig:
+    """SMTP email notification settings."""
+    smtp_host: str      # SMTP server hostname
+    smtp_port: int      # SMTP port (587 for STARTTLS, 465 for SSL)
+    smtp_user: str      # SMTP username or API key username
+    smtp_password: str  # SMTP password or API key
+    from_addr: str      # sender address, e.g. "helix@acme.com"
+    to_addrs: str       # comma-separated recipient list
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -293,6 +304,38 @@ def get_slack_config() -> SlackConfig:
     return SlackConfig(
         token=_require_env(token_env),
         approval_channel=_require_env(channel_env),
+    )
+
+
+def get_email_config() -> EmailConfig:
+    """
+    Return SMTP email notification settings.
+
+    Resolution order for each field:
+      1. Environment variable (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD,
+         EMAIL_FROM, EMAIL_TO)
+      2. config.yaml defaults (smtp_port only; all others must be in env vars)
+
+    Raises:
+        EnvironmentError: Any required env var is not set.
+    """
+    raw = _load_yaml()
+    email = raw.get("email", {})
+
+    smtp_host_env = email.get("smtp_host_env", "SMTP_HOST")
+    smtp_user_env = email.get("smtp_user_env", "SMTP_USER")
+    smtp_password_env = email.get("smtp_password_env", "SMTP_PASSWORD")
+    from_env = email.get("from_env", "EMAIL_FROM")
+    to_env = email.get("to_env", "EMAIL_TO")
+    smtp_port = int(os.environ.get("SMTP_PORT", str(email.get("smtp_port", 587))))
+
+    return EmailConfig(
+        smtp_host=_require_env(smtp_host_env),
+        smtp_port=smtp_port,
+        smtp_user=_require_env(smtp_user_env),
+        smtp_password=_require_env(smtp_password_env),
+        from_addr=_require_env(from_env),
+        to_addrs=_require_env(to_env),
     )
 
 

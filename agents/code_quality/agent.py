@@ -13,7 +13,7 @@ import logging
 import redis.asyncio as redis
 
 from agents.code_quality import prompts
-from core.config import get_github_config, get_slack_config
+from core.config import get_email_config, get_github_config, get_slack_config
 from core.events import publish
 from core.llm import complete
 from core.models import (
@@ -25,7 +25,7 @@ from core.models import (
 )
 from core.state import write_status
 from core.utils import extract_json
-from integrations import github, slack
+from integrations import email, github, slack
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ async def handle(
 
     gh_config = get_github_config()
     slack_config = get_slack_config()
+    email_config = get_email_config()
 
     # Step 1 — Fetch the PR diff.
     pr_diff = await github.get_pr_diff(
@@ -112,8 +113,19 @@ async def handle(
             channel=slack_config.approval_channel,
             token=slack_config.token,
         )
+        await email.send_approval_request(
+            incident_id=incident_id,
+            pr_url=pr_result.pr_url,
+            report=report,
+            from_addr=email_config.from_addr,
+            to_addr=email_config.to_addrs,
+            smtp_host=email_config.smtp_host,
+            smtp_port=email_config.smtp_port,
+            smtp_user=email_config.smtp_user,
+            smtp_password=email_config.smtp_password,
+        )
         logger.info(
-            "code quality approved — slack notification sent",
+            "code quality approved — slack and email notifications sent",
             extra={"incident_id": incident_id, "pr_url": pr_result.pr_url},
         )
     else:

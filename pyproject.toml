@@ -20,6 +20,9 @@ dependencies = [
     # HTTP client — used by all integration wrappers (GitHub, JIRA, Slack)
     "httpx>=0.28",
 
+    # Async SMTP — email notifications
+    "aiosmtplib>=3.0",
+
     # Crash Handler webhook server
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
