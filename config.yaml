@@ -1,0 +1,27 @@
+# Helix – Model Configuration
+#
+# provider options:
+#   anthropic   — uses ANTHROPIC_API_KEY, direct Anthropic API
+#   openrouter  — uses OPENROUTER_API_KEY, OpenAI-compatible API
+#   claude-code — invokes the Claude Code CLI via subprocess (Dev Agent only)
+#
+# Any value here can be overridden with an environment variable:
+#   HELIX_<AGENT>_PROVIDER and HELIX_<AGENT>_MODEL
+#   e.g. HELIX_DEV_PROVIDER=anthropic overrides the dev agent provider
+
+agents:
+  crash_handler:
+    provider: openrouter
+    model: google/gemini-flash-1.5
+
+  qa:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+
+  dev:
+    provider: claude-code
+    model: claude-code          # ignored when provider is claude-code
+
+  code_quality:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
