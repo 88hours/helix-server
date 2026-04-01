@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "helix"
+version = "0.1.0"
+description = "Autonomous incident response — Sentry crash to merged PR in under 10 minutes"
+requires-python = ">=3.12"
+dependencies = [
+    # Pydantic — shared data models across all agents
+    "pydantic>=2.10",
+
+    # Config parsing
+    "pyyaml>=6.0.2",
+
+    # Redis — state store and Pub/Sub event bus
+    "redis>=5.2",            # asyncio support is built-in since redis-py 5.x
+
+    # HTTP client — used by all integration wrappers (GitHub, JIRA, Slack)
+    "httpx>=0.28",
+
+    # Crash Handler webhook server
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+
+    # LLM backends (all imported lazily — only the provider in use needs to be installed)
+    "anthropic>=0.40",        # crash_handler, qa, code_quality agents
+    "openai>=1.55",           # openrouter backend (OpenAI-compatible)
+    "boto3>=1.35",            # eventbridge backend (optional; AWS deployments only)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.22",            # mock httpx calls in integration tests
+]
+
+[tool.setuptools.packages.find]
+# Include agents/, core/, integrations/ but not docs/, .venv/, etc.
+include = ["agents*", "core*", "integrations*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
