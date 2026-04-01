@@ -1,0 +1,96 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Helix — full local stack
+#
+# Usage:
+#   cp .env.example .env          # fill in secrets
+#   docker compose up --build
+#
+# Individual service logs:
+#   docker compose logs -f crash_handler
+# ---------------------------------------------------------------------------
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Infrastructure
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # -------------------------------------------------------------------------
+  # Helix agents
+  # -------------------------------------------------------------------------
+  crash_handler:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: >
+      uvicorn agents.crash_handler.main:app
+        --host 0.0.0.0
+        --port 8000
+
+  qa:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: python -m agents.qa.main
+
+  dev:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: python -m agents.dev.main
+
+  code_quality:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: python -m agents.code_quality.main
+
+  human_approval:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: >
+      uvicorn agents.human_approval.main:app
+        --host 0.0.0.0
+        --port 8001
