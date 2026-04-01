@@ -79,3 +79,73 @@ events:
 redis:
   url_env: REDIS_URL            # name of the env var that holds the Redis URL
   ttl_days: 7                   # key expiry for all helix:incident:* keys
+
+# ---------------------------------------------------------------------------
+# Sentry integration
+# ---------------------------------------------------------------------------
+#
+# Helix verifies every inbound Sentry webhook with HMAC-SHA256.
+# Set the secret to whatever you configured in the Sentry webhook settings.
+#
+# Override: SENTRY_WEBHOOK_SECRET
+
+sentry:
+  webhook_secret_env: SENTRY_WEBHOOK_SECRET   # env var holding the HMAC secret
+
+# ---------------------------------------------------------------------------
+# GitHub integration
+# ---------------------------------------------------------------------------
+#
+# Used by:
+#   QA Agent      — reads source files from the target repo to write test cases
+#   Dev Agent     — clones the target repo; the claude-code CLI runs inside it
+#   Code Quality  — fetches PR diffs for review
+#
+# target_repo: the "owner/name" of the repo Helix is fixing bugs in.
+#   e.g. "acme/backend"
+#   Override: HELIX_GITHUB_REPO
+#
+# base_branch: the branch PRs are opened against (usually "main").
+#   Override: HELIX_GITHUB_BASE_BRANCH
+#
+# token_env: env var holding the GitHub personal access token or App token.
+#   Requires: repo scope (read + write + pull requests)
+
+github:
+  target_repo: ""                   # e.g. "acme/backend" — must be set
+  base_branch: main
+  token_env: GITHUB_TOKEN           # env var holding the GitHub token
+
+# ---------------------------------------------------------------------------
+# JIRA integration
+# ---------------------------------------------------------------------------
+#
+# Used by the QA Agent to create or update a bug ticket before generating
+# the test case.  All fields can be overridden via env vars.
+#
+# Overrides: JIRA_URL, JIRA_EMAIL, JIRA_TOKEN, JIRA_PROJECT_KEY
+
+jira:
+  url_env: JIRA_URL                 # e.g. https://acme.atlassian.net
+  email_env: JIRA_EMAIL             # JIRA account email for Basic auth
+  token_env: JIRA_TOKEN             # JIRA API token (id.atlassian.com)
+  project_key_env: JIRA_PROJECT_KEY # e.g. PROJ
+
+# ---------------------------------------------------------------------------
+# Slack integration
+# ---------------------------------------------------------------------------
+#
+# Used by:
+#   Code Quality Agent — posts the approval request with Approve/Reject buttons
+#   Dev Agent          — posts an escalation message if all retries are exhausted
+#
+# approval_channel: the Slack channel ID (C...) or name (#channel) where
+#   Helix posts PR reviews for human approval.
+#   Override: SLACK_APPROVAL_CHANNEL
+#
+# token_env: env var holding the Slack bot token (xoxb-...).
+#   Required scopes: chat:write, chat:write.public
+
+slack:
+  approval_channel_env: SLACK_APPROVAL_CHANNEL   # env var holding channel ID/name
+  token_env: SLACK_BOT_TOKEN                     # env var holding the bot token

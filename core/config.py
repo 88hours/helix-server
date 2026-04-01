@@ -19,12 +19,25 @@ EventBridge overrides:
     HELIX_EVENTBRIDGE_BUS    event bus name (default: helix-mvp)
     AWS_REGION               AWS region for the EventBridge client
 
+Integration env vars (names stored in config.yaml, values in environment):
+    SENTRY_WEBHOOK_SECRET    HMAC-SHA256 secret for Sentry webhook verification
+    GITHUB_TOKEN             GitHub personal access token or App token (repo scope)
+    JIRA_URL                 JIRA base URL, e.g. https://acme.atlassian.net
+    JIRA_EMAIL               JIRA account email for Basic auth
+    JIRA_TOKEN               JIRA API token
+    JIRA_PROJECT_KEY         Default JIRA project key, e.g. PROJ
+    SLACK_BOT_TOKEN          Slack bot token (xoxb-...)
+    SLACK_APPROVAL_CHANNEL   Channel ID or name for approval messages
+
 Usage:
     from core.config import get_agent_config, get_redis_url, get_event_backend
+    from core.config import get_sentry_config, get_github_config
+    from core.config import get_jira_config, get_slack_config
 
     cfg = get_agent_config("dev")       # AgentConfig(provider, model)
     url = get_redis_url()               # "redis://..."
     backend = get_event_backend()       # "redis" or "eventbridge"
+    gh = get_github_config()            # GitHubConfig(target_repo, base_branch, token)
 """
 
 import os
@@ -54,6 +67,36 @@ class EventBridgeConfig:
     """AWS EventBridge connection settings."""
     bus: str        # event bus name, e.g. "helix-mvp"
     region: str     # AWS region, e.g. "us-east-1"
+
+
+@dataclass
+class SentryConfig:
+    """Sentry webhook integration settings."""
+    webhook_secret: str     # HMAC-SHA256 secret for verifying Sentry webhook payloads
+
+
+@dataclass
+class GitHubConfig:
+    """GitHub integration settings."""
+    target_repo: str    # "owner/name" of the repo Helix is fixing, e.g. "acme/backend"
+    base_branch: str    # branch PRs are opened against, usually "main"
+    token: str          # GitHub personal access token or App token
+
+
+@dataclass
+class JiraConfig:
+    """JIRA integration settings."""
+    url: str            # JIRA base URL, e.g. "https://acme.atlassian.net"
+    email: str          # JIRA account email for Basic auth
+    token: str          # JIRA API token
+    project_key: str    # default project key, e.g. "PROJ"
+
+
+@dataclass
+class SlackConfig:
+    """Slack integration settings."""
+    token: str              # Slack bot token (xoxb-...)
+    approval_channel: str   # channel ID or name for approval/escalation messages
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +203,97 @@ def get_redis_url() -> str:
     raw = _load_yaml()
     url_env = raw.get("redis", {}).get("url_env", "REDIS_URL")
     return _require_env(url_env)
+
+
+def get_sentry_config() -> SentryConfig:
+    """
+    Return Sentry webhook integration settings.
+
+    Reads the webhook secret from the env var named in config.yaml
+    (sentry.webhook_secret_env, defaulting to SENTRY_WEBHOOK_SECRET).
+
+    Raises:
+        EnvironmentError: The webhook secret env var is not set.
+    """
+    raw = _load_yaml()
+    secret_env = raw.get("sentry", {}).get("webhook_secret_env", "SENTRY_WEBHOOK_SECRET")
+    return SentryConfig(webhook_secret=_require_env(secret_env))
+
+
+def get_github_config() -> GitHubConfig:
+    """
+    Return GitHub integration settings.
+
+    Resolution order for each field:
+      1. Environment variable (HELIX_GITHUB_REPO, HELIX_GITHUB_BASE_BRANCH, GITHUB_TOKEN)
+      2. config.yaml (github.target_repo, github.base_branch, github.token_env)
+
+    Raises:
+        ValueError:        target_repo is not configured.
+        EnvironmentError:  GITHUB_TOKEN env var is not set.
+    """
+    raw = _load_yaml()
+    gh = raw.get("github", {})
+
+    target_repo = os.environ.get("HELIX_GITHUB_REPO") or gh.get("target_repo", "")
+    if not target_repo:
+        raise ValueError(
+            "github.target_repo is not set in config.yaml and HELIX_GITHUB_REPO is not set. "
+            "Set it to 'owner/repo', e.g. 'acme/backend'."
+        )
+
+    base_branch = os.environ.get("HELIX_GITHUB_BASE_BRANCH") or gh.get("base_branch", "main")
+    token_env = gh.get("token_env", "GITHUB_TOKEN")
+    token = _require_env(token_env)
+
+    return GitHubConfig(target_repo=target_repo, base_branch=base_branch, token=token)
+
+
+def get_jira_config() -> JiraConfig:
+    """
+    Return JIRA integration settings.
+
+    All values come from env vars whose names are stored in config.yaml.
+    Resolution order: environment variable → config.yaml default env var name.
+
+    Raises:
+        EnvironmentError: Any required env var is not set.
+    """
+    raw = _load_yaml()
+    jira = raw.get("jira", {})
+
+    url_env = jira.get("url_env", "JIRA_URL")
+    email_env = jira.get("email_env", "JIRA_EMAIL")
+    token_env = jira.get("token_env", "JIRA_TOKEN")
+    project_key_env = jira.get("project_key_env", "JIRA_PROJECT_KEY")
+
+    return JiraConfig(
+        url=_require_env(url_env),
+        email=_require_env(email_env),
+        token=_require_env(token_env),
+        project_key=_require_env(project_key_env),
+    )
+
+
+def get_slack_config() -> SlackConfig:
+    """
+    Return Slack integration settings.
+
+    Resolution order: environment variable → config.yaml default env var name.
+
+    Raises:
+        EnvironmentError: SLACK_BOT_TOKEN or SLACK_APPROVAL_CHANNEL is not set.
+    """
+    raw = _load_yaml()
+    slack = raw.get("slack", {})
+
+    token_env = slack.get("token_env", "SLACK_BOT_TOKEN")
+    channel_env = slack.get("approval_channel_env", "SLACK_APPROVAL_CHANNEL")
+
+    return SlackConfig(
+        token=_require_env(token_env),
+        approval_channel=_require_env(channel_env),
+    )
 
 
 def get_eventbridge_config() -> EventBridgeConfig:
