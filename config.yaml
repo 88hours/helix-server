@@ -1,13 +1,23 @@
-# Helix – Model Configuration
+# Helix – Configuration
+#
+# This file is the source of truth for all non-secret configuration.
+# Secrets (API keys, tokens) must be set as environment variables — never
+# committed to this file.
+#
+# All values here can be overridden by environment variables at runtime.
+# See the override key for each section below.
+
+# ---------------------------------------------------------------------------
+# LLM providers
+# ---------------------------------------------------------------------------
 #
 # provider options:
 #   anthropic   — uses ANTHROPIC_API_KEY, direct Anthropic API
 #   openrouter  — uses OPENROUTER_API_KEY, OpenAI-compatible API
 #   claude-code — invokes the Claude Code CLI via subprocess (Dev Agent only)
 #
-# Any value here can be overridden with an environment variable:
-#   HELIX_<AGENT>_PROVIDER and HELIX_<AGENT>_MODEL
-#   e.g. HELIX_DEV_PROVIDER=anthropic overrides the dev agent provider
+# Per-agent overrides: HELIX_<AGENT>_PROVIDER and HELIX_<AGENT>_MODEL
+#   e.g. HELIX_DEV_PROVIDER=anthropic, HELIX_DEV_MODEL=claude-sonnet-4-6
 
 agents:
   crash_handler:
@@ -25,3 +35,47 @@ agents:
   code_quality:
     provider: anthropic
     model: claude-sonnet-4-6
+
+# ---------------------------------------------------------------------------
+# LLM API keys (set as environment variables — values here are placeholders)
+# ---------------------------------------------------------------------------
+#
+# ANTHROPIC_API_KEY   — required if any agent uses provider: anthropic
+# OPENROUTER_API_KEY  — required if any agent uses provider: openrouter
+
+# ---------------------------------------------------------------------------
+# Event bus
+# ---------------------------------------------------------------------------
+#
+# backend options:
+#   redis        — Redis Pub/Sub (default; recommended for Railway / local dev)
+#   eventbridge  — AWS EventBridge (recommended for AWS deployments)
+#
+# Override: HELIX_EVENT_BACKEND
+
+events:
+  backend: redis
+
+  # Redis Pub/Sub — used when backend is "redis"
+  # Override: REDIS_URL (e.g. redis://localhost:6379 or rediss://... for TLS)
+  redis:
+    url_env: REDIS_URL          # name of the env var that holds the Redis URL
+
+  # AWS EventBridge — used when backend is "eventbridge"
+  # Override: HELIX_EVENTBRIDGE_BUS
+  eventbridge:
+    bus: helix-mvp              # EventBridge event bus name
+    region_env: AWS_REGION      # name of the env var that holds the AWS region
+
+# ---------------------------------------------------------------------------
+# Redis state store
+# ---------------------------------------------------------------------------
+#
+# Redis is used for shared incident state regardless of which event backend
+# is chosen. All keys are namespaced by incident_id with a 7-day TTL.
+#
+# Override: REDIS_URL
+
+redis:
+  url_env: REDIS_URL            # name of the env var that holds the Redis URL
+  ttl_days: 7                   # key expiry for all helix:incident:* keys
