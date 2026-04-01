@@ -161,10 +161,18 @@ slack:
 # Overrides: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM, EMAIL_TO
 
 email:
-  smtp_host_env: SMTP_HOST          # e.g. smtp.sendgrid.net or smtp.gmail.com
+  # SendGrid API (preferred — set SENDGRID_API_KEY and SMTP vars are not needed)
+  # Override: SENDGRID_API_KEY
+  sendgrid_api_key_env: SENDGRID_API_KEY
+
+  # SMTP fallback (used when SENDGRID_API_KEY is not set)
+  # Works with Gmail, AWS SES, Mailgun, Postmark, etc.
+  smtp_host_env: SMTP_HOST          # e.g. smtp.gmail.com or email-smtp.us-east-1.amazonaws.com
   smtp_port: 587                    # 587 = STARTTLS (recommended), 465 = SSL
-  smtp_user_env: SMTP_USER          # SMTP username / API key username
-  smtp_password_env: SMTP_PASSWORD  # SMTP password / API key
+  smtp_user_env: SMTP_USER          # SMTP username
+  smtp_password_env: SMTP_PASSWORD  # SMTP password
+
+  # Always required
   from_env: EMAIL_FROM              # sender address, e.g. helix@acme.com
   to_env: EMAIL_TO                  # comma-separated recipients, e.g. oncall@acme.com
 

@@ -119,6 +119,7 @@ async def handle(
             report=report,
             from_addr=email_config.from_addr,
             to_addr=email_config.to_addrs,
+            sendgrid_api_key=email_config.sendgrid_api_key,
             smtp_host=email_config.smtp_host,
             smtp_port=email_config.smtp_port,
             smtp_user=email_config.smtp_user,

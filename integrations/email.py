@@ -1,21 +1,37 @@
 """
 Email integration for the Helix agent pipeline.
 
-Sends transactional notifications via SMTP using aiosmtplib (async).
-Works with any SMTP provider: Gmail, SendGrid, AWS SES, Mailgun, Postmark, etc.
+Supports two sending backends — the active one is selected automatically:
+
+  SendGrid API  (preferred)
+    Used when SENDGRID_API_KEY is set. Calls the SendGrid v3 REST API via
+    httpx (already a project dependency — no extra package needed).
+
+  SMTP  (fallback)
+    Used when SENDGRID_API_KEY is not set. Works with any SMTP provider:
+    Gmail, AWS SES, Mailgun, Postmark, etc. Requires aiosmtplib.
+
+Backend selection is handled internally by _deliver() — callers always use
+the same three public functions regardless of which backend is active.
 
 Provides three notification types that mirror the Slack integration:
   send_approval_request  — PR ready for human review (Code Quality Agent passed)
-  send_escalation        — Dev Agent exhausted all retries, needs human fix
+  send_escalation        — Dev Agent exhausted all retries, needs a human fix
   send_pr_merged         — confirmation after Human Approval merges the PR
 
-Required environment variables (names stored in config.yaml):
-    SMTP_HOST      — e.g. smtp.sendgrid.net or smtp.gmail.com
-    SMTP_PORT      — typically 587 (STARTTLS) or 465 (SSL)
-    SMTP_USER      — SMTP username or API key username
-    SMTP_PASSWORD  — SMTP password or API key
-    EMAIL_FROM     — sender address, e.g. helix@acme.com
-    EMAIL_TO       — comma-separated recipient list, e.g. oncall@acme.com
+Environment variables (names stored in config.yaml):
+  Always required:
+    EMAIL_FROM            — sender address, e.g. helix@acme.com
+    EMAIL_TO              — comma-separated recipients, e.g. oncall@acme.com
+
+  SendGrid backend (set this and SMTP vars are optional):
+    SENDGRID_API_KEY      — SendGrid API key (starts with SG.)
+
+  SMTP backend (required when SENDGRID_API_KEY is not set):
+    SMTP_HOST             — e.g. smtp.gmail.com or email-smtp.us-east-1.amazonaws.com
+    SMTP_PORT             — 587 (STARTTLS, default) or 465 (SSL)
+    SMTP_USER             — SMTP username
+    SMTP_PASSWORD         — SMTP password
 """
 
 import logging
@@ -25,18 +41,21 @@ from email.mime.text import MIMEText
 from typing import Optional
 
 import aiosmtplib
+import httpx
 
 from core.models import QualityReport
 
 logger = logging.getLogger(__name__)
 
+_SENDGRID_API_URL = "https://api.sendgrid.com/v3/mail/send"
+
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Config helpers
 # ---------------------------------------------------------------------------
 
 def _resolve(env_var: str, override: Optional[str]) -> str:
-    """Return override if set, otherwise read the env var. Raises if empty."""
+    """Return override if set, otherwise read env_var. Raises if empty."""
     value = override or os.environ.get(env_var, "")
     if not value:
         raise EnvironmentError(f"{env_var} is not set")
@@ -44,61 +63,109 @@ def _resolve(env_var: str, override: Optional[str]) -> str:
 
 
 def _recipients(to_override: Optional[str]) -> list[str]:
-    """Parse the TO address(es) into a list."""
+    """Parse the TO address(es) into a deduplicated list."""
     raw = _resolve("EMAIL_TO", to_override)
     return [addr.strip() for addr in raw.split(",") if addr.strip()]
 
 
-def _build_message(
+# ---------------------------------------------------------------------------
+# SendGrid backend
+# ---------------------------------------------------------------------------
+
+async def _send_sendgrid(
+    api_key: str,
+    from_addr: str,
+    to_addrs: list[str],
     subject: str,
     body_text: str,
     body_html: str,
-    from_addr: str,
-    to_addrs: list[str],
-) -> MIMEMultipart:
+) -> None:
     """
-    Build a MIME multipart/alternative email with plain-text and HTML parts.
+    Deliver an email via the SendGrid v3 REST API.
+
+    Uses httpx (already a project dependency) — no extra package needed.
 
     Args:
-        subject:   Email subject line.
-        body_text: Plain-text fallback body.
-        body_html: HTML body.
+        api_key:   SendGrid API key.
         from_addr: Sender address.
         to_addrs:  List of recipient addresses.
+        subject:   Email subject.
+        body_text: Plain-text body (fallback for clients that don't render HTML).
+        body_html: HTML body.
 
-    Returns:
-        Assembled MIMEMultipart message ready to send.
+    Raises:
+        httpx.HTTPStatusError: If the SendGrid API returns a non-2xx response.
     """
+    payload = {
+        "personalizations": [
+            {"to": [{"email": addr} for addr in to_addrs]}
+        ],
+        "from": {"email": from_addr},
+        "subject": subject,
+        "content": [
+            {"type": "text/plain", "value": body_text},
+            {"type": "text/html", "value": body_html},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(_SENDGRID_API_URL, json=payload, headers=headers)
+        response.raise_for_status()
+
+    logger.info(
+        "email sent via sendgrid",
+        extra={"subject": subject, "to": ", ".join(to_addrs)},
+    )
+
+
+# ---------------------------------------------------------------------------
+# SMTP backend
+# ---------------------------------------------------------------------------
+
+async def _send_smtp(
+    from_addr: str,
+    to_addrs: list[str],
+    subject: str,
+    body_text: str,
+    body_html: str,
+    smtp_host: Optional[str],
+    smtp_port: Optional[int],
+    smtp_user: Optional[str],
+    smtp_password: Optional[str],
+) -> None:
+    """
+    Deliver an email via SMTP using STARTTLS.
+
+    Args:
+        from_addr:     Sender address.
+        to_addrs:      List of recipient addresses.
+        subject:       Email subject.
+        body_text:     Plain-text body.
+        body_html:     HTML body.
+        smtp_host:     SMTP hostname. Defaults to SMTP_HOST env var.
+        smtp_port:     SMTP port. Defaults to SMTP_PORT env var or 587.
+        smtp_user:     SMTP username. Defaults to SMTP_USER env var.
+        smtp_password: SMTP password. Defaults to SMTP_PASSWORD env var.
+
+    Raises:
+        aiosmtplib.SMTPException: On SMTP-level delivery failures.
+        EnvironmentError: If required SMTP env vars are not set.
+    """
+    host = _resolve("SMTP_HOST", smtp_host)
+    port = smtp_port or int(os.environ.get("SMTP_PORT", "587"))
+    user = _resolve("SMTP_USER", smtp_user)
+    password = _resolve("SMTP_PASSWORD", smtp_password)
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_addrs)
     msg.attach(MIMEText(body_text, "plain"))
     msg.attach(MIMEText(body_html, "html"))
-    return msg
-
-
-async def _send(
-    msg: MIMEMultipart,
-    smtp_host: Optional[str] = None,
-    smtp_port: Optional[int] = None,
-    smtp_user: Optional[str] = None,
-    smtp_password: Optional[str] = None,
-) -> None:
-    """
-    Deliver a message via SMTP using STARTTLS.
-
-    Args:
-        msg:           Assembled MIME message.
-        smtp_host:     SMTP host. Defaults to SMTP_HOST env var.
-        smtp_port:     SMTP port. Defaults to SMTP_PORT env var or 587.
-        smtp_user:     SMTP username. Defaults to SMTP_USER env var.
-        smtp_password: SMTP password. Defaults to SMTP_PASSWORD env var.
-    """
-    host = _resolve("SMTP_HOST", smtp_host)
-    port = smtp_port or int(os.environ.get("SMTP_PORT", "587"))
-    user = _resolve("SMTP_USER", smtp_user)
-    password = _resolve("SMTP_PASSWORD", smtp_password)
 
     await aiosmtplib.send(
         msg,
@@ -109,9 +176,53 @@ async def _send(
         start_tls=True,
     )
     logger.info(
-        "email sent",
-        extra={"subject": msg["Subject"], "to": msg["To"]},
+        "email sent via smtp",
+        extra={"subject": subject, "to": ", ".join(to_addrs), "host": host},
     )
+
+
+# ---------------------------------------------------------------------------
+# Backend dispatcher
+# ---------------------------------------------------------------------------
+
+async def _deliver(
+    from_addr: str,
+    to_addrs: list[str],
+    subject: str,
+    body_text: str,
+    body_html: str,
+    sendgrid_api_key: Optional[str] = None,
+    smtp_host: Optional[str] = None,
+    smtp_port: Optional[int] = None,
+    smtp_user: Optional[str] = None,
+    smtp_password: Optional[str] = None,
+) -> None:
+    """
+    Send an email using whichever backend is configured.
+
+    Selection order:
+      1. SendGrid API — if sendgrid_api_key is provided OR SENDGRID_API_KEY env var is set.
+      2. SMTP         — fallback when no SendGrid key is found.
+
+    Args:
+        from_addr:        Sender address.
+        to_addrs:         List of recipient addresses.
+        subject:          Email subject.
+        body_text:        Plain-text body.
+        body_html:        HTML body.
+        sendgrid_api_key: Explicit SendGrid API key override. Falls back to
+                          SENDGRID_API_KEY env var.
+        smtp_*:           SMTP credentials. Only used when SendGrid is not active.
+    """
+    api_key = sendgrid_api_key or os.environ.get("SENDGRID_API_KEY")
+
+    if api_key:
+        await _send_sendgrid(api_key, from_addr, to_addrs, subject, body_text, body_html)
+    else:
+        await _send_smtp(
+            from_addr, to_addrs, subject, body_text, body_html,
+            smtp_host, smtp_port, smtp_user, smtp_password,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +235,7 @@ async def send_approval_request(
     report: QualityReport,
     from_addr: Optional[str] = None,
     to_addr: Optional[str] = None,
+    sendgrid_api_key: Optional[str] = None,
     smtp_host: Optional[str] = None,
     smtp_port: Optional[int] = None,
     smtp_user: Optional[str] = None,
@@ -132,19 +244,19 @@ async def send_approval_request(
     """
     Send an email approval request when the Code Quality Agent passes a PR.
 
-    Mirrors the Slack approval message — sent in addition to (not instead of) Slack.
+    Sent in addition to (not instead of) the Slack approval message.
 
     Args:
-        incident_id:   Helix incident ID.
-        pr_url:        GitHub PR URL.
-        report:        QualityReport from the Code Quality Agent.
-        from_addr:     Sender. Defaults to EMAIL_FROM env var.
-        to_addr:       Recipient(s). Defaults to EMAIL_TO env var.
-        smtp_*:        SMTP credentials. Default to SMTP_* env vars.
+        incident_id:      Helix incident ID.
+        pr_url:           GitHub PR URL.
+        report:           QualityReport from the Code Quality Agent.
+        from_addr:        Sender. Defaults to EMAIL_FROM env var.
+        to_addr:          Recipient(s). Defaults to EMAIL_TO env var.
+        sendgrid_api_key: SendGrid API key override. Falls back to SENDGRID_API_KEY.
+        smtp_*:           SMTP credentials. Used only when SendGrid is not active.
     """
     resolved_from = _resolve("EMAIL_FROM", from_addr)
     to_addrs = _recipients(to_addr)
-
     subject = f"[Helix] PR ready for review — incident {incident_id[:8]}"
 
     body_text = (
@@ -155,12 +267,11 @@ async def send_approval_request(
         f"Standards:     {report.standards_check.value}\n"
         f"Security:      {report.security_check.value}\n\n"
         f"Notes:\n{report.notes}\n\n"
-        f"Review and approve or reject via Slack."
+        f"Approve or reject via Slack."
     )
-
     body_html = f"""\
 <html><body style="font-family: sans-serif; color: #111;">
-<h2 style="color: #d63031;">🚨 Helix — PR ready for review</h2>
+<h2 style="color: #d63031;">&#128680; Helix &#8212; PR ready for review</h2>
 <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
   <tr><td style="padding: 6px; font-weight: bold;">Incident</td>
       <td style="padding: 6px; font-family: monospace;">{incident_id}</td></tr>
@@ -180,8 +291,10 @@ async def send_approval_request(
 </body></html>
 """
 
-    msg = _build_message(subject, body_text, body_html, resolved_from, to_addrs)
-    await _send(msg, smtp_host, smtp_port, smtp_user, smtp_password)
+    await _deliver(
+        resolved_from, to_addrs, subject, body_text, body_html,
+        sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
+    )
     logger.info("approval request email sent", extra={"incident_id": incident_id})
 
 
@@ -192,6 +305,7 @@ async def send_escalation(
     context: str,
     from_addr: Optional[str] = None,
     to_addr: Optional[str] = None,
+    sendgrid_api_key: Optional[str] = None,
     smtp_host: Optional[str] = None,
     smtp_port: Optional[int] = None,
     smtp_user: Optional[str] = None,
@@ -200,21 +314,21 @@ async def send_escalation(
     """
     Send an escalation email when the Dev Agent exhausts all retries.
 
-    Mirrors the Slack escalation message — sent in addition to Slack.
+    Sent in addition to the Slack escalation message.
 
     Args:
-        incident_id:   Helix incident ID.
-        crash_summary: Plain-English crash summary.
-        attempts:      Number of fix attempts made.
-        context:       Full Dev Agent reasoning — what was tried and why it failed.
-        from_addr:     Sender. Defaults to EMAIL_FROM env var.
-        to_addr:       Recipient(s). Defaults to EMAIL_TO env var.
-        smtp_*:        SMTP credentials. Default to SMTP_* env vars.
+        incident_id:      Helix incident ID.
+        crash_summary:    Plain-English crash summary.
+        attempts:         Number of fix attempts made.
+        context:          Full Dev Agent reasoning (what was tried, why it failed).
+        from_addr:        Sender. Defaults to EMAIL_FROM env var.
+        to_addr:          Recipient(s). Defaults to EMAIL_TO env var.
+        sendgrid_api_key: SendGrid API key override. Falls back to SENDGRID_API_KEY.
+        smtp_*:           SMTP credentials. Used only when SendGrid is not active.
     """
     resolved_from = _resolve("EMAIL_FROM", from_addr)
     to_addrs = _recipients(to_addr)
-
-    subject = f"[Helix] 🆘 Dev Agent escalation — incident {incident_id[:8]}"
+    subject = f"[Helix] Dev Agent escalation — incident {incident_id[:8]}"
 
     body_text = (
         f"The Dev Agent could not fix this bug after {attempts} attempts.\n\n"
@@ -222,11 +336,10 @@ async def send_escalation(
         f"Crash summary:\n{crash_summary}\n\n"
         f"What the agent tried:\n{context}"
     )
-
     safe_context = context[:4000].replace("<", "&lt;").replace(">", "&gt;")
     body_html = f"""\
 <html><body style="font-family: sans-serif; color: #111;">
-<h2 style="color: #d63031;">🆘 Helix — Dev Agent needs human help</h2>
+<h2 style="color: #d63031;">&#128682; Helix &#8212; Dev Agent needs human help</h2>
 <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
   <tr><td style="padding: 6px; font-weight: bold;">Incident</td>
       <td style="padding: 6px; font-family: monospace;">{incident_id}</td></tr>
@@ -241,8 +354,10 @@ async def send_escalation(
 </body></html>
 """
 
-    msg = _build_message(subject, body_text, body_html, resolved_from, to_addrs)
-    await _send(msg, smtp_host, smtp_port, smtp_user, smtp_password)
+    await _deliver(
+        resolved_from, to_addrs, subject, body_text, body_html,
+        sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
+    )
     logger.info("escalation email sent", extra={"incident_id": incident_id})
 
 
@@ -253,6 +368,7 @@ async def send_pr_merged(
     approved_by: str,
     from_addr: Optional[str] = None,
     to_addr: Optional[str] = None,
+    sendgrid_api_key: Optional[str] = None,
     smtp_host: Optional[str] = None,
     smtp_port: Optional[int] = None,
     smtp_user: Optional[str] = None,
@@ -262,18 +378,18 @@ async def send_pr_merged(
     Send a confirmation email after the Human Approval agent merges the PR.
 
     Args:
-        incident_id:  Helix incident ID.
-        pr_url:       GitHub PR URL.
-        pr_number:    GitHub PR number.
-        approved_by:  Slack username of the reviewer who approved.
-        from_addr:    Sender. Defaults to EMAIL_FROM env var.
-        to_addr:      Recipient(s). Defaults to EMAIL_TO env var.
-        smtp_*:       SMTP credentials. Default to SMTP_* env vars.
+        incident_id:      Helix incident ID.
+        pr_url:           GitHub PR URL.
+        pr_number:        GitHub PR number.
+        approved_by:      Slack username of the reviewer who approved.
+        from_addr:        Sender. Defaults to EMAIL_FROM env var.
+        to_addr:          Recipient(s). Defaults to EMAIL_TO env var.
+        sendgrid_api_key: SendGrid API key override. Falls back to SENDGRID_API_KEY.
+        smtp_*:           SMTP credentials. Used only when SendGrid is not active.
     """
     resolved_from = _resolve("EMAIL_FROM", from_addr)
     to_addrs = _recipients(to_addr)
-
-    subject = f"[Helix] ✅ PR #{pr_number} merged — incident {incident_id[:8]}"
+    subject = f"[Helix] PR #{pr_number} merged — incident {incident_id[:8]}"
 
     body_text = (
         f"The Helix-generated pull request has been approved and merged.\n\n"
@@ -281,10 +397,9 @@ async def send_pr_merged(
         f"PR:          {pr_url}\n"
         f"Approved by: {approved_by}\n"
     )
-
     body_html = f"""\
 <html><body style="font-family: sans-serif; color: #111;">
-<h2 style="color: #00b894;">✅ Helix — PR merged</h2>
+<h2 style="color: #00b894;">&#9989; Helix &#8212; PR merged</h2>
 <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
   <tr><td style="padding: 6px; font-weight: bold;">Incident</td>
       <td style="padding: 6px; font-family: monospace;">{incident_id}</td></tr>
@@ -297,6 +412,11 @@ async def send_pr_merged(
 </body></html>
 """
 
-    msg = _build_message(subject, body_text, body_html, resolved_from, to_addrs)
-    await _send(msg, smtp_host, smtp_port, smtp_user, smtp_password)
-    logger.info("pr merged email sent", extra={"incident_id": incident_id, "pr_number": pr_number})
+    await _deliver(
+        resolved_from, to_addrs, subject, body_text, body_html,
+        sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
+    )
+    logger.info(
+        "pr merged email sent",
+        extra={"incident_id": incident_id, "pr_number": pr_number},
+    )
