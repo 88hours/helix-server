@@ -11,8 +11,8 @@
 
 agents:
   crash_handler:
-    provider: openrouter
-    model: google/gemini-flash-1.5
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
 
   qa:
     provider: anthropic
@@ -20,8 +20,8 @@ agents:
 
   dev:
     provider: claude-code
-    model: claude-code          # ignored when provider is claude-code
+    model: claude-sonnet-4-6
 
   code_quality:
     provider: anthropic
-    model: claude-haiku-4-5-20251001
+    model: claude-sonnet-4-6

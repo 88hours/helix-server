@@ -105,4 +105,8 @@ HELIX_<AGENT>_MODEL
 
 Helix fixes application-level bugs. Out of scope: infrastructure failures, performance optimisation, refactoring, mobile crashes, multi-tenant support. Do not add Phase 2 or Phase 3 features during MVP development.
 
+## Future: Audit trail (post-MVP)
+
+Every Helix API call (inbound webhooks, agent-to-agent events, Slack approval actions, GitHub PR operations) must have a complete, queryable audit trail. This is not in scope for MVP but must not be architected against. When building MVP code, avoid patterns that would make audit logging hard to add later (e.g. fire-and-forget calls with no request ID, silent swallowing of errors, missing `incident_id` context in log lines).
+
 See `docs/PRD.md` for full product requirements and `docs/architecture.md` for detailed system design including hosting options and event schemas.
