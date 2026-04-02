@@ -1,8 +1,5 @@
 version: 2.1
 
-orbs:
-  python: circleci/python@2.1
-
 jobs:
   test:
     docker:
@@ -30,10 +27,9 @@ jobs:
           fingerprints:
             - "SHA256:ahmQ7//T7KF7j0z6VjJXICSWKBU4AUyWOohjlELg5ew"
       - checkout
-      - python/install-packages:
-          pkg-manager: pip
-          pip-dependency-file: pyproject.toml
-          args: "--editable .[dev]"
+      - run:
+          name: Install dependencies
+          command: pip install --editable ".[dev]"
       - run:
           name: Run tests
           command: pytest --tb=short -q
