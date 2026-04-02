@@ -15,7 +15,7 @@ from core.models import PRResult
 SIGNING_SECRET = "test-signing-secret"
 
 SAMPLE_YAML = {
-    "sentry": {"webhook_secret_env": "SENTRY_WEBHOOK_SECRET"},
+    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
     "redis": {"url_env": "REDIS_URL", "ttl_seconds": 604800},
     "agents": {
         "crash_handler": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},

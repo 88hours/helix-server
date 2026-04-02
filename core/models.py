@@ -2,7 +2,7 @@
 Shared Pydantic models for the Helix agent pipeline.
 
 Each model maps to a stage in the pipeline:
-  SentryEvent       — raw inbound webhook from Sentry
+  RollbarEvent      — raw inbound webhook from Rollbar
   CrashReport       — Crash Handler output, persisted to Redis
   QAResult          — QA Agent output (ticket + test case), persisted to Redis
   PRResult          — Dev Agent output (pull request), persisted to Redis
@@ -48,25 +48,26 @@ class QualityVerdict(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Sentry inbound payload
+# Rollbar inbound payload
 # ---------------------------------------------------------------------------
 
-class SentryEvent(BaseModel):
+class RollbarEvent(BaseModel):
     """
-    Normalised representation of a Sentry webhook payload.
+    Normalised representation of a Rollbar webhook payload.
 
     The raw dict is preserved in `raw` so downstream agents can access
     any fields not explicitly mapped here.
     """
-    event_id: str
+    item_id: str                            # Rollbar item ID (numeric, as string)
+    occurrence_id: str                      # UUID of the specific occurrence
     title: str
-    message: Optional[str] = None
-    culprit: Optional[str] = None       # Sentry's best guess at the offending call
-    level: Optional[str] = None         # e.g. "error", "fatal"
-    platform: Optional[str] = None      # e.g. "python", "javascript"
-    stack_trace: Optional[str] = None   # formatted stack trace string
-    url: Optional[str] = None           # URL of the Sentry issue
-    project_slug: Optional[str] = None
+    level: Optional[str] = None            # e.g. "error", "critical"
+    environment: Optional[str] = None      # e.g. "production", "staging"
+    language: Optional[str] = None         # e.g. "python", "javascript"
+    culprit: Optional[str] = None          # Rollbar occurrence context
+    stack_trace: Optional[str] = None      # formatted stack trace string
+    url: Optional[str] = None             # URL of the Rollbar item
+    project_id: Optional[int] = None
     raw: dict = Field(default_factory=dict)
 
 
@@ -82,7 +83,7 @@ class CrashReport(BaseModel):
     Published as the payload of the CrashAnalysed event.
     """
     incident_id: str
-    sentry_event_id: str
+    rollbar_item_id: str
     severity: Severity
     error_type: str                 # e.g. "KeyError", "NullPointerException"
     error_message: str

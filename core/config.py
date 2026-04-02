@@ -20,7 +20,7 @@ EventBridge overrides:
     AWS_REGION               AWS region for the EventBridge client
 
 Integration env vars (names stored in config.yaml, values in environment):
-    SENTRY_WEBHOOK_SECRET    HMAC-SHA256 secret for Sentry webhook verification
+    ROLLBAR_WEBHOOK_SECRET   HMAC-SHA256 secret for Rollbar webhook verification
     GITHUB_TOKEN             GitHub personal access token or App token (repo scope)
     JIRA_URL                 JIRA base URL, e.g. https://acme.atlassian.net
     JIRA_EMAIL               JIRA account email for Basic auth
@@ -31,7 +31,7 @@ Integration env vars (names stored in config.yaml, values in environment):
 
 Usage:
     from core.config import get_agent_config, get_redis_url, get_event_backend
-    from core.config import get_sentry_config, get_github_config
+    from core.config import get_rollbar_config, get_github_config
     from core.config import get_jira_config, get_slack_config
 
     cfg = get_agent_config("dev")       # AgentConfig(provider, model)
@@ -70,9 +70,9 @@ class EventBridgeConfig:
 
 
 @dataclass
-class SentryConfig:
-    """Sentry webhook integration settings."""
-    webhook_secret: str     # HMAC-SHA256 secret for verifying Sentry webhook payloads
+class RollbarConfig:
+    """Rollbar webhook integration settings."""
+    webhook_secret: str     # HMAC-SHA256 secret for verifying Rollbar webhook payloads
 
 
 @dataclass
@@ -218,19 +218,19 @@ def get_redis_url() -> str:
     return _require_env(url_env)
 
 
-def get_sentry_config() -> SentryConfig:
+def get_rollbar_config() -> RollbarConfig:
     """
-    Return Sentry webhook integration settings.
+    Return Rollbar webhook integration settings.
 
     Reads the webhook secret from the env var named in config.yaml
-    (sentry.webhook_secret_env, defaulting to SENTRY_WEBHOOK_SECRET).
+    (rollbar.webhook_secret_env, defaulting to ROLLBAR_WEBHOOK_SECRET).
 
     Raises:
         EnvironmentError: The webhook secret env var is not set.
     """
     raw = _load_yaml()
-    secret_env = raw.get("sentry", {}).get("webhook_secret_env", "SENTRY_WEBHOOK_SECRET")
-    return SentryConfig(webhook_secret=_require_env(secret_env))
+    secret_env = raw.get("rollbar", {}).get("webhook_secret_env", "ROLLBAR_WEBHOOK_SECRET")
+    return RollbarConfig(webhook_secret=_require_env(secret_env))
 
 
 def get_github_config() -> GitHubConfig:

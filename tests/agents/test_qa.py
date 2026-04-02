@@ -15,7 +15,7 @@ from core.models import (
 
 
 SAMPLE_YAML = {
-    "sentry": {"webhook_secret_env": "SENTRY_WEBHOOK_SECRET"},
+    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
     "redis": {"url_env": "REDIS_URL", "ttl_seconds": 604800},
     "agents": {
         "qa": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
@@ -63,7 +63,7 @@ def env_vars(monkeypatch):
 def crash_report():
     return CrashReport(
         incident_id="inc-001",
-        sentry_event_id="evt-001",
+        rollbar_item_id="12345",
         severity=Severity.high,
         error_type="KeyError",
         error_message="'item_id'",

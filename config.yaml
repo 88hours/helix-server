@@ -81,16 +81,16 @@ redis:
   ttl_days: 7                   # key expiry for all helix:incident:* keys
 
 # ---------------------------------------------------------------------------
-# Sentry integration
+# Rollbar integration
 # ---------------------------------------------------------------------------
 #
-# Helix verifies every inbound Sentry webhook with HMAC-SHA256.
-# Set the secret to whatever you configured in the Sentry webhook settings.
+# Helix verifies every inbound Rollbar webhook with HMAC-SHA256.
+# Set the secret to whatever you configured in the Rollbar webhook settings.
 #
-# Override: SENTRY_WEBHOOK_SECRET
+# Override: ROLLBAR_WEBHOOK_SECRET
 
-sentry:
-  webhook_secret_env: SENTRY_WEBHOOK_SECRET   # env var holding the HMAC secret
+rollbar:
+  webhook_secret_env: ROLLBAR_WEBHOOK_SECRET   # env var holding the HMAC secret
 
 # ---------------------------------------------------------------------------
 # GitHub integration

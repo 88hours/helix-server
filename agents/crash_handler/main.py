@@ -1,9 +1,9 @@
 """
 Crash Handler Agent — FastAPI entry point.
 
-Exposes a single POST /webhook/sentry endpoint that:
-  1. Verifies the Sentry HMAC-SHA256 signature.
-  2. Parses the raw payload into a SentryEvent.
+Exposes a single POST /webhook/rollbar endpoint that:
+  1. Verifies the Rollbar HMAC-SHA256 signature.
+  2. Parses the raw payload into a RollbarEvent.
   3. Hands off to the Crash Handler Agent logic (agent.py).
 
 Run with:
@@ -19,8 +19,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, status
 
 from agents.crash_handler.agent import handle
-from core.config import get_redis_url, get_sentry_config
-from integrations.sentry import parse_event, verify_signature
+from core.config import get_redis_url, get_rollbar_config
+from integrations.rollbar import parse_event, verify_signature
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Helix — Crash Handler",
-    description="Receives Sentry webhooks and triggers the incident response pipeline.",
+    description="Receives Rollbar webhooks and triggers the incident response pipeline.",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -54,24 +54,24 @@ async def healthz():
     return {"status": "ok"}
 
 
-@app.post("/webhook/sentry", status_code=status.HTTP_202_ACCEPTED)
-async def sentry_webhook(request: Request):
+@app.post("/webhook/rollbar", status_code=status.HTTP_202_ACCEPTED)
+async def rollbar_webhook(request: Request):
     """
-    Receive a Sentry issue-alert webhook.
+    Receive a Rollbar item-alert webhook.
 
     Verifies the HMAC-SHA256 signature, parses the payload, and delegates
     to the Crash Handler Agent.  Returns 202 immediately — processing is
     async (the agent publishes a Redis event; the QA Agent picks it up).
 
     Headers expected:
-        sentry-hook-signature: <hex-encoded HMAC-SHA256 digest>
+        X-Rollbar-Signature: <hex-encoded HMAC-SHA256 digest>
     """
     body = await request.body()
-    signature = request.headers.get("sentry-hook-signature", "")
+    signature = request.headers.get("x-rollbar-signature", "")
 
-    sentry_cfg = get_sentry_config()
-    if not verify_signature(body, signature, sentry_cfg.webhook_secret):
-        logger.warning("sentry webhook signature mismatch")
+    rollbar_cfg = get_rollbar_config()
+    if not verify_signature(body, signature, rollbar_cfg.webhook_secret):
+        logger.warning("rollbar webhook signature mismatch")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook signature",
@@ -85,9 +85,9 @@ async def sentry_webhook(request: Request):
             detail=f"Invalid JSON payload: {exc}",
         )
 
-    sentry_event = parse_event(raw)
+    rollbar_event = parse_event(raw)
 
-    report = await handle(sentry_event, request.app.state.redis)
+    report = await handle(rollbar_event, request.app.state.redis)
 
     logger.info(
         "webhook accepted",

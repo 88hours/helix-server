@@ -7,17 +7,17 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from core.models import CrashReport, Severity, SentryEvent
+from core.models import CrashReport, RollbarEvent, Severity
 
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
-SENTRY_SECRET = "test-sentry-secret"
+ROLLBAR_SECRET = "test-rollbar-secret"
 
 SAMPLE_YAML = {
-    "sentry": {"webhook_secret_env": "SENTRY_WEBHOOK_SECRET"},
+    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
     "redis": {"url_env": "REDIS_URL", "ttl_seconds": 604800},
     "agents": {
         "crash_handler": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
@@ -53,7 +53,7 @@ SAMPLE_YAML = {
 
 @pytest.fixture(autouse=True)
 def env_vars(monkeypatch):
-    monkeypatch.setenv("SENTRY_WEBHOOK_SECRET", SENTRY_SECRET)
+    monkeypatch.setenv("ROLLBAR_WEBHOOK_SECRET", ROLLBAR_SECRET)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setenv("EMAIL_FROM", "helix@acme.com")
@@ -62,16 +62,17 @@ def env_vars(monkeypatch):
 
 
 @pytest.fixture
-def sentry_event():
-    return SentryEvent(
-        event_id="evt-001",
+def rollbar_event():
+    return RollbarEvent(
+        item_id="12345",
+        occurrence_id="occ-uuid-001",
         title="KeyError: 'item_id'",
-        message="A key error occurred",
-        culprit="checkout.process",
         level="error",
-        platform="python",
+        environment="production",
+        language="python",
+        culprit="checkout.process",
         stack_trace='File "checkout.py", line 42, in process\n    item = cart[item_id]',
-        raw={"id": "evt-001"},
+        raw={"data": {"item": {"id": 12345}}},
     )
 
 
@@ -98,11 +99,11 @@ LLM_RESPONSE = json.dumps({
 # agent.handle()
 # ---------------------------------------------------------------------------
 
-async def test_handle_returns_crash_report(sentry_event, mock_redis):
+async def test_handle_returns_crash_report(rollbar_event, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.crash_handler.agent import handle
-        report = await handle(sentry_event, mock_redis)
+        report = await handle(rollbar_event, mock_redis)
 
     assert isinstance(report, CrashReport)
     assert report.error_type == "KeyError"
@@ -110,28 +111,28 @@ async def test_handle_returns_crash_report(sentry_event, mock_redis):
     assert report.affected_component == "checkout"
 
 
-async def test_handle_persists_to_redis(sentry_event, mock_redis):
+async def test_handle_persists_to_redis(rollbar_event, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.crash_handler.agent import handle
-        await handle(sentry_event, mock_redis)
+        await handle(rollbar_event, mock_redis)
 
     # write_crash_report and write_status each call redis.set
     assert mock_redis.set.call_count >= 2
 
 
-async def test_handle_publishes_event(sentry_event, mock_redis):
+async def test_handle_publishes_event(rollbar_event, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.crash_handler.agent import handle
-        await handle(sentry_event, mock_redis)
+        await handle(rollbar_event, mock_redis)
 
     mock_redis.publish.assert_called_once()
     channel = mock_redis.publish.call_args[0][0]
     assert "crash_analysed" in channel
 
 
-async def test_handle_uses_event_stack_trace_as_fallback(sentry_event, mock_redis):
+async def test_handle_uses_event_stack_trace_as_fallback(rollbar_event, mock_redis):
     response_no_trace = json.dumps({
         "severity": "high",
         "error_type": "KeyError",
@@ -143,34 +144,47 @@ async def test_handle_uses_event_stack_trace_as_fallback(sentry_event, mock_redi
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.agent.complete", new=AsyncMock(return_value=response_no_trace)):
         from agents.crash_handler.agent import handle
-        report = await handle(sentry_event, mock_redis)
+        report = await handle(rollbar_event, mock_redis)
 
-    assert report.stack_trace == sentry_event.stack_trace
+    assert report.stack_trace == rollbar_event.stack_trace
 
 
 # ---------------------------------------------------------------------------
 # FastAPI webhook endpoint
 # ---------------------------------------------------------------------------
 
-def _make_sentry_sig(secret: str, payload: bytes) -> str:
+def _make_rollbar_sig(secret: str, payload: bytes) -> str:
     return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
 
 
-RAW_SENTRY_PAYLOAD = {
-    "id": "evt-001",
-    "message": "KeyError: 'item_id'",
-    "event": {
-        "event_id": "evt-001",
-        "level": "error",
-        "culprit": "checkout.process",
-        "platform": "python",
-        "exception": {
-            "values": [{
-                "type": "KeyError",
-                "value": "'item_id'",
-                "stacktrace": {"frames": [{"filename": "checkout.py", "lineno": 42, "function": "process", "context_line": "item = cart[item_id]"}]},
-            }]
-        },
+RAW_ROLLBAR_PAYLOAD = {
+    "event_name": "new_item",
+    "data": {
+        "item": {
+            "id": 12345,
+            "title": "KeyError: 'item_id'",
+            "level": "error",
+            "environment": "production",
+            "project_id": 654321,
+            "last_occurrence": {
+                "id": "occ-uuid-001",
+                "language": "python",
+                "context": "checkout.process",
+                "body": {
+                    "trace": {
+                        "frames": [
+                            {
+                                "filename": "checkout.py",
+                                "lineno": 42,
+                                "method": "process",
+                                "code": "item = cart[item_id]",
+                            }
+                        ],
+                        "exception": {"class": "KeyError", "message": "'item_id'"},
+                    }
+                },
+            },
+        }
     },
 }
 
@@ -190,30 +204,30 @@ def test_healthz():
 
 def test_webhook_missing_signature_returns_401():
     client = _make_client()
-    body = json.dumps(RAW_SENTRY_PAYLOAD).encode()
-    resp = client.post("/webhook/sentry", content=body, headers={"content-type": "application/json"})
+    body = json.dumps(RAW_ROLLBAR_PAYLOAD).encode()
+    resp = client.post("/webhook/rollbar", content=body, headers={"content-type": "application/json"})
     assert resp.status_code == 401
 
 
 def test_webhook_invalid_json_returns_400():
     client = _make_client()
     body = b"not-json"
-    sig = _make_sentry_sig(SENTRY_SECRET, body)
+    sig = _make_rollbar_sig(ROLLBAR_SECRET, body)
     resp = client.post(
-        "/webhook/sentry",
+        "/webhook/rollbar",
         content=body,
-        headers={"sentry-hook-signature": sig, "content-type": "application/json"},
+        headers={"x-rollbar-signature": sig, "content-type": "application/json"},
     )
     assert resp.status_code == 400
 
 
 def test_webhook_valid_request_returns_202():
-    body = json.dumps(RAW_SENTRY_PAYLOAD).encode()
-    sig = _make_sentry_sig(SENTRY_SECRET, body)
+    body = json.dumps(RAW_ROLLBAR_PAYLOAD).encode()
+    sig = _make_rollbar_sig(ROLLBAR_SECRET, body)
 
     mock_report = CrashReport(
         incident_id="inc-001",
-        sentry_event_id="evt-001",
+        rollbar_item_id="12345",
         severity=Severity.high,
         error_type="KeyError",
         error_message="'item_id'",
@@ -228,9 +242,9 @@ def test_webhook_valid_request_returns_202():
         from agents.crash_handler.main import app
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post(
-                "/webhook/sentry",
+                "/webhook/rollbar",
                 content=body,
-                headers={"sentry-hook-signature": sig, "content-type": "application/json"},
+                headers={"x-rollbar-signature": sig, "content-type": "application/json"},
             )
 
     assert resp.status_code == 202

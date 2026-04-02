@@ -1,7 +1,7 @@
 """
 Crash Handler Agent — core logic.
 
-Receives a parsed SentryEvent, calls the LLM to extract structured crash
+Receives a parsed RollbarEvent, calls the LLM to extract structured crash
 information, persists the result to Redis, and publishes the crash_analysed
 event to trigger the QA Agent.
 
@@ -16,17 +16,16 @@ import redis.asyncio as redis
 from agents.crash_handler import prompts
 from core.events import publish
 from core.llm import complete
-from core.models import CrashReport, Severity
+from core.models import CrashReport, RollbarEvent, Severity
 from core.state import write_crash_report, write_status
-from core.models import SentryEvent
 from core.utils import extract_json
 
 logger = logging.getLogger(__name__)
 
 
-async def handle(event: SentryEvent, redis_client: redis.Redis) -> CrashReport:
+async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
     """
-    Analyse a Sentry event and produce a structured CrashReport.
+    Analyse a Rollbar event and produce a structured CrashReport.
 
     Steps:
       1. Generate a unique incident_id.
@@ -35,7 +34,7 @@ async def handle(event: SentryEvent, redis_client: redis.Redis) -> CrashReport:
       4. Publish the crash_analysed event to trigger the QA Agent.
 
     Args:
-        event:        Normalised SentryEvent from integrations/sentry.py.
+        event:        Normalised RollbarEvent from integrations/rollbar.py.
         redis_client: Async Redis client for state and event publishing.
 
     Returns:
@@ -47,7 +46,7 @@ async def handle(event: SentryEvent, redis_client: redis.Redis) -> CrashReport:
     incident_id = str(uuid.uuid4())
     logger.info(
         "crash handler started",
-        extra={"incident_id": incident_id, "sentry_event_id": event.event_id},
+        extra={"incident_id": incident_id, "rollbar_item_id": event.item_id},
     )
 
     prompt = prompts.user(
@@ -55,7 +54,7 @@ async def handle(event: SentryEvent, redis_client: redis.Redis) -> CrashReport:
         level=event.level or "error",
         culprit=event.culprit or "",
         stack_trace=event.stack_trace or "(no stack trace)",
-        raw_summary=event.message or "",
+        raw_summary=event.title,
     )
 
     raw_response = await complete(
@@ -68,7 +67,7 @@ async def handle(event: SentryEvent, redis_client: redis.Redis) -> CrashReport:
 
     report = CrashReport(
         incident_id=incident_id,
-        sentry_event_id=event.event_id,
+        rollbar_item_id=event.item_id,
         severity=Severity(data["severity"]),
         error_type=data["error_type"],
         error_message=data["error_message"],

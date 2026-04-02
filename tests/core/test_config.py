@@ -10,7 +10,7 @@ from core.config import (
     get_github_config,
     get_jira_config,
     get_redis_url,
-    get_sentry_config,
+    get_rollbar_config,
     get_slack_config,
 )
 
@@ -27,7 +27,7 @@ SAMPLE_YAML = {
         "eventbridge": {"bus": "helix-mvp", "region_env": "AWS_REGION"},
     },
     "redis": {"url_env": "REDIS_URL", "ttl_days": 7},
-    "sentry": {"webhook_secret_env": "SENTRY_WEBHOOK_SECRET"},
+    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
     "github": {"target_repo": "acme/backend", "base_branch": "main", "token_env": "GITHUB_TOKEN"},
     "jira": {
         "url_env": "JIRA_URL",
@@ -117,12 +117,12 @@ def test_get_redis_url_missing_raises(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# get_sentry_config
+# get_rollbar_config
 # ---------------------------------------------------------------------------
 
-def test_get_sentry_config(monkeypatch):
-    monkeypatch.setenv("SENTRY_WEBHOOK_SECRET", "my-secret")
-    cfg = get_sentry_config()
+def test_get_rollbar_config(monkeypatch):
+    monkeypatch.setenv("ROLLBAR_WEBHOOK_SECRET", "my-secret")
+    cfg = get_rollbar_config()
     assert cfg.webhook_secret == "my-secret"
 
 
