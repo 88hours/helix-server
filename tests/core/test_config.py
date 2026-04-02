@@ -110,7 +110,8 @@ def test_get_redis_url(monkeypatch):
     assert get_redis_url() == "redis://localhost:6379"
 
 
-def test_get_redis_url_missing_raises():
+def test_get_redis_url_missing_raises(monkeypatch):
+    monkeypatch.delenv("REDIS_URL", raising=False)
     with pytest.raises(EnvironmentError, match="REDIS_URL"):
         get_redis_url()
 
