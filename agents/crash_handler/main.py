@@ -2,7 +2,7 @@
 Crash Handler Agent — FastAPI entry point.
 
 Exposes a single POST /webhook/rollbar endpoint that:
-  1. Verifies the Rollbar HMAC-SHA256 signature.
+  1. Verifies the Rollbar access token (data.access_token in the payload).
   2. Parses the raw payload into a RollbarEvent.
   3. Hands off to the Crash Handler Agent logic (agent.py).
 
@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 
 from agents.crash_handler.agent import handle
 from core.config import get_redis_url, get_rollbar_config
-from integrations.rollbar import parse_event, verify_signature
+from integrations.rollbar import parse_event, verify_token
 
 logger = logging.getLogger(__name__)
 
@@ -59,23 +59,15 @@ async def rollbar_webhook(request: Request):
     """
     Receive a Rollbar item-alert webhook.
 
-    Verifies the HMAC-SHA256 signature, parses the payload, and delegates
-    to the Crash Handler Agent.  Returns 202 immediately — processing is
-    async (the agent publishes a Redis event; the QA Agent picks it up).
+    Verifies the access token embedded in the payload, parses it, and
+    delegates to the Crash Handler Agent.  Returns 202 immediately —
+    processing is async (the agent publishes a Redis event; the QA Agent
+    picks it up).
 
-    Headers expected:
-        X-Rollbar-Signature: <hex-encoded HMAC-SHA256 digest>
+    Rollbar embeds the project read token at data.access_token in every
+    webhook payload. This is compared against ROLLBAR_ACCESS_TOKEN.
     """
     body = await request.body()
-    signature = request.headers.get("x-rollbar-signature", "")
-
-    rollbar_cfg = get_rollbar_config()
-    if not verify_signature(body, signature, rollbar_cfg.webhook_secret):
-        logger.warning("rollbar webhook signature mismatch")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook signature",
-        )
 
     try:
         raw = json.loads(body)
@@ -83,6 +75,14 @@ async def rollbar_webhook(request: Request):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid JSON payload: {exc}",
+        )
+
+    rollbar_cfg = get_rollbar_config()
+    if not verify_token(raw, rollbar_cfg.access_token):
+        logger.warning("rollbar webhook access token mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
         )
 
     rollbar_event = parse_event(raw)

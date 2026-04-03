@@ -1,6 +1,4 @@
 """Tests for agents/crash_handler/agent.py and agents/crash_handler/main.py"""
-import hashlib
-import hmac
 import json
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -14,10 +12,10 @@ from core.models import CrashReport, RollbarEvent, Severity
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
-ROLLBAR_SECRET = "test-rollbar-secret"
+ROLLBAR_TOKEN = "test-rollbar-access-token"
 
 SAMPLE_YAML = {
-    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
+    "rollbar": {"access_token_env": "ROLLBAR_ACCESS_TOKEN"},
     "redis": {"url_env": "REDIS_URL", "ttl_seconds": 604800},
     "agents": {
         "crash_handler": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
@@ -53,7 +51,7 @@ SAMPLE_YAML = {
 
 @pytest.fixture(autouse=True)
 def env_vars(monkeypatch):
-    monkeypatch.setenv("ROLLBAR_WEBHOOK_SECRET", ROLLBAR_SECRET)
+    monkeypatch.setenv("ROLLBAR_ACCESS_TOKEN", ROLLBAR_TOKEN)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setenv("EMAIL_FROM", "helix@acme.com")
@@ -153,13 +151,10 @@ async def test_handle_uses_event_stack_trace_as_fallback(rollbar_event, mock_red
 # FastAPI webhook endpoint
 # ---------------------------------------------------------------------------
 
-def _make_rollbar_sig(secret: str, payload: bytes) -> str:
-    return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-
-
 RAW_ROLLBAR_PAYLOAD = {
     "event_name": "new_item",
     "data": {
+        "access_token": ROLLBAR_TOKEN,
         "item": {
             "id": 12345,
             "title": "KeyError: 'item_id'",
@@ -184,7 +179,7 @@ RAW_ROLLBAR_PAYLOAD = {
                     }
                 },
             },
-        }
+        },
     },
 }
 
@@ -202,28 +197,26 @@ def test_healthz():
     assert resp.json() == {"status": "ok"}
 
 
-def test_webhook_missing_signature_returns_401():
+def test_webhook_wrong_token_returns_401():
     client = _make_client()
-    body = json.dumps(RAW_ROLLBAR_PAYLOAD).encode()
+    payload = {**RAW_ROLLBAR_PAYLOAD, "data": {**RAW_ROLLBAR_PAYLOAD["data"], "access_token": "wrong"}}
+    body = json.dumps(payload).encode()
     resp = client.post("/webhook/rollbar", content=body, headers={"content-type": "application/json"})
     assert resp.status_code == 401
 
 
 def test_webhook_invalid_json_returns_400():
     client = _make_client()
-    body = b"not-json"
-    sig = _make_rollbar_sig(ROLLBAR_SECRET, body)
     resp = client.post(
         "/webhook/rollbar",
-        content=body,
-        headers={"x-rollbar-signature": sig, "content-type": "application/json"},
+        content=b"not-json",
+        headers={"content-type": "application/json"},
     )
     assert resp.status_code == 400
 
 
 def test_webhook_valid_request_returns_202():
     body = json.dumps(RAW_ROLLBAR_PAYLOAD).encode()
-    sig = _make_rollbar_sig(ROLLBAR_SECRET, body)
 
     mock_report = CrashReport(
         incident_id="inc-001",
@@ -244,7 +237,7 @@ def test_webhook_valid_request_returns_202():
             resp = client.post(
                 "/webhook/rollbar",
                 content=body,
-                headers={"x-rollbar-signature": sig, "content-type": "application/json"},
+                headers={"content-type": "application/json"},
             )
 
     assert resp.status_code == 202

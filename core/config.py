@@ -20,7 +20,7 @@ EventBridge overrides:
     AWS_REGION               AWS region for the EventBridge client
 
 Integration env vars (names stored in config.yaml, values in environment):
-    ROLLBAR_WEBHOOK_SECRET   HMAC-SHA256 secret for Rollbar webhook verification
+    ROLLBAR_ACCESS_TOKEN     Rollbar project read token — verified against data.access_token in the payload
     GITHUB_TOKEN             GitHub personal access token or App token (repo scope)
     JIRA_URL                 JIRA base URL, e.g. https://acme.atlassian.net
     JIRA_EMAIL               JIRA account email for Basic auth
@@ -72,7 +72,7 @@ class EventBridgeConfig:
 @dataclass
 class RollbarConfig:
     """Rollbar webhook integration settings."""
-    webhook_secret: str     # HMAC-SHA256 secret for verifying Rollbar webhook payloads
+    access_token: str   # Rollbar project read token — verified against data.access_token in the payload
 
 
 @dataclass
@@ -222,15 +222,15 @@ def get_rollbar_config() -> RollbarConfig:
     """
     Return Rollbar webhook integration settings.
 
-    Reads the webhook secret from the env var named in config.yaml
-    (rollbar.webhook_secret_env, defaulting to ROLLBAR_WEBHOOK_SECRET).
+    Reads the project access token from the env var named in config.yaml
+    (rollbar.access_token_env, defaulting to ROLLBAR_ACCESS_TOKEN).
 
     Raises:
-        EnvironmentError: The webhook secret env var is not set.
+        EnvironmentError: ROLLBAR_ACCESS_TOKEN env var is not set.
     """
     raw = _load_yaml()
-    secret_env = raw.get("rollbar", {}).get("webhook_secret_env", "ROLLBAR_WEBHOOK_SECRET")
-    return RollbarConfig(webhook_secret=_require_env(secret_env))
+    token_env = raw.get("rollbar", {}).get("access_token_env", "ROLLBAR_ACCESS_TOKEN")
+    return RollbarConfig(access_token=_require_env(token_env))
 
 
 def get_github_config() -> GitHubConfig:

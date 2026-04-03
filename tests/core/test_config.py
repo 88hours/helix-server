@@ -27,7 +27,7 @@ SAMPLE_YAML = {
         "eventbridge": {"bus": "helix-mvp", "region_env": "AWS_REGION"},
     },
     "redis": {"url_env": "REDIS_URL", "ttl_days": 7},
-    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
+    "rollbar": {"access_token_env": "ROLLBAR_ACCESS_TOKEN"},
     "github": {"target_repo": "acme/backend", "base_branch": "main", "token_env": "GITHUB_TOKEN"},
     "jira": {
         "url_env": "JIRA_URL",
@@ -121,9 +121,9 @@ def test_get_redis_url_missing_raises(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_get_rollbar_config(monkeypatch):
-    monkeypatch.setenv("ROLLBAR_WEBHOOK_SECRET", "my-secret")
+    monkeypatch.setenv("ROLLBAR_ACCESS_TOKEN", "my-token")
     cfg = get_rollbar_config()
-    assert cfg.webhook_secret == "my-secret"
+    assert cfg.access_token == "my-token"
 
 
 # ---------------------------------------------------------------------------

@@ -1,35 +1,33 @@
 """Tests for integrations/rollbar.py"""
-import hashlib
-import hmac
 import pytest
 
-from integrations.rollbar import parse_event, verify_signature
+from integrations.rollbar import parse_event, verify_token
 
 
-def _make_signature(secret: str, payload: bytes) -> str:
-    return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+TOKEN = "test-rollbar-access-token"
 
 
 # ---------------------------------------------------------------------------
-# verify_signature
+# verify_token
 # ---------------------------------------------------------------------------
 
-def test_verify_signature_valid():
-    payload = b'{"id": "123"}'
-    secret = "my-secret"
-    sig = _make_signature(secret, payload)
-    assert verify_signature(payload, sig, secret) is True
+def test_verify_token_valid():
+    raw = {"data": {"access_token": TOKEN}}
+    assert verify_token(raw, TOKEN) is True
 
 
-def test_verify_signature_invalid():
-    payload = b'{"id": "123"}'
-    assert verify_signature(payload, "badhex", "my-secret") is False
+def test_verify_token_wrong_token():
+    raw = {"data": {"access_token": "wrong-token"}}
+    assert verify_token(raw, TOKEN) is False
 
 
-def test_verify_signature_wrong_secret():
-    payload = b'{"id": "123"}'
-    sig = _make_signature("correct-secret", payload)
-    assert verify_signature(payload, sig, "wrong-secret") is False
+def test_verify_token_missing_from_payload():
+    assert verify_token({}, TOKEN) is False
+
+
+def test_verify_token_empty_configured_token():
+    raw = {"data": {"access_token": TOKEN}}
+    assert verify_token(raw, "") is False
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +37,7 @@ def test_verify_signature_wrong_secret():
 RAW_PAYLOAD = {
     "event_name": "new_item",
     "data": {
+        "access_token": TOKEN,
         "item": {
             "id": 12345,
             "title": "KeyError: 'item_id'",
@@ -66,7 +65,7 @@ RAW_PAYLOAD = {
                     }
                 },
             },
-        }
+        },
     },
 }
 

@@ -2,18 +2,14 @@
 Rollbar integration for the Helix Crash Handler Agent.
 
 Provides:
-  verify_signature  — HMAC-SHA256 webhook signature verification
-  parse_event       — normalise a raw Rollbar webhook payload into a RollbarEvent
+  verify_token  — access token verification against data.access_token in the payload
+  parse_event   — normalise a raw Rollbar webhook payload into a RollbarEvent
 
-Rollbar sends a POST to your webhook URL with:
-  Header:  X-Rollbar-Signature: <hex digest>
-  Body:    JSON payload
-
-The signature is HMAC-SHA256(secret_key, body_bytes).
+Rollbar sends a POST to your webhook URL with a JSON body that includes
+data.access_token — the project read token. Helix verifies this matches the
+configured ROLLBAR_ACCESS_TOKEN to authenticate the webhook.
 """
 
-import hashlib
-import hmac
 import logging
 from typing import Any
 
@@ -22,23 +18,25 @@ from core.models import RollbarEvent
 logger = logging.getLogger(__name__)
 
 
-def verify_signature(payload: bytes, signature: str, secret: str) -> bool:
+def verify_token(raw: dict[str, Any], access_token: str) -> bool:
     """
-    Verify a Rollbar webhook HMAC-SHA256 signature.
+    Verify a Rollbar webhook by comparing the access_token in the payload
+    against the configured project token.
+
+    Rollbar embeds the project read token at data.access_token in every
+    webhook payload. This is Rollbar's recommended verification approach.
 
     Args:
-        payload:   Raw request body bytes (before any decoding).
-        signature: Value of the X-Rollbar-Signature header.
-        secret:    ROLLBAR_WEBHOOK_SECRET from the environment.
+        raw:          The parsed JSON body of the Rollbar webhook POST.
+        access_token: ROLLBAR_ACCESS_TOKEN from the environment.
 
     Returns:
-        True if the signature is valid; False otherwise.
+        True if the token matches; False otherwise.
     """
-    try:
-        expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, signature)
-    except Exception:
+    payload_token = raw.get("data", {}).get("access_token", "")
+    if not payload_token or not access_token:
         return False
+    return payload_token == access_token
 
 
 def parse_event(raw: dict[str, Any]) -> RollbarEvent:

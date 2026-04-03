@@ -10,7 +10,7 @@ jobs:
           ANTHROPIC_API_KEY: test-key
           OPENROUTER_API_KEY: test-key
           REDIS_URL: redis://localhost:6379
-          ROLLBAR_WEBHOOK_SECRET: test-secret
+          ROLLBAR_ACCESS_TOKEN: test-token
           GITHUB_TOKEN: test-token
           SLACK_BOT_TOKEN: xoxb-test
           SLACK_SIGNING_SECRET: test-signing-secret

@@ -84,13 +84,13 @@ redis:
 # Rollbar integration
 # ---------------------------------------------------------------------------
 #
-# Helix verifies every inbound Rollbar webhook with HMAC-SHA256.
-# Set the secret to whatever you configured in the Rollbar webhook settings.
+# Helix verifies inbound Rollbar webhooks by comparing data.access_token in
+# the payload against the project read token stored in ROLLBAR_ACCESS_TOKEN.
 #
-# Override: ROLLBAR_WEBHOOK_SECRET
+# Override: ROLLBAR_ACCESS_TOKEN
 
 rollbar:
-  webhook_secret_env: ROLLBAR_WEBHOOK_SECRET   # env var holding the HMAC secret
+  access_token_env: ROLLBAR_ACCESS_TOKEN   # env var holding the Rollbar project read token
 
 # ---------------------------------------------------------------------------
 # GitHub integration
@@ -112,7 +112,7 @@ rollbar:
 #   Requires: repo scope (read + write + pull requests)
 
 github:
-  target_repo: ""                   # e.g. "acme/backend" — must be set
+  target_repo: "88hours/helix-test"                   # e.g. "acme/backend" — must be set
   base_branch: main
   token_env: GITHUB_TOKEN           # env var holding the GitHub token
 

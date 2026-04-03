@@ -14,7 +14,7 @@ from core.models import (
 
 
 SAMPLE_YAML = {
-    "rollbar": {"webhook_secret_env": "ROLLBAR_WEBHOOK_SECRET"},
+    "rollbar": {"access_token_env": "ROLLBAR_ACCESS_TOKEN"},
     "redis": {"url_env": "REDIS_URL", "ttl_seconds": 604800},
     "agents": {
         "dev": {"provider": "claude-code", "model": "claude-code"},
