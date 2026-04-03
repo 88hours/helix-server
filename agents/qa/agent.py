@@ -42,8 +42,9 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
       1. Create or update a GitHub Issue.
       2. Clone the target repo and read relevant source files.
       3. Call the LLM to generate a failing pytest test case.
-      4. Persist the QAResult to Redis.
-      5. Publish the test_case_generated event to trigger the Dev Agent.
+      4. Post the generated test case as a comment on the GitHub Issue.
+      5. Persist the QAResult to Redis.
+      6. Publish the test_case_generated event to trigger the Dev Agent.
 
     Args:
         report:       CrashReport produced by the Crash Handler Agent.
@@ -105,6 +106,24 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         test_case=test_case,
         relevant_files=list(source_files.keys()),
     )
+
+    # Post the generated test case as a comment on the GitHub Issue before
+    # handing off to the Dev Agent, so reviewers can see what will be run.
+    test_comment = (
+        f"**Generated test case** (`{test_case.file_path}::{test_case.test_name}`):\n\n"
+        f"```python\n{test_case.content}\n```\n\n"
+        f"Helix is now running this test and attempting a fix (incident `{report.incident_id}`)."
+    )
+    logger.debug(
+        "posting test case to github issue",
+        extra={"incident_id": report.incident_id, "issue_number": ticket_id},
+    )
+    await github.add_issue_comment(
+        repo=gh_config.target_repo,
+        issue_number=ticket_id,
+        comment=test_comment,
+    )
+    logger.debug("test case posted to github issue", extra={"incident_id": report.incident_id})
 
     await write_qa_result(redis_client, result)
     await write_status(redis_client, report.incident_id, "test_case_generated")

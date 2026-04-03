@@ -88,6 +88,7 @@ async def test_handle_returns_qa_result(crash_report, mock_redis):
          patch("integrations.github.clone_repo", new=AsyncMock()), \
          patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=None)), \
          patch("integrations.github.create_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
          patch("agents.qa.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.qa.agent import handle
         result = await handle(crash_report, mock_redis)
@@ -116,6 +117,7 @@ async def test_handle_publishes_event(crash_report, mock_redis):
          patch("integrations.github.clone_repo", new=AsyncMock()), \
          patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=None)), \
          patch("integrations.github.create_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
          patch("agents.qa.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.qa.agent import handle
         await handle(crash_report, mock_redis)
@@ -123,6 +125,25 @@ async def test_handle_publishes_event(crash_report, mock_redis):
     mock_redis.publish.assert_called_once()
     channel = mock_redis.publish.call_args[0][0]
     assert "test_case_generated" in channel
+
+
+async def test_handle_posts_test_case_comment(crash_report, mock_redis):
+    add_comment = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("integrations.github.clone_repo", new=AsyncMock()), \
+         patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=None)), \
+         patch("integrations.github.create_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
+         patch("integrations.github.add_issue_comment", new=add_comment), \
+         patch("agents.qa.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
+        from agents.qa.agent import handle
+        await handle(crash_report, mock_redis)
+
+    # add_issue_comment is called once for the test-case comment
+    # (the create path does not call it for the initial re-detection notice)
+    add_comment.assert_called_once()
+    _, kwargs = add_comment.call_args
+    assert "test_checkout_raises_on_missing_item" in kwargs["comment"]
+    assert "```python" in kwargs["comment"]
 
 
 # ---------------------------------------------------------------------------
