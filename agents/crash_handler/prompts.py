@@ -1,13 +1,13 @@
 """
 LLM prompts for the Crash Handler Agent.
 
-The agent receives a raw Sentry event and must return a structured JSON
+The agent receives a raw Rollbar event and must return a structured JSON
 object that maps to the CrashReport model.
 """
 
 SYSTEM = """\
 You are an expert SRE analysing production crash reports.
-Your job is to extract structured information from a Sentry error event so it
+Your job is to extract structured information from a Rollbar error event so it
 can feed into an automated incident response pipeline.
 
 Always respond with a single JSON object — no prose, no markdown fences.
@@ -19,17 +19,17 @@ def user(event_title: str, level: str, culprit: str, stack_trace: str, raw_summa
     Build the user-turn prompt for the Crash Handler LLM call.
 
     Args:
-        event_title:  Sentry event title / exception message.
-        level:        Sentry severity level string, e.g. "error", "fatal".
-        culprit:      Sentry culprit field — best guess at the offending call.
+        event_title:  Rollbar item title / exception message.
+        level:        Rollbar severity level string, e.g. "error", "critical".
+        culprit:      Rollbar occurrence context — best guess at the offending call.
         stack_trace:  Formatted stack trace string.
-        raw_summary:  Any additional context from the raw payload (log message etc.).
+        raw_summary:  Any additional context from the raw payload.
 
     Returns:
         Formatted prompt string.
     """
     return f"""\
-Analyse the following Sentry crash event and return a JSON object with exactly
+Analyse the following Rollbar crash event and return a JSON object with exactly
 these fields:
 
   severity          — one of: "critical", "high", "medium"
@@ -46,7 +46,7 @@ these fields:
 
 ---
 Event title:   {event_title}
-Sentry level:  {level}
+Level:         {level}
 Culprit:       {culprit}
 Stack trace:
 {stack_trace}
