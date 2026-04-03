@@ -1,16 +1,16 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/88hours/helix/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/88hours/helix/tree/main)
 # Helix
 
-Helix is an autonomous incident response platform. It takes a production crash from Sentry all the way to a ready-to-merge pull request in under 10 minutes, with a human approval step via Slack before anything reaches production.
+Helix is an autonomous incident response platform. It takes a production crash from Rollbar all the way to a ready-to-merge pull request in under 10 minutes, with a human approval step via Slack before anything reaches production.
 
 ## How it works
 
 ```
-Sentry crash → Crash Handler → QA Agent → Dev Agent → Code Quality Agent → Human Approval → PR merged
+Rollbar crash → Crash Handler → QA Agent → Dev Agent → Code Quality Agent → Human Approval → PR merged
 ```
 
-1. **Crash Handler** — receives the Sentry webhook, classifies severity, and produces a structured crash report
-2. **QA Agent** — deduplicates against open JIRA tickets, then writes a failing TDD test that reproduces the bug
+1. **Crash Handler** — receives the Rollbar webhook, classifies severity, and produces a structured crash report
+2. **QA Agent** — deduplicates against open GitHub Issues, then writes a failing TDD test that reproduces the bug
 3. **Dev Agent** — runs the failing test, writes the minimum fix, runs the full suite, retries up to 3 times, then opens a PR
 4. **Code Quality Agent** — reviews the PR for coverage, standards, and security; routes back to Dev Agent or posts an approval request to Slack
 5. **Human Approval** — reviewer clicks Approve in Slack; the PR is merged and deployed
@@ -21,12 +21,12 @@ Agents communicate via Redis Pub/Sub (or AWS EventBridge). Shared state lives in
 
 ```
 agents/
-  crash_handler/       FastAPI webhook server — receives Sentry events, publishes crash_analysed
+  crash_handler/       FastAPI webhook server — receives Rollbar events, publishes crash_analysed
     agent.py           Core logic: LLM analysis → CrashReport
     prompts.py         System + user prompt templates
-    main.py            Entry point: POST /webhook/sentry, GET /healthz
+    main.py            Entry point: POST /webhook/rollbar, GET /healthz
   qa/                  Subscribes to crash_analysed
-    agent.py           JIRA deduplication, repo clone, LLM test case generation
+    agent.py           GitHub Issues deduplication, repo clone, LLM test case generation
     prompts.py
     main.py            Entry point: subscriber loop
   dev/                 Subscribes to test_case_generated and quality_rejected
@@ -48,9 +48,8 @@ core/
   llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI
   utils.py             extract_json() — parses structured JSON from LLM output
 integrations/
-  sentry.py            HMAC-SHA256 signature verification + payload parsing
-  github.py            Git CLI wrappers (clone, branch, commit, push) + GitHub REST API
-  jira.py              JIRA REST API v3 — create/search issues, add comments
+  rollbar.py           Access token verification + Rollbar webhook payload parsing
+  github.py            Git CLI wrappers (clone, branch, commit, push) + GitHub REST API (Issues, PRs)
   slack.py             Slack Web API — approval Block Kit messages, escalation alerts
 config.yaml            Source of truth for all non-secret config (models, Redis, integrations)
 pyproject.toml         Python package definition and dependencies
@@ -98,18 +97,15 @@ Required variables:
 |---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key (crash handler, QA, code quality agents) |
 | `REDIS_URL` | Redis connection URL, e.g. `redis://localhost:6379` |
-| `SENTRY_WEBHOOK_SECRET` | HMAC secret from your Sentry webhook settings |
-| `GITHUB_TOKEN` | GitHub token with `repo` scope |
-| `JIRA_URL` | JIRA base URL, e.g. `https://acme.atlassian.net` |
-| `JIRA_EMAIL` | JIRA account email |
-| `JIRA_TOKEN` | JIRA API token |
-| `JIRA_PROJECT_KEY` | JIRA project key, e.g. `PROJ` |
+| `ROLLBAR_ACCESS_TOKEN` | Rollbar project read token — verified against `data.access_token` in each webhook payload |
+| `GITHUB_TOKEN` | GitHub personal access token with `repo` + `issues` scope |
 | `SLACK_BOT_TOKEN` | Slack bot token (`xoxb-...`) with `chat:write` scope |
 | `SLACK_SIGNING_SECRET` | Slack app signing secret — from app settings → Basic Information |
 | `SLACK_APPROVAL_CHANNEL` | Channel ID or name for approval messages |
-| `SMTP_HOST` | SMTP server, e.g. `smtp.sendgrid.net` or `smtp.gmail.com` |
-| `SMTP_USER` | SMTP username or API key username |
-| `SMTP_PASSWORD` | SMTP password or API key |
+| `SENDGRID_API_KEY` | SendGrid API key with Mail Send permission (preferred) |
+| `SMTP_HOST` | SMTP server fallback, e.g. `smtp.gmail.com` (used if SendGrid key not set) |
+| `SMTP_USER` | SMTP username |
+| `SMTP_PASSWORD` | SMTP password or app password |
 | `EMAIL_FROM` | Sender address, e.g. `helix@acme.com` |
 | `EMAIL_TO` | Comma-separated recipients, e.g. `oncall@acme.com` |
 
@@ -161,6 +157,49 @@ docker compose up --build
 ```bash
 docker compose down
 ```
+
+---
+
+### Exposing the Crash Handler to Rollbar (ngrok)
+
+Rollbar needs a public HTTPS URL to POST webhook events to. For local development, use [ngrok](https://ngrok.com) to tunnel your local port.
+
+**1. Install ngrok**
+
+```bash
+brew install ngrok
+```
+
+**2. Start the tunnel**
+
+```bash
+ngrok http 8000
+```
+
+ngrok output will look like this:
+
+```
+Account        Nomi (Plan: Free)
+Version        3.37.3
+Region         Australia (au)
+Latency        20ms
+Web Interface  http://127.0.0.1:4040
+Forwarding     https://carroty-cris-uncravingly.ngrok-free.app -> http://localhost:8000
+```
+
+**3. Configure the Rollbar webhook**
+
+In Rollbar → your project → **Settings → Notifications → Webhook**, set the URL to:
+
+```
+https://carroty-cris-uncravingly.ngrok-free.app/webhook/rollbar
+```
+
+> **Note:** The ngrok URL changes each time you restart ngrok on the free plan. Update the Rollbar webhook URL whenever it changes, or use a paid ngrok plan with a fixed domain.
+
+**4. Monitor live requests**
+
+ngrok's web interface at `http://127.0.0.1:4040` shows every request and response in real time — useful for debugging webhook payloads.
 
 ---
 
