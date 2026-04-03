@@ -141,11 +141,12 @@ async def _complete_claude_code(prompt: str, cwd: Optional[str]) -> str:
         asyncio.TimeoutError: If the subprocess exceeds _SUBPROCESS_TIMEOUT seconds.
     """
     process = await asyncio.create_subprocess_exec(
-        "claude", "-p", prompt,
+        "claude", "--dangerously-skip-permissions", "-p", prompt,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
     )
+    logger.info("claude-code subprocess started", extra={"pid": process.pid, "cwd": cwd})
 
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -158,13 +159,23 @@ async def _complete_claude_code(prompt: str, cwd: Optional[str]) -> str:
             f"claude-code subprocess timed out after {_SUBPROCESS_TIMEOUT}s"
         )
 
+    stderr_text = stderr.decode().strip()
+    stdout_text = stdout.decode().strip()
+
+    logger.info(
+        "claude-code subprocess finished",
+        extra={"pid": process.pid, "returncode": process.returncode},
+    )
+    if stderr_text:
+        logger.debug("claude-code stderr", extra={"stderr": stderr_text})
+    logger.debug("claude-code stdout", extra={"stdout": stdout_text})
+
     if process.returncode != 0:
-        error_output = stderr.decode().strip()
         raise RuntimeError(
-            f"claude-code exited with code {process.returncode}: {error_output}"
+            f"claude-code exited with code {process.returncode}: {stderr_text}"
         )
 
-    return stdout.decode().strip()
+    return stdout_text
 
 
 # ---------------------------------------------------------------------------
