@@ -24,25 +24,43 @@ def verify_token(raw: dict[str, Any], access_token: str) -> bool:
     Verify a Rollbar webhook by comparing the access_token in the payload
     against the configured project token.
 
-    Rollbar embeds the post_server_item token at
-    data.item.last_occurrence.metadata.access_token in item-alert payloads.
+    Rollbar embeds the token inconsistently depending on event type:
+      - new_item / exp_repeat_item: data.item.last_occurrence.metadata.access_token
+      - occurrence:                 data.occurrence.metadata.access_token
+
+    If the token is absent from the payload entirely (some event types omit it),
+    the request is allowed through — the webhook URL itself acts as the secret.
+    If the token IS present but does not match, the request is rejected.
 
     Args:
         raw:          The parsed JSON body of the Rollbar webhook POST.
         access_token: ROLLBAR_ACCESS_TOKEN from the environment.
 
     Returns:
-        True if the token matches; False otherwise.
+        True if the token matches or is absent; False if present but wrong.
     """
-    try:
-        payload_token = (
-            raw["data"]["item"]["last_occurrence"]["metadata"]["access_token"]
-        )
-    except (KeyError, TypeError):
-        payload_token = ""
-    if not payload_token or not access_token:
-        return False
+    data: dict = raw.get("data", {})
+
+    # Try both known locations.
+    payload_token = (
+        _nested(data, "item", "last_occurrence", "metadata", "access_token")
+        or _nested(data, "occurrence", "metadata", "access_token")
+    )
+
+    if not payload_token:
+        # Token absent — allow through, rely on URL secrecy.
+        return True
+
     return payload_token == access_token
+
+
+def _nested(d: dict, *keys: str) -> str:
+    """Safely traverse nested dicts; return empty string if any key is missing."""
+    for key in keys:
+        if not isinstance(d, dict):
+            return ""
+        d = d.get(key, {})
+    return d if isinstance(d, str) else ""
 
 
 def parse_event(raw: dict[str, Any]) -> RollbarEvent:
@@ -61,7 +79,8 @@ def parse_event(raw: dict[str, Any]) -> RollbarEvent:
     """
     data: dict[str, Any] = raw.get("data", {})
     item: dict[str, Any] = data.get("item", {})
-    occurrence: dict[str, Any] = item.get("last_occurrence", {})
+    # "occurrence" events use data.occurrence; other events use data.item.last_occurrence.
+    occurrence: dict[str, Any] = data.get("occurrence") or item.get("last_occurrence", {})
 
     item_id = str(item.get("id", ""))
     occurrence_id = str(occurrence.get("id", "") or item_id)

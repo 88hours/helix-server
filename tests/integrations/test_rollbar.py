@@ -33,11 +33,24 @@ def test_verify_token_wrong_token():
     assert verify_token(_make_raw("wrong-token"), TOKEN) is False
 
 
-def test_verify_token_missing_from_payload():
-    assert verify_token({}, TOKEN) is False
+def test_verify_token_missing_from_payload_allows_through():
+    # Token absent — allowed (URL is the secret).
+    assert verify_token({}, TOKEN) is True
+
+
+def test_verify_token_occurrence_event_path():
+    # "occurrence" events put the token at data.occurrence.metadata.access_token.
+    raw = {"data": {"occurrence": {"metadata": {"access_token": TOKEN}}}}
+    assert verify_token(raw, TOKEN) is True
+
+
+def test_verify_token_occurrence_event_wrong_token():
+    raw = {"data": {"occurrence": {"metadata": {"access_token": "wrong"}}}}
+    assert verify_token(raw, TOKEN) is False
 
 
 def test_verify_token_empty_configured_token():
+    # Token present in payload but configured token is empty — reject.
     assert verify_token(_make_raw(TOKEN), "") is False
 
 
