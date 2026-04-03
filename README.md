@@ -37,9 +37,6 @@ agents/
     agent.py           Fetches PR diff, LLM review, Slack approval or quality_rejected
     prompts.py
     main.py            Entry point: subscriber loop
-  human_approval/      FastAPI webhook — receives Slack Approve/Reject button clicks
-    agent.py           handle_approve: merges PR + notifies; handle_reject: posts Slack note
-    main.py            Entry point: POST /slack/interactions, GET /healthz
 core/
   config.py            Typed config loaders for all agents and integrations
   events.py            EventBridge / Redis Pub/Sub publish and subscribe helpers
@@ -314,9 +311,6 @@ uv run --env-file .env python  -m agents.dev.main
 # Code Quality Agent — subscribes to pr_created
 uv run --env-file .env python -m agents.code_quality.main
 
-# Human Approval Agent — receives Slack button clicks (Approve / Reject)
-# Configure Slack Interactivity Request URL: http://<host>:8001/slack/interactions
-uv run --env-file .env uvicorn agents.human_approval.main:app --host 0.0.0.0 --port 8001
 ```
 
 Point your Rollbar webhook at `http://<host>:8000/webhook/rollbar`.

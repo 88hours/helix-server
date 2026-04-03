@@ -4,8 +4,7 @@ Slack integration for the Helix agent pipeline.
 Provides async helpers for posting messages and interactive approval requests
 to Slack using the Web API (chat.postMessage).
 
-Also provides verify_signature() for validating interaction payloads received
-by the Human Approval agent when a reviewer clicks Approve or Reject.
+Also provides verify_signature() for validating inbound Slack interaction payloads.
 
 Required environment variables:
     SLACK_BOT_TOKEN        — Bot token with chat:write scope (xoxb-...)
@@ -13,8 +12,6 @@ Required environment variables:
     SLACK_APPROVAL_CHANNEL — Channel ID or name for human approval messages
 
 The approval message uses Slack Block Kit with Approve / Reject buttons.
-When a reviewer clicks a button, Slack sends an interaction payload to the
-configured Interactivity Request URL — that handler is in agents/human_approval/.
 """
 
 import hashlib
