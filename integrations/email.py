@@ -14,8 +14,8 @@ Supports two sending backends — the active one is selected automatically:
 Backend selection is handled internally by _deliver() — callers always use
 the same three public functions regardless of which backend is active.
 
-Provides three notification types that mirror the Slack integration:
-  send_approval_request  — PR ready for human review (Code Quality Agent passed)
+Provides notification types for the pipeline:
+  send_fix_suggested     — Dev Agent posted a fix suggestion on the GitHub Issue
   send_escalation        — Dev Agent exhausted all retries, needs a human fix
   send_pr_merged         — confirmation after Human Approval merges the PR
 
@@ -42,8 +42,6 @@ from typing import Optional
 
 import aiosmtplib
 import httpx
-
-from core.models import QualityReport
 
 logger = logging.getLogger(__name__)
 
@@ -228,75 +226,6 @@ async def _deliver(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
-async def send_approval_request(
-    incident_id: str,
-    pr_url: str,
-    report: QualityReport,
-    from_addr: Optional[str] = None,
-    to_addr: Optional[str] = None,
-    sendgrid_api_key: Optional[str] = None,
-    smtp_host: Optional[str] = None,
-    smtp_port: Optional[int] = None,
-    smtp_user: Optional[str] = None,
-    smtp_password: Optional[str] = None,
-) -> None:
-    """
-    Send an email approval request when the Code Quality Agent passes a PR.
-
-    Sent in addition to (not instead of) the Slack approval message.
-
-    Args:
-        incident_id:      Helix incident ID.
-        pr_url:           GitHub PR URL.
-        report:           QualityReport from the Code Quality Agent.
-        from_addr:        Sender. Defaults to EMAIL_FROM env var.
-        to_addr:          Recipient(s). Defaults to EMAIL_TO env var.
-        sendgrid_api_key: SendGrid API key override. Falls back to SENDGRID_API_KEY.
-        smtp_*:           SMTP credentials. Used only when SendGrid is not active.
-    """
-    resolved_from = _resolve("EMAIL_FROM", from_addr)
-    to_addrs = _recipients(to_addr)
-    subject = f"[Helix] PR ready for review — incident {incident_id[:8]}"
-
-    body_text = (
-        f"A pull request is ready for your review.\n\n"
-        f"Incident:      {incident_id}\n"
-        f"PR:            {pr_url}\n"
-        f"Test coverage: {report.test_coverage}\n"
-        f"Standards:     {report.standards_check.value}\n"
-        f"Security:      {report.security_check.value}\n\n"
-        f"Notes:\n{report.notes}\n\n"
-        f"Approve or reject via Slack."
-    )
-    body_html = f"""\
-<html><body style="font-family: sans-serif; color: #111;">
-<h2 style="color: #d63031;">&#128680; Helix &#8212; PR ready for review</h2>
-<table style="border-collapse: collapse; width: 100%; max-width: 600px;">
-  <tr><td style="padding: 6px; font-weight: bold;">Incident</td>
-      <td style="padding: 6px; font-family: monospace;">{incident_id}</td></tr>
-  <tr style="background: #f8f9fa;">
-      <td style="padding: 6px; font-weight: bold;">Pull Request</td>
-      <td style="padding: 6px;"><a href="{pr_url}">{pr_url}</a></td></tr>
-  <tr><td style="padding: 6px; font-weight: bold;">Test coverage</td>
-      <td style="padding: 6px;">{report.test_coverage}</td></tr>
-  <tr style="background: #f8f9fa;">
-      <td style="padding: 6px; font-weight: bold;">Standards</td>
-      <td style="padding: 6px;">{report.standards_check.value}</td></tr>
-  <tr><td style="padding: 6px; font-weight: bold;">Security</td>
-      <td style="padding: 6px;">{report.security_check.value}</td></tr>
-</table>
-<p><strong>Notes:</strong><br>{report.notes}</p>
-<p style="color: #636e72;">Approve or reject via Slack.</p>
-</body></html>
-"""
-
-    await _deliver(
-        resolved_from, to_addrs, subject, body_text, body_html,
-        sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
-    )
-    logger.info("approval request email sent", extra={"incident_id": incident_id})
-
 
 async def send_escalation(
     incident_id: str,

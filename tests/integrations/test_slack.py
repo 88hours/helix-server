@@ -7,7 +7,6 @@ import pytest
 import respx
 import httpx
 
-from core.models import QualityReport, QualityVerdict
 from integrations import slack
 
 
@@ -26,16 +25,6 @@ def slack_env(monkeypatch):
 def _make_signature(secret: str, timestamp: str, body: str) -> str:
     base = f"v0:{timestamp}:{body}"
     return "v0=" + hmac.new(secret.encode(), base.encode(), hashlib.sha256).hexdigest()
-
-
-@pytest.fixture
-def quality_report():
-    return QualityReport(
-        test_coverage="87% — covers crash path",
-        standards_check=QualityVerdict.passed,
-        security_check=QualityVerdict.passed,
-        notes="Looks good.",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -101,18 +90,6 @@ async def test_post_message_missing_channel_raises(monkeypatch):
     monkeypatch.delenv("SLACK_APPROVAL_CHANNEL", raising=False)
     with pytest.raises(EnvironmentError, match="SLACK_APPROVAL_CHANNEL"):
         await slack.post_message("Hello", channel=None)
-
-
-# ---------------------------------------------------------------------------
-# post_approval_request
-# ---------------------------------------------------------------------------
-
-@respx.mock
-async def test_post_approval_request(quality_report):
-    respx.post("https://slack.com/api/chat.postMessage").mock(
-        return_value=httpx.Response(200, json={"ok": True})
-    )
-    await slack.post_approval_request("inc-001", "https://github.com/acme/repo/pull/1", quality_report)
 
 
 # ---------------------------------------------------------------------------

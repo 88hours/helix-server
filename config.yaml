@@ -32,9 +32,6 @@ agents:
     provider: anthropic
     model: claude-sonnet-4-6
 
-  code_quality:
-    provider: anthropic
-    model: claude-sonnet-4-6
 
 # ---------------------------------------------------------------------------
 # LLM API keys (set as environment variables — values here are placeholders)

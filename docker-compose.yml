@@ -66,17 +66,6 @@ services:
       REDIS_URL: redis://redis:6379
     command: python -m agents.dev.main
 
-  code_quality:
-    build: .
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      REDIS_URL: redis://redis:6379
-    command: python -m agents.code_quality.main
-
   human_approval:
     build: .
     restart: unless-stopped

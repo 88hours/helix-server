@@ -26,7 +26,6 @@ from typing import Optional
 
 import httpx
 
-from core.models import QualityReport
 
 logger = logging.getLogger(__name__)
 
@@ -154,82 +153,6 @@ async def post_message(
         raise EnvironmentError("SLACK_APPROVAL_CHANNEL is not set")
 
     await _post({"channel": resolved_channel, "text": text}, token)
-
-
-async def post_approval_request(
-    incident_id: str,
-    pr_url: str,
-    report: QualityReport,
-    channel: Optional[str] = None,
-    token: Optional[str] = None,
-) -> None:
-    """
-    Post an interactive approval request to Slack.
-
-    Sends a Block Kit message with an Approve and a Reject button.  When the
-    reviewer clicks either, Slack delivers an interaction payload to the
-    configured Interactivity Request URL (the Human Approval agent).
-
-    Args:
-        incident_id: Helix incident ID — embedded in button values so the
-                     approval handler knows which incident to act on.
-        pr_url:      URL of the GitHub PR to review.
-        report:      QualityReport from the Code Quality Agent.
-        channel:     Channel ID or name. Defaults to SLACK_APPROVAL_CHANNEL.
-        token:       Slack bot token. Defaults to SLACK_BOT_TOKEN.
-    """
-    resolved_channel = channel or os.environ.get("SLACK_APPROVAL_CHANNEL")
-    if not resolved_channel:
-        raise EnvironmentError("SLACK_APPROVAL_CHANNEL is not set")
-
-    blocks = [
-        {
-            "type": "header",
-            "text": {"type": "plain_text", "text": ":rotating_light: Helix — PR ready for review"},
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Incident:*\n`{incident_id}`"},
-                {"type": "mrkdwn", "text": f"*Pull Request:*\n<{pr_url}|View PR>"},
-            ],
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Test coverage:*\n{report.test_coverage}"},
-                {"type": "mrkdwn", "text": f"*Standards:*\n{report.standards_check.value}"},
-                {"type": "mrkdwn", "text": f"*Security:*\n{report.security_check.value}"},
-            ],
-        },
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*Notes:*\n{report.notes}"},
-        },
-        {"type": "divider"},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Approve & Merge"},
-                    "style": "primary",
-                    "action_id": "helix_approve_pr",
-                    "value": incident_id,
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Reject"},
-                    "style": "danger",
-                    "action_id": "helix_reject_pr",
-                    "value": incident_id,
-                },
-            ],
-        },
-    ]
-
-    await _post({"channel": resolved_channel, "blocks": blocks}, token)
-    logger.info("approval request posted", extra={"incident_id": incident_id, "pr_url": pr_url})
 
 
 async def post_escalation(

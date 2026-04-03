@@ -4,7 +4,6 @@ import respx
 import httpx
 from unittest.mock import AsyncMock, patch
 
-from core.models import QualityReport, QualityVerdict
 from integrations import email
 
 
@@ -13,16 +12,6 @@ def email_env(monkeypatch):
     monkeypatch.setenv("EMAIL_FROM", "helix@acme.com")
     monkeypatch.setenv("EMAIL_TO", "oncall@acme.com")
     monkeypatch.delenv("SENDGRID_API_KEY", raising=False)
-
-
-@pytest.fixture
-def report():
-    return QualityReport(
-        test_coverage="90% — covers crash path",
-        standards_check=QualityVerdict.passed,
-        security_check=QualityVerdict.passed,
-        notes="Looks good.",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -140,13 +129,6 @@ async def test_deliver_uses_smtp_when_no_sendgrid(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @respx.mock
-async def test_send_approval_request_sendgrid(report, monkeypatch):
-    monkeypatch.setenv("SENDGRID_API_KEY", "SG.test")
-    respx.post("https://api.sendgrid.com/v3/mail/send").mock(return_value=httpx.Response(202))
-    await email.send_approval_request("inc-001", "https://github.com/pr/1", report, sendgrid_api_key="SG.test")
-
-
-@respx.mock
 async def test_send_escalation_sendgrid(monkeypatch):
     monkeypatch.setenv("SENDGRID_API_KEY", "SG.test")
     respx.post("https://api.sendgrid.com/v3/mail/send").mock(return_value=httpx.Response(202))
@@ -175,14 +157,6 @@ async def test_send_pr_merged_sendgrid(monkeypatch):
 # ---------------------------------------------------------------------------
 # Public functions — SMTP path
 # ---------------------------------------------------------------------------
-
-async def test_send_approval_request_smtp(report, monkeypatch):
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
-    monkeypatch.setenv("SMTP_USER", "user")
-    monkeypatch.setenv("SMTP_PASSWORD", "pass")
-    with patch("aiosmtplib.send", new_callable=AsyncMock):
-        await email.send_approval_request("inc-001", "https://github.com/pr/1", report)
-
 
 async def test_send_escalation_smtp(monkeypatch):
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")

@@ -2,12 +2,11 @@
 Shared Pydantic models for the Helix agent pipeline.
 
 Each model maps to a stage in the pipeline:
-  RollbarEvent      — raw inbound webhook from Rollbar
-  CrashReport       — Crash Handler output, persisted to Redis
-  QAResult          — QA Agent output (ticket + test case), persisted to Redis
-  PRResult          — Dev Agent output (pull request), persisted to Redis
-  QualityResult     — Code Quality Agent output (verdict + report)
-  HelixEvent        — generic event envelope for EventBridge / Redis Pub/Sub
+  RollbarEvent  — raw inbound webhook from Rollbar
+  CrashReport   — Crash Handler output, persisted to Redis
+  QAResult      — QA Agent output (ticket + test case), persisted to Redis
+  PRResult      — stored by Human Approval agent (PR merge details)
+  HelixEvent    — generic event envelope for EventBridge / Redis Pub/Sub
 """
 
 from datetime import datetime, timezone
@@ -39,12 +38,6 @@ class TicketAction(str, Enum):
     """Whether the QA Agent created a new ticket or updated an existing one."""
     created = "created"
     updated = "updated"
-
-
-class QualityVerdict(str, Enum):
-    """Pass/fail verdict from the Code Quality Agent."""
-    passed = "passed"
-    failed = "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -144,33 +137,6 @@ class PRResult(BaseModel):
     iterations_taken: int           # number of fix-and-test cycles used (max 3)
     files_changed: list[str] = Field(default_factory=list)
     fix_summary: str                # plain-English description for the PR body
-
-
-# ---------------------------------------------------------------------------
-# Code Quality Agent output
-# ---------------------------------------------------------------------------
-
-class QualityReport(BaseModel):
-    """Detailed quality assessment of the Dev Agent's pull request."""
-    test_coverage: str              # e.g. "87% — new test covers the failure path"
-    standards_check: QualityVerdict
-    security_check: QualityVerdict
-    notes: str                      # free-text observations for the human reviewer
-
-
-class QualityResult(BaseModel):
-    """
-    Output of the Code Quality Agent.
-
-    On approval  → Slack notification is sent to the human reviewer.
-    On rejection → feedback is routed back to the Dev Agent for a retry.
-    """
-    incident_id: str
-    pr_url: str
-    verdict: QualityVerdict
-    report: QualityReport
-    feedback: Optional[str] = None  # structured feedback sent to Dev Agent on rejection
-    iteration: Optional[int] = None # which Dev Agent iteration this review covers
 
 
 # ---------------------------------------------------------------------------
