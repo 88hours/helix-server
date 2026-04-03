@@ -192,6 +192,25 @@ async def _run(
                     fix_summary=fix_summary,
                 )
 
+                # Post the fix details as a comment on the GitHub Issue.
+                files_str = "\n".join(f"- `{f}`" for f in files_changed) or "_(no files detected)_"
+                issue_comment = (
+                    f"**Fix implemented** — [PR #{pr_number}]({pr_url})\n\n"
+                    f"{fix_summary}\n\n"
+                    f"**Files changed:**\n{files_str}\n\n"
+                    f"**Test passing:** `{qa_result.test_case.file_path}::{qa_result.test_case.test_name}`\n\n"
+                    f"Fix took {iteration} iteration(s). Awaiting code review."
+                )
+                logger.debug(
+                    "posting fix comment to github issue",
+                    extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
+                )
+                await github.add_issue_comment(
+                    repo=gh_config.target_repo,
+                    issue_number=qa_result.ticket_id,
+                    comment=issue_comment,
+                )
+
                 await write_pr_result(redis_client, pr_result)
                 await write_status(redis_client, incident_id, "pr_created")
                 await publish(

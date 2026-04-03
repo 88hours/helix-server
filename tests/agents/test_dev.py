@@ -229,6 +229,7 @@ async def test_handle_success(crash_report, qa_result, mock_redis):
          patch("integrations.github.write_file", new=AsyncMock()), \
          patch("integrations.github.commit_and_push", new=AsyncMock()), \
          patch("integrations.github.create_pull_request", new=AsyncMock(return_value=(42, "https://github.com/pr/42"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
          patch("integrations.github._git", new=AsyncMock(return_value="checkout.py")), \
          patch("agents.dev.agent.complete", new=AsyncMock(return_value="TESTS_PASSED\nFixed the bug.")):
         from agents.dev.agent import handle
@@ -237,6 +238,30 @@ async def test_handle_success(crash_report, qa_result, mock_redis):
     assert isinstance(result, PRResult)
     assert result.pr_number == 42
     assert result.iterations_taken == 1
+
+
+async def test_handle_posts_fix_comment_to_issue(crash_report, qa_result, mock_redis):
+    mock_redis.get = AsyncMock(return_value=b"0")
+    mock_redis.incr = AsyncMock(return_value=1)
+    add_comment = AsyncMock()
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("integrations.github.clone_repo", new=AsyncMock()), \
+         patch("integrations.github.checkout_branch", new=AsyncMock()), \
+         patch("integrations.github.write_file", new=AsyncMock()), \
+         patch("integrations.github.commit_and_push", new=AsyncMock()), \
+         patch("integrations.github.create_pull_request", new=AsyncMock(return_value=(42, "https://github.com/pr/42"))), \
+         patch("integrations.github.add_issue_comment", new=add_comment), \
+         patch("integrations.github._git", new=AsyncMock(return_value="checkout.py")), \
+         patch("agents.dev.agent.complete", new=AsyncMock(return_value="TESTS_PASSED\nFixed the bug.")):
+        from agents.dev.agent import handle
+        await handle(qa_result, crash_report, mock_redis)
+
+    add_comment.assert_awaited_once()
+    _, kwargs = add_comment.call_args
+    assert "PR #42" in kwargs["comment"]
+    assert "checkout.py" in kwargs["comment"]
+    assert "test_checkout_raises" in kwargs["comment"]
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +294,7 @@ async def test_handle_retry_passes_feedback(crash_report, qa_result, mock_redis)
          patch("integrations.github.write_file", new=AsyncMock()), \
          patch("integrations.github.commit_and_push", new=AsyncMock()), \
          patch("integrations.github.create_pull_request", new=AsyncMock(return_value=(1, "https://github.com/pr/1"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
          patch("integrations.github._git", new=AsyncMock(return_value="")), \
          patch("agents.dev.agent.complete", new=AsyncMock(return_value="TESTS_PASSED\nRetried fix.")) as mock_complete:
         from agents.dev.agent import handle_retry
