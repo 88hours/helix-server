@@ -1,0 +1,34 @@
+{
+  "event_name": "new_item",
+  "data": {
+    "access_token": "121234567890abcdef1234567890abcdef",
+    "item": {
+      "id": 12345,
+      "title": "KeyError: item_id",
+      "level": "error",
+      "environment": "production",
+      "project_id": 654321,
+      "last_occurrence": {
+        "id": "occ-001",
+        "language": "python",
+        "context": "checkout.process",
+        "body": {
+          "trace": {
+            "frames": [
+              {
+                "filename": "checkout.py",
+                "lineno": 42,
+                "method": "process",
+                "code": "item = cart[item_id]"
+              }
+            ],
+            "exception": {
+              "class": "KeyError",
+              "message": "item_id"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -164,6 +164,100 @@ docker compose down
 
 ---
 
+### Running only the Crash Handler
+
+Useful for developing or testing the webhook pipeline in isolation.
+
+**1. Start Redis**
+
+```bash
+docker run -p 6379:6379 redis:7-alpine
+```
+
+**2. Start the Crash Handler**
+
+```bash
+uv run --env-file .env uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The `--env-file .env` flag is required — uvicorn does not load `.env` automatically.
+
+**3. Check it's alive**
+
+```bash
+curl http://localhost:8000/healthz
+```
+
+**4. Send a test webhook**
+
+Save the payload to a file first (multi-line JSON in `-d` causes control character errors):
+
+```bash
+cat > /tmp/rollbar_test.json << 'EOF'
+{
+  "event_name": "new_item",
+  "data": {
+    "access_token": "<your ROLLBAR_ACCESS_TOKEN>",
+    "item": {
+      "id": 12345,
+      "title": "KeyError: item_id",
+      "level": "error",
+      "environment": "production",
+      "project_id": 654321,
+      "last_occurrence": {
+        "id": "occ-001",
+        "language": "python",
+        "context": "checkout.process",
+        "body": {
+          "trace": {
+            "frames": [{"filename": "checkout.py", "lineno": 42, "method": "process", "code": "item = cart[item_id]"}],
+            "exception": {"class": "KeyError", "message": "item_id"}
+          }
+        }
+      }
+    }
+  }
+}
+EOF
+
+curl -X POST http://localhost:8000/webhook/rollbar \
+  -H "Content-Type: application/json" \
+  -d @/tmp/rollbar_test.json
+```
+
+Replace `<your ROLLBAR_ACCESS_TOKEN>` with the value from your `.env`. A successful request returns `202 Accepted` with an `incident_id`.
+
+**5. Verify the result in Redis**
+
+The 202 response includes an `incident_id`. Use it to inspect what was written to Redis:
+
+```bash
+redis-cli
+```
+
+```bash
+# List all helix keys
+KEYS helix:incident:*
+
+# Check the crash report and status (replace <incident_id> with the value from the 202 response)
+GET helix:incident:<incident_id>:crash_report
+GET helix:incident:<incident_id>:status
+```
+
+For readable JSON output:
+
+```bash
+redis-cli GET helix:incident:<incident_id>:crash_report | python3 -m json.tool
+```
+
+**6. Run only the Crash Handler tests**
+
+```bash
+uv run pytest tests/agents/test_crash_handler.py tests/integrations/test_rollbar.py -v
+```
+
+---
+
 ### Without Docker
 
 Each agent runs as its own process. Start them all:
