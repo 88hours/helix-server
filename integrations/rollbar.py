@@ -2,12 +2,13 @@
 Rollbar integration for the Helix Crash Handler Agent.
 
 Provides:
-  verify_token  — access token verification against data.access_token in the payload
+  verify_token  — access token verification against the token embedded in the payload
   parse_event   — normalise a raw Rollbar webhook payload into a RollbarEvent
 
-Rollbar sends a POST to your webhook URL with a JSON body that includes
-data.access_token — the project read token. Helix verifies this matches the
-configured ROLLBAR_ACCESS_TOKEN to authenticate the webhook.
+Rollbar embeds the project post_server_item token at
+data.item.last_occurrence.metadata.access_token in item-alert webhook payloads.
+Helix verifies this matches the configured ROLLBAR_ACCESS_TOKEN to authenticate
+the webhook.
 """
 
 import logging
@@ -23,8 +24,8 @@ def verify_token(raw: dict[str, Any], access_token: str) -> bool:
     Verify a Rollbar webhook by comparing the access_token in the payload
     against the configured project token.
 
-    Rollbar embeds the project read token at data.access_token in every
-    webhook payload. This is Rollbar's recommended verification approach.
+    Rollbar embeds the post_server_item token at
+    data.item.last_occurrence.metadata.access_token in item-alert payloads.
 
     Args:
         raw:          The parsed JSON body of the Rollbar webhook POST.
@@ -33,7 +34,12 @@ def verify_token(raw: dict[str, Any], access_token: str) -> bool:
     Returns:
         True if the token matches; False otherwise.
     """
-    payload_token = raw.get("data", {}).get("access_token", "")
+    try:
+        payload_token = (
+            raw["data"]["item"]["last_occurrence"]["metadata"]["access_token"]
+        )
+    except (KeyError, TypeError):
+        payload_token = ""
     if not payload_token or not access_token:
         return False
     return payload_token == access_token

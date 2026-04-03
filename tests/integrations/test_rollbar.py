@@ -11,14 +11,26 @@ TOKEN = "test-rollbar-access-token"
 # verify_token
 # ---------------------------------------------------------------------------
 
+def _make_raw(token: str) -> dict:
+    """Build a minimal payload with the token at the real Rollbar path."""
+    return {
+        "data": {
+            "item": {
+                "id": 1,
+                "last_occurrence": {
+                    "metadata": {"access_token": token}
+                },
+            }
+        }
+    }
+
+
 def test_verify_token_valid():
-    raw = {"data": {"access_token": TOKEN}}
-    assert verify_token(raw, TOKEN) is True
+    assert verify_token(_make_raw(TOKEN), TOKEN) is True
 
 
 def test_verify_token_wrong_token():
-    raw = {"data": {"access_token": "wrong-token"}}
-    assert verify_token(raw, TOKEN) is False
+    assert verify_token(_make_raw("wrong-token"), TOKEN) is False
 
 
 def test_verify_token_missing_from_payload():
@@ -26,8 +38,7 @@ def test_verify_token_missing_from_payload():
 
 
 def test_verify_token_empty_configured_token():
-    raw = {"data": {"access_token": TOKEN}}
-    assert verify_token(raw, "") is False
+    assert verify_token(_make_raw(TOKEN), "") is False
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +48,6 @@ def test_verify_token_empty_configured_token():
 RAW_PAYLOAD = {
     "event_name": "new_item",
     "data": {
-        "access_token": TOKEN,
         "item": {
             "id": 12345,
             "title": "KeyError: 'item_id'",
@@ -48,6 +58,7 @@ RAW_PAYLOAD = {
                 "id": "occ-uuid-001",
                 "language": "python",
                 "context": "checkout.process",
+                "metadata": {"access_token": TOKEN},
                 "body": {
                     "trace": {
                         "frames": [

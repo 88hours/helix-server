@@ -154,7 +154,6 @@ async def test_handle_uses_event_stack_trace_as_fallback(rollbar_event, mock_red
 RAW_ROLLBAR_PAYLOAD = {
     "event_name": "new_item",
     "data": {
-        "access_token": ROLLBAR_TOKEN,
         "item": {
             "id": 12345,
             "title": "KeyError: 'item_id'",
@@ -165,6 +164,7 @@ RAW_ROLLBAR_PAYLOAD = {
                 "id": "occ-uuid-001",
                 "language": "python",
                 "context": "checkout.process",
+                "metadata": {"access_token": ROLLBAR_TOKEN},
                 "body": {
                     "trace": {
                         "frames": [
@@ -210,8 +210,10 @@ def test_webhook_rollbar_test_ping_returns_202():
 
 
 def test_webhook_wrong_token_returns_401():
+    import copy
     client = _make_client()
-    payload = {**RAW_ROLLBAR_PAYLOAD, "data": {**RAW_ROLLBAR_PAYLOAD["data"], "access_token": "wrong"}}
+    payload = copy.deepcopy(RAW_ROLLBAR_PAYLOAD)
+    payload["data"]["item"]["last_occurrence"]["metadata"]["access_token"] = "wrong"
     body = json.dumps(payload).encode()
     resp = client.post("/webhook/rollbar", content=body, headers={"content-type": "application/json"})
     assert resp.status_code == 401
