@@ -86,7 +86,10 @@ def parse_event(raw: dict[str, Any]) -> RollbarEvent:
     occurrence_id = str(occurrence.get("id", "") or item_id)
 
     title = item.get("title") or "Unknown error"
-    level = item.get("level") or occurrence.get("level")
+    # item.level is an integer in Rollbar's API (40 = error, 50 = critical, etc.)
+    # occurrence.level is already a string ("error", "warning", etc.) — prefer it.
+    raw_level = occurrence.get("level") or item.get("level")
+    level = str(raw_level) if raw_level is not None else None
     environment = item.get("environment") or occurrence.get("environment")
     language = occurrence.get("language")
     culprit = occurrence.get("context")

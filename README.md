@@ -261,7 +261,7 @@ EOF
 
 curl -X POST http://localhost:8000/webhook/rollbar \
   -H "Content-Type: application/json" \
-  -d ./test_payloads/rollbar_new_item.json
+  -d @test_payloads/rollbar_new_item.json
 ```
 
 Replace `<your ROLLBAR_ACCESS_TOKEN>` with the value from your `.env`. A successful request returns `202 Accepted` with an `incident_id`.

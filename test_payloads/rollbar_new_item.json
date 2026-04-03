@@ -1,34 +1,62 @@
 {
-  "event_name": "new_item",
+  "event_name": "occurrence",
   "data": {
-    "access_token": "121234567890abcdef1234567890abcdef",
     "item": {
-      "id": 12345,
-      "title": "KeyError: item_id",
-      "level": "error",
+      "id": 1768091109,
+      "project_id": 793119,
+      "counter": 3,
       "environment": "production",
-      "project_id": 654321,
-      "last_occurrence": {
-        "id": "occ-001",
-        "language": "python",
-        "context": "checkout.process",
-        "body": {
-          "trace": {
-            "frames": [
-              {
-                "filename": "checkout.py",
-                "lineno": 42,
-                "method": "process",
-                "code": "item = cart[item_id]"
+      "title": "AttributeError: 'NoneType' object has no attribute 'get'",
+      "level": 40,
+      "status": 1,
+      "first_occurrence_timestamp": 1775192799,
+      "last_occurrence_timestamp": 1775192799
+    },
+    "occurrence": {
+      "timestamp": 1775192799,
+      "environment": "production",
+      "level": "error",
+      "language": "python 3.12.13",
+      "notifier": {
+        "name": "pyrollbar",
+        "version": "1.3.0"
+      },
+      "uuid": "fcc00ff0-4e03-4ccb-830a-7499e70d38ae",
+      "body": {
+        "trace": {
+          "frames": [
+            {
+              "filename": "send_error.py",
+              "lineno": 29,
+              "method": "<module>",
+              "code": "greet_user(\"bob\")"
+            },
+            {
+              "filename": "send_error.py",
+              "lineno": 25,
+              "method": "greet_user",
+              "code": "return f\"Hello, {user.get('name')}!\"",
+              "locals": {
+                "user_id": "bob",
+                "user": null
               }
-            ],
-            "exception": {
-              "class": "KeyError",
-              "message": "item_id"
             }
+          ],
+          "exception": {
+            "class": "AttributeError",
+            "message": "'NoneType' object has no attribute 'get'"
           }
         }
+      },
+      "server": {
+        "host": "Aphrodite.local",
+        "pid": 90255,
+        "argv": ["send_error.py"]
+      },
+      "metadata": {
+        "customer_timestamp": 1775192799
       }
-    }
+    },
+    "url": "https://rollbar.com/nauman.qazi/Helix/items/3/"
   }
 }
