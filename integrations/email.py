@@ -420,3 +420,66 @@ async def send_pr_merged(
         "pr merged email sent",
         extra={"incident_id": incident_id, "pr_number": pr_number},
     )
+
+
+async def send_fix_suggested(
+    incident_id: str,
+    error_type: str,
+    error_message: str,
+    issue_url: str,
+    from_addr: Optional[str] = None,
+    to_addr: Optional[str] = None,
+    sendgrid_api_key: Optional[str] = None,
+    smtp_host: Optional[str] = None,
+    smtp_port: Optional[int] = None,
+    smtp_user: Optional[str] = None,
+    smtp_password: Optional[str] = None,
+) -> None:
+    """
+    Send a notification email when the Dev Agent posts a fix suggestion.
+
+    Args:
+        incident_id:   Helix incident ID.
+        error_type:    Exception class, e.g. "AttributeError".
+        error_message: Exception message.
+        issue_url:     GitHub Issue URL where the fix comment was posted.
+        from_addr:     Sender. Defaults to EMAIL_FROM env var.
+        to_addr:       Recipient(s). Defaults to EMAIL_TO env var.
+        sendgrid_api_key: SendGrid API key override.
+        smtp_*:        SMTP credentials. Used only when SendGrid is not active.
+    """
+    resolved_from = _resolve("EMAIL_FROM", from_addr)
+    to_addrs = _recipients(to_addr)
+    subject = f"[Helix] Fix suggested for {error_type} — incident {incident_id[:8]}"
+
+    body_text = (
+        f"Helix has suggested a fix for the following incident.\n\n"
+        f"Incident:  {incident_id}\n"
+        f"Error:     {error_type}: {error_message}\n"
+        f"Review:    {issue_url}\n\n"
+        f"The suggested fix has been posted as a comment on the GitHub Issue above.\n"
+        f"Please review and apply it manually.\n"
+    )
+    body_html = f"""\
+<html><body style="font-family: sans-serif; color: #111;">
+<h2 style="color: #0984e3;">&#128296; Helix &#8212; Fix Suggested</h2>
+<table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+  <tr><td style="padding: 6px; font-weight: bold;">Incident</td>
+      <td style="padding: 6px; font-family: monospace;">{incident_id}</td></tr>
+  <tr style="background: #f8f9fa;">
+      <td style="padding: 6px; font-weight: bold;">Error</td>
+      <td style="padding: 6px; font-family: monospace;">{error_type}: {error_message}</td></tr>
+  <tr><td style="padding: 6px; font-weight: bold;">Review Fix</td>
+      <td style="padding: 6px;"><a href="{issue_url}">View on GitHub</a></td></tr>
+</table>
+<p style="color: #636e72; font-size: 13px;">
+  The fix has been posted as a comment on the GitHub Issue. Please review and apply it manually.
+</p>
+</body></html>
+"""
+
+    await _deliver(
+        resolved_from, to_addrs, subject, body_text, body_html,
+        sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
+    )
+    logger.info("fix suggested email sent", extra={"incident_id": incident_id})

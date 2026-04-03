@@ -1,10 +1,9 @@
 """Tests for agents/dev/agent.py"""
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.models import (
     CrashReport,
-    PRResult,
     QAResult,
     Severity,
     TestCase,
@@ -17,18 +16,12 @@ SAMPLE_YAML = {
     "rollbar": {"access_token_env": "ROLLBAR_ACCESS_TOKEN"},
     "redis": {"url_env": "REDIS_URL", "ttl_seconds": 604800},
     "agents": {
-        "dev": {"provider": "claude-code", "model": "claude-code"},
+        "dev": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
     },
     "github": {
         "token_env": "GITHUB_TOKEN",
         "target_repo": "acme/repo",
         "base_branch": "main",
-    },
-    "jira": {
-        "url_env": "JIRA_URL",
-        "email_env": "JIRA_EMAIL",
-        "token_env": "JIRA_TOKEN",
-        "project_key_env": "JIRA_PROJECT_KEY",
     },
     "slack": {
         "token_env": "SLACK_BOT_TOKEN",
@@ -69,12 +62,12 @@ def crash_report():
         incident_id="inc-001",
         rollbar_item_id="12345",
         severity=Severity.high,
-        error_type="KeyError",
-        error_message="'item_id'",
-        stack_trace="File checkout.py line 42",
-        affected_component="checkout",
-        affected_endpoint="/api/checkout",
-        summary="A KeyError in checkout.",
+        error_type="AttributeError",
+        error_message="'NoneType' object has no attribute 'get'",
+        stack_trace="File send_error.py line 25 in greet_user",
+        affected_component="greet_user",
+        affected_endpoint="/api/greet",
+        summary="greet_user crashes when user is None.",
     )
 
 
@@ -82,15 +75,16 @@ def crash_report():
 def qa_result():
     return QAResult(
         incident_id="inc-001",
-        ticket_id="PROJ-1",
-        ticket_url="https://jira/PROJ-1",
+        ticket_id="42",
+        ticket_url="https://github.com/acme/repo/issues/42",
         ticket_action=TicketAction.created,
         test_case=TestCase(
-            file_path="tests/test_checkout.py",
-            test_name="test_checkout_raises",
-            content="def test_checkout_raises(): assert False",
+            file_path="tests/test_greet.py",
+            test_name="test_greet_user_missing",
+            content="def test_greet_user_missing():\n    assert greet_user('bob') is not None",
             format=TestFormat.pytest,
         ),
+        relevant_files=["send_error.py"],
     )
 
 
@@ -98,227 +92,100 @@ def qa_result():
 def mock_redis():
     r = AsyncMock()
     r.set = AsyncMock(return_value=True)
-    r.get = AsyncMock(return_value=b"0")
     r.publish = AsyncMock(return_value=1)
-    # Simulate increment: first call returns 1
-    r.incr = AsyncMock(side_effect=[1, 2, 3])
     return r
 
 
-def _pr_result():
-    return PRResult(
-        incident_id="inc-001",
-        pr_url="https://github.com/acme/repo/pull/1",
-        pr_number=1,
-        branch_name="helix/fix/inc-001-1",
-        iterations_taken=1,
-        fix_summary="Fixed the KeyError.",
-    )
+LLM_FIX = "**Root cause:** `get_user` returns None for unknown users.\n\n```python\n# Before\nreturn f\"Hello, {user.get('name')}!\"\n# After\nif user is None:\n    return 'Unknown user'\nreturn f\"Hello, {user.get('name')}!\"\n```"
 
 
 # ---------------------------------------------------------------------------
-# _tests_passed / _extract_explanation
+# handle()
 # ---------------------------------------------------------------------------
 
-def test_tests_passed_true():
-    from agents.dev.agent import _tests_passed
-    assert _tests_passed("blah TESTS_PASSED explanation") is True
-
-
-def test_tests_passed_false():
-    from agents.dev.agent import _tests_passed
-    assert _tests_passed("TESTS_FAILED explanation") is False
-
-
-def test_extract_explanation_after_tests_passed():
-    from agents.dev.agent import _extract_explanation
-    result = _extract_explanation("TESTS_PASSED\nFixed the bug.")
-    assert result == "Fixed the bug."
-
-
-def test_extract_explanation_after_tests_failed():
-    from agents.dev.agent import _extract_explanation
-    result = _extract_explanation("TESTS_FAILED\nStill broken.")
-    assert result == "Still broken."
-
-
-def test_extract_explanation_no_sentinel():
-    from agents.dev.agent import _extract_explanation
-    result = _extract_explanation("No sentinel here.")
-    assert result == "No sentinel here."
-
-
-# ---------------------------------------------------------------------------
-# _build_pr_body
-# ---------------------------------------------------------------------------
-
-def test_build_pr_body_contains_key_fields(crash_report, qa_result):
-    from agents.dev.agent import _build_pr_body
-    body = _build_pr_body(crash_report, qa_result, "Fixed by adding a guard.", 1)
-    assert "inc-001" in body
-    assert "KeyError" in body
-    assert "checkout" in body
-    assert "Fixed by adding a guard." in body
-    assert "PROJ-1" in body
-
-
-# ---------------------------------------------------------------------------
-# _get_changed_files
-# ---------------------------------------------------------------------------
-
-async def test_get_changed_files_returns_list():
-    from agents.dev.agent import _get_changed_files
-    with patch("integrations.github._git", new=AsyncMock(return_value="checkout.py\nfoo.py")):
-        files = await _get_changed_files("/tmp/repo")
-    assert files == ["checkout.py", "foo.py"]
-
-
-async def test_get_changed_files_returns_empty_on_error():
-    from agents.dev.agent import _get_changed_files
-    with patch("integrations.github._git", side_effect=RuntimeError("git failed")):
-        files = await _get_changed_files("/tmp/repo")
-    assert files == []
-
-
-# ---------------------------------------------------------------------------
-# _escalate
-# ---------------------------------------------------------------------------
-
-async def test_escalate_calls_slack_and_email(crash_report):
-    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("integrations.slack.post_escalation", new=AsyncMock()) as mock_slack, \
-         patch("integrations.email.send_escalation", new=AsyncMock()) as mock_email:
-        from agents.dev.agent import _escalate
-        from core.config import get_slack_config, get_email_config
-        with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
-            sc = get_slack_config()
-            ec = get_email_config()
-        await _escalate(crash_report, ["attempt 1"], sc, ec)
-
-    mock_slack.assert_awaited_once()
-    mock_email.assert_awaited_once()
-
-
-async def test_escalate_no_context_uses_placeholder(crash_report):
-    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("integrations.slack.post_escalation", new=AsyncMock()) as mock_slack, \
-         patch("integrations.email.send_escalation", new=AsyncMock()):
-        from agents.dev.agent import _escalate
-        from core.config import get_slack_config, get_email_config
-        with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
-            sc = get_slack_config()
-            ec = get_email_config()
-        await _escalate(crash_report, [], sc, ec)
-
-    call_kwargs = mock_slack.call_args.kwargs
-    assert "No attempts recorded." in call_kwargs.get("context", "")
-
-
-# ---------------------------------------------------------------------------
-# handle() — success path
-# ---------------------------------------------------------------------------
-
-async def test_handle_success(crash_report, qa_result, mock_redis):
-    # Simulate: iterations=0, then increment to 1, TESTS_PASSED on first try
-    mock_redis.get = AsyncMock(return_value=b"0")
-    mock_redis.incr = AsyncMock(return_value=1)
-
-    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("integrations.github.clone_repo", new=AsyncMock()), \
-         patch("integrations.github.checkout_branch", new=AsyncMock()), \
-         patch("integrations.github.write_file", new=AsyncMock()), \
-         patch("integrations.github.commit_and_push", new=AsyncMock()), \
-         patch("integrations.github.create_pull_request", new=AsyncMock(return_value=(42, "https://github.com/pr/42"))), \
-         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
-         patch("integrations.github._git", new=AsyncMock(return_value="checkout.py")), \
-         patch("agents.dev.agent.complete", new=AsyncMock(return_value="TESTS_PASSED\nFixed the bug.")):
-        from agents.dev.agent import handle
-        result = await handle(qa_result, crash_report, mock_redis)
-
-    assert isinstance(result, PRResult)
-    assert result.pr_number == 42
-    assert result.iterations_taken == 1
-
-
-async def test_handle_posts_fix_comment_to_issue(crash_report, qa_result, mock_redis):
-    mock_redis.get = AsyncMock(return_value=b"0")
-    mock_redis.incr = AsyncMock(return_value=1)
+async def test_handle_posts_fix_comment(crash_report, qa_result, mock_redis):
     add_comment = AsyncMock()
-
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("integrations.github.clone_repo", new=AsyncMock()), \
-         patch("integrations.github.checkout_branch", new=AsyncMock()), \
-         patch("integrations.github.write_file", new=AsyncMock()), \
-         patch("integrations.github.commit_and_push", new=AsyncMock()), \
-         patch("integrations.github.create_pull_request", new=AsyncMock(return_value=(42, "https://github.com/pr/42"))), \
+         patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
+         patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
          patch("integrations.github.add_issue_comment", new=add_comment), \
-         patch("integrations.github._git", new=AsyncMock(return_value="checkout.py")), \
-         patch("agents.dev.agent.complete", new=AsyncMock(return_value="TESTS_PASSED\nFixed the bug.")):
+         patch("integrations.slack.post_message", new=AsyncMock()), \
+         patch("integrations.email.send_fix_suggested", new=AsyncMock()):
         from agents.dev.agent import handle
         await handle(qa_result, crash_report, mock_redis)
 
     add_comment.assert_awaited_once()
     _, kwargs = add_comment.call_args
-    assert "PR #42" in kwargs["comment"]
-    assert "checkout.py" in kwargs["comment"]
-    assert "test_checkout_raises" in kwargs["comment"]
+    assert "Suggested fix" in kwargs["comment"]
+    assert LLM_FIX in kwargs["comment"]
 
 
-# ---------------------------------------------------------------------------
-# handle() — exhausted iterations
-# ---------------------------------------------------------------------------
-
-async def test_handle_raises_when_iterations_exhausted(crash_report, qa_result, mock_redis):
-    # Simulate already at MAX_ITERATIONS
-    mock_redis.get = AsyncMock(return_value=b"3")
-
+async def test_handle_sends_slack_notification(crash_report, qa_result, mock_redis):
+    post_message = AsyncMock()
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
+         patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
          patch("integrations.github.add_issue_comment", new=AsyncMock()), \
-         patch("integrations.slack.post_escalation", new=AsyncMock()), \
-         patch("integrations.email.send_escalation", new=AsyncMock()):
+         patch("integrations.slack.post_message", new=post_message), \
+         patch("integrations.email.send_fix_suggested", new=AsyncMock()):
         from agents.dev.agent import handle
-        with pytest.raises(RuntimeError, match="exhausted"):
-            await handle(qa_result, crash_report, mock_redis)
+        await handle(qa_result, crash_report, mock_redis)
+
+    post_message.assert_awaited_once()
+    _, kwargs = post_message.call_args
+    assert "fix" in kwargs["text"].lower()
+    assert "github.com/acme/repo/issues/42" in kwargs["text"]
 
 
-async def test_handle_posts_failure_comment_when_exhausted(crash_report, qa_result, mock_redis):
-    mock_redis.get = AsyncMock(return_value=b"3")
-    add_comment = AsyncMock()
-
+async def test_handle_publishes_fix_suggested_event(crash_report, qa_result, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("integrations.github.add_issue_comment", new=add_comment), \
-         patch("integrations.slack.post_escalation", new=AsyncMock()), \
-         patch("integrations.email.send_escalation", new=AsyncMock()):
-        from agents.dev.agent import handle
-        with pytest.raises(RuntimeError):
-            await handle(qa_result, crash_report, mock_redis)
-
-    add_comment.assert_awaited_once()
-    _, kwargs = add_comment.call_args
-    assert "could not automatically fix" in kwargs["comment"]
-    assert "test_checkout_raises" in kwargs["comment"]
-
-
-# ---------------------------------------------------------------------------
-# handle_retry() — passes quality_feedback through
-# ---------------------------------------------------------------------------
-
-async def test_handle_retry_passes_feedback(crash_report, qa_result, mock_redis):
-    mock_redis.get = AsyncMock(return_value=b"0")
-    mock_redis.incr = AsyncMock(return_value=1)
-
-    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("integrations.github.clone_repo", new=AsyncMock()), \
-         patch("integrations.github.checkout_branch", new=AsyncMock()), \
-         patch("integrations.github.write_file", new=AsyncMock()), \
-         patch("integrations.github.commit_and_push", new=AsyncMock()), \
-         patch("integrations.github.create_pull_request", new=AsyncMock(return_value=(1, "https://github.com/pr/1"))), \
+         patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
+         patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
          patch("integrations.github.add_issue_comment", new=AsyncMock()), \
-         patch("integrations.github._git", new=AsyncMock(return_value="")), \
-         patch("agents.dev.agent.complete", new=AsyncMock(return_value="TESTS_PASSED\nRetried fix.")) as mock_complete:
-        from agents.dev.agent import handle_retry
-        result = await handle_retry(qa_result, crash_report, "needs better test", mock_redis)
+         patch("integrations.slack.post_message", new=AsyncMock()), \
+         patch("integrations.email.send_fix_suggested", new=AsyncMock()):
+        from agents.dev.agent import handle
+        await handle(qa_result, crash_report, mock_redis)
 
-    assert result.pr_number == 1
-    # quality_feedback only used on iteration==1; verify complete was called
-    mock_complete.assert_awaited_once()
+    mock_redis.publish.assert_called_once()
+    channel = mock_redis.publish.call_args[0][0]
+    assert "fix_suggested" in channel
+
+
+# ---------------------------------------------------------------------------
+# _fetch_source_files
+# ---------------------------------------------------------------------------
+
+async def test_fetch_source_files_returns_content():
+    import base64
+    fake_content = base64.b64encode(b"def get_user(): pass").decode()
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"content": fake_content + "\n"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("agents.dev.agent.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        from agents.dev.agent import _fetch_source_files
+        result = await _fetch_source_files("acme/repo", ["send_error.py"])
+
+    assert "send_error.py" in result
+    assert "get_user" in result["send_error.py"]
+
+
+async def test_fetch_source_files_skips_missing():
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = Exception("404")
+
+    with patch("agents.dev.agent.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        from agents.dev.agent import _fetch_source_files
+        result = await _fetch_source_files("acme/repo", ["nonexistent.py"])
+
+    assert result == {}
