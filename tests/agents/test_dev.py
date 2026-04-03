@@ -273,11 +273,30 @@ async def test_handle_raises_when_iterations_exhausted(crash_report, qa_result, 
     mock_redis.get = AsyncMock(return_value=b"3")
 
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
          patch("integrations.slack.post_escalation", new=AsyncMock()), \
          patch("integrations.email.send_escalation", new=AsyncMock()):
         from agents.dev.agent import handle
         with pytest.raises(RuntimeError, match="exhausted"):
             await handle(qa_result, crash_report, mock_redis)
+
+
+async def test_handle_posts_failure_comment_when_exhausted(crash_report, qa_result, mock_redis):
+    mock_redis.get = AsyncMock(return_value=b"3")
+    add_comment = AsyncMock()
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("integrations.github.add_issue_comment", new=add_comment), \
+         patch("integrations.slack.post_escalation", new=AsyncMock()), \
+         patch("integrations.email.send_escalation", new=AsyncMock()):
+        from agents.dev.agent import handle
+        with pytest.raises(RuntimeError):
+            await handle(qa_result, crash_report, mock_redis)
+
+    add_comment.assert_awaited_once()
+    _, kwargs = add_comment.call_args
+    assert "could not automatically fix" in kwargs["comment"]
+    assert "test_checkout_raises" in kwargs["comment"]
 
 
 # ---------------------------------------------------------------------------
