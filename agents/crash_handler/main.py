@@ -33,8 +33,10 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create the Redis client on startup and close it on shutdown."""
-    app.state.redis = aioredis.from_url(get_redis_url(), decode_responses=False)
-    logger.info("crash handler started — redis connected")
+    redis_url = get_redis_url()
+    logger.info("crash handler connecting to redis", extra={"redis_url": redis_url})
+    app.state.redis = aioredis.from_url(redis_url, decode_responses=False)
+    logger.info("crash handler started — redis connected, listening on :8000/webhook/rollbar")
     yield
     await app.state.redis.aclose()
     logger.info("crash handler shut down")
@@ -86,6 +88,10 @@ async def rollbar_webhook(request: Request):
         )
 
     rollbar_event = parse_event(raw)
+    logger.debug(
+        "rollbar webhook parsed",
+        extra={"item_id": rollbar_event.item_id, "level": rollbar_event.level, "title": rollbar_event.title},
+    )
 
     report = await handle(rollbar_event, request.app.state.redis)
 

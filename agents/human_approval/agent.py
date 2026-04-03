@@ -50,6 +50,7 @@ async def handle_approve(
     slack_config = get_slack_config()
     email_config = get_email_config()
 
+    logger.debug("reading pr_result from redis", extra={"incident_id": incident_id})
     pr_result = await read_pr_result(redis_client, incident_id)
     if pr_result is None:
         logger.error(
@@ -130,6 +131,7 @@ async def handle_reject(
 
     slack_config = get_slack_config()
 
+    logger.debug("reading pr_result from redis", extra={"incident_id": incident_id})
     pr_result = await read_pr_result(redis_client, incident_id)
     pr_link = f"<{pr_result.pr_url}|PR #{pr_result.pr_number}>" if pr_result else "the PR"
 

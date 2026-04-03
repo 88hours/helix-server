@@ -44,8 +44,10 @@ _ACTION_REJECT = "helix_reject_pr"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create the Redis client on startup and close it on shutdown."""
-    app.state.redis = aioredis.from_url(get_redis_url(), decode_responses=False)
-    logger.info("human approval agent started — redis connected")
+    redis_url = get_redis_url()
+    logger.info("human approval agent connecting to redis", extra={"redis_url": redis_url})
+    app.state.redis = aioredis.from_url(redis_url, decode_responses=False)
+    logger.info("human approval agent started — redis connected, listening on :8001/slack/interactions")
     yield
     await app.state.redis.aclose()
     logger.info("human approval agent shut down")
@@ -120,6 +122,11 @@ async def slack_interactions(request: Request, background_tasks: BackgroundTasks
     incident_id = action.get("value", "")
     user = payload.get("user", {})
     username = user.get("username") or user.get("name") or user.get("id", "unknown")
+
+    logger.debug(
+        "slack interaction received",
+        extra={"action_id": action_id, "incident_id": incident_id, "user": username},
+    )
 
     if not incident_id:
         logger.warning("slack interaction missing incident_id in action value")

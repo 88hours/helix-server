@@ -35,15 +35,26 @@ async def main() -> None:
     If required state (CrashReport, PRResult) is missing from Redis, the event
     is skipped with an error log rather than crashing the loop.
     """
-    redis_client = aioredis.from_url(get_redis_url(), decode_responses=False)
-    logger.info("code quality agent subscriber started")
+    redis_url = get_redis_url()
+    logger.info("code quality agent connecting to redis", extra={"redis_url": redis_url})
+    redis_client = aioredis.from_url(redis_url, decode_responses=False)
+    logger.info("code quality agent subscriber started — listening on helix:events:pr_created")
 
     async for incident_id, payload in subscribe(redis_client, "pr_created"):
+        logger.info("code quality agent received pr_created event", extra={"incident_id": incident_id})
         try:
+            logger.debug("reading pr_result from redis", extra={"incident_id": incident_id})
             pr_result = await read_pr_result(redis_client, incident_id)
             if pr_result is None:
+                logger.warning(
+                    "pr_result not in redis — falling back to event payload",
+                    extra={"incident_id": incident_id},
+                )
                 pr_result = PRResult.model_validate(payload)
+            else:
+                logger.debug("pr_result loaded from redis", extra={"incident_id": incident_id})
 
+            logger.debug("reading crash_report from redis", extra={"incident_id": incident_id})
             crash_report = await read_crash_report(redis_client, incident_id)
             if crash_report is None:
                 logger.error(
@@ -51,8 +62,13 @@ async def main() -> None:
                     extra={"incident_id": incident_id},
                 )
                 continue
+            logger.debug(
+                "crash_report loaded from redis",
+                extra={"incident_id": incident_id, "severity": crash_report.severity.value},
+            )
 
             await handle(pr_result, crash_report, redis_client)
+            logger.info("code quality agent finished handling pr_created", extra={"incident_id": incident_id})
         except Exception as exc:
             logger.error(
                 "code quality agent failed for incident",

@@ -78,8 +78,10 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
         raw_payload=event.raw,
     )
 
+    logger.debug("writing crash_report to redis", extra={"incident_id": incident_id})
     await write_crash_report(redis_client, report)
     await write_status(redis_client, incident_id, "crash_analysed")
+    logger.debug("publishing crash_analysed event", extra={"incident_id": incident_id})
     await publish(redis_client, "crash_analysed", incident_id, report.model_dump(mode="json"))
 
     logger.info(
