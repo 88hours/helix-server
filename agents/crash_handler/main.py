@@ -79,6 +79,12 @@ async def rollbar_webhook(request: Request):
             detail=f"Invalid JSON payload: {exc}",
         )
 
+    # Rollbar sends a tokenless ping payload to verify the URL is reachable.
+    # Acknowledge it immediately — there is nothing to process.
+    if raw.get("event_name") == "test":
+        logger.info("rollbar connectivity test received — acknowledged")
+        return {"status": "ok"}
+
     rollbar_cfg = get_rollbar_config()
     if not verify_token(raw, rollbar_cfg.access_token):
         logger.warning("rollbar webhook access token mismatch")

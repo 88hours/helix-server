@@ -197,6 +197,18 @@ def test_healthz():
     assert resp.json() == {"status": "ok"}
 
 
+def test_webhook_rollbar_test_ping_returns_202():
+    client = _make_client()
+    payload = {"event_name": "test", "data": {"message": "This is a test payload from Rollbar."}}
+    resp = client.post(
+        "/webhook/rollbar",
+        content=json.dumps(payload).encode(),
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 202
+    assert resp.json() == {"status": "ok"}
+
+
 def test_webhook_wrong_token_returns_401():
     client = _make_client()
     payload = {**RAW_ROLLBAR_PAYLOAD, "data": {**RAW_ROLLBAR_PAYLOAD["data"], "access_token": "wrong"}}
