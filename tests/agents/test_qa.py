@@ -25,12 +25,6 @@ SAMPLE_YAML = {
         "target_repo": "acme/repo",
         "base_branch": "main",
     },
-    "jira": {
-        "url_env": "JIRA_URL",
-        "email_env": "JIRA_EMAIL",
-        "token_env": "JIRA_TOKEN",
-        "project_key_env": "JIRA_PROJECT_KEY",
-    },
     "slack": {
         "token_env": "SLACK_BOT_TOKEN",
         "approval_channel_env": "SLACK_APPROVAL_CHANNEL",
@@ -52,10 +46,6 @@ SAMPLE_YAML = {
 @pytest.fixture(autouse=True)
 def env_vars(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
-    monkeypatch.setenv("JIRA_URL", "https://acme.atlassian.net")
-    monkeypatch.setenv("JIRA_EMAIL", "dev@acme.com")
-    monkeypatch.setenv("JIRA_TOKEN", "jira-token")
-    monkeypatch.setenv("JIRA_PROJECT_KEY", "PROJ")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
 
@@ -96,8 +86,8 @@ LLM_RESPONSE = json.dumps({
 async def test_handle_returns_qa_result(crash_report, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("integrations.github.clone_repo", new=AsyncMock()), \
-         patch("integrations.jira.find_existing_issue", new=AsyncMock(return_value=None)), \
-         patch("integrations.jira.create_issue", new=AsyncMock(return_value=("PROJ-1", "https://jira/PROJ-1"))), \
+         patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=None)), \
+         patch("integrations.github.create_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
          patch("agents.qa.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.qa.agent import handle
         result = await handle(crash_report, mock_redis)
@@ -108,24 +98,24 @@ async def test_handle_returns_qa_result(crash_report, mock_redis):
     assert result.ticket_action == TicketAction.created
 
 
-async def test_handle_updates_existing_ticket(crash_report, mock_redis):
+async def test_handle_updates_existing_issue(crash_report, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("integrations.github.clone_repo", new=AsyncMock()), \
-         patch("integrations.jira.find_existing_issue", new=AsyncMock(return_value=("PROJ-42", "https://jira/PROJ-42"))), \
-         patch("integrations.jira.add_comment", new=AsyncMock()), \
+         patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
          patch("agents.qa.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.qa.agent import handle
         result = await handle(crash_report, mock_redis)
 
-    assert result.ticket_id == "PROJ-42"
+    assert result.ticket_id == "42"
     assert result.ticket_action == TicketAction.updated
 
 
 async def test_handle_publishes_event(crash_report, mock_redis):
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("integrations.github.clone_repo", new=AsyncMock()), \
-         patch("integrations.jira.find_existing_issue", new=AsyncMock(return_value=None)), \
-         patch("integrations.jira.create_issue", new=AsyncMock(return_value=("PROJ-1", "https://jira/PROJ-1"))), \
+         patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=None)), \
+         patch("integrations.github.create_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
          patch("agents.qa.agent.complete", new=AsyncMock(return_value=LLM_RESPONSE)):
         from agents.qa.agent import handle
         await handle(crash_report, mock_redis)

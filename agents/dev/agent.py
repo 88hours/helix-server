@@ -285,7 +285,7 @@ def _build_pr_body(
         f"- **Error:** `{crash_report.error_type}: {crash_report.error_message}`\n"
         f"- **Component:** {crash_report.affected_component}\n"
         f"- **Endpoint:** {crash_report.affected_endpoint}\n"
-        f"- **JIRA:** [{qa_result.ticket_id}]({qa_result.ticket_url})\n\n"
+        f"- **Issue:** [{qa_result.ticket_id}]({qa_result.ticket_url})\n\n"
         f"## What Changed\n\n"
         f"{crash_report.summary}\n\n"
         f"## Testing\n\n"

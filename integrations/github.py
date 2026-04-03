@@ -217,6 +217,105 @@ async def merge_pull_request(
     logger.info("pull request merged", extra={"repo": repo, "pr_number": pr_number})
 
 
+async def find_existing_issue(repo: str, title: str) -> tuple[str, str] | None:
+    """
+    Search for an open GitHub Issue with a matching title in the given repo.
+
+    Used by the QA Agent to deduplicate: if an issue for this bug already
+    exists, add a comment rather than opening a duplicate.
+
+    Args:
+        repo:  Repository in "owner/name" format, e.g. "acme/backend".
+        title: Issue title to search for.
+
+    Returns:
+        (issue_number_str, issue_url) if a match is found, or None.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails.
+    """
+    # Use the search API to find open issues with a matching title.
+    query = f'repo:{repo} is:issue is:open in:title {title[:60]}'
+    url = f"{_GITHUB_API}/search/issues"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            url,
+            params={"q": query, "per_page": 1},
+            headers=_api_headers(),
+        )
+        response.raise_for_status()
+
+    items = response.json().get("items", [])
+    if not items:
+        return None
+
+    issue = items[0]
+    issue_number = str(issue["number"])
+    issue_url = issue["html_url"]
+    logger.info("existing github issue found", extra={"issue_number": issue_number})
+    return issue_number, issue_url
+
+
+async def create_issue(
+    repo: str,
+    title: str,
+    body: str,
+    labels: list[str] | None = None,
+) -> tuple[str, str]:
+    """
+    Create a new GitHub Issue.
+
+    Args:
+        repo:   Repository in "owner/name" format, e.g. "acme/backend".
+        title:  Issue title.
+        body:   Issue body (supports Markdown).
+        labels: Optional list of label names to apply.
+
+    Returns:
+        (issue_number_str, issue_url) tuple.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails.
+    """
+    url = f"{_GITHUB_API}/repos/{repo}/issues"
+    payload: dict = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, headers=_api_headers())
+        response.raise_for_status()
+
+    data = response.json()
+    issue_number = str(data["number"])
+    issue_url = data["html_url"]
+    logger.info("github issue created", extra={"issue_number": issue_number, "issue_url": issue_url})
+    return issue_number, issue_url
+
+
+async def add_issue_comment(repo: str, issue_number: str, comment: str) -> None:
+    """
+    Add a comment to an existing GitHub Issue.
+
+    Args:
+        repo:         Repository in "owner/name" format.
+        issue_number: Issue number as a string, e.g. "42".
+        comment:      Comment body (supports Markdown).
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails.
+    """
+    url = f"{_GITHUB_API}/repos/{repo}/issues/{issue_number}/comments"
+    payload = {"body": comment}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, headers=_api_headers())
+        response.raise_for_status()
+
+    logger.info("github issue comment added", extra={"issue_number": issue_number})
+
+
 async def get_pr_diff(repo: str, pr_number: int) -> str:
     """
     Fetch the unified diff of a pull request.

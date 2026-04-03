@@ -1,7 +1,7 @@
 """
 QA Agent — core logic.
 
-Receives a CrashReport, creates or updates a JIRA ticket, clones the target
+Receives a CrashReport, creates or updates a GitHub Issue, clones the target
 repository to read relevant source files, then uses the LLM to generate a
 minimal failing pytest test case that reproduces the bug.
 
@@ -17,13 +17,13 @@ from pathlib import Path
 import redis.asyncio as redis
 
 from agents.qa import prompts
-from core.config import get_github_config, get_jira_config
+from core.config import get_github_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction
 from core.state import write_qa_result, write_status
 from core.utils import extract_json
-from integrations import github, jira
+from integrations import github
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     Generate a failing test case for the given crash report.
 
     Steps:
-      1. Create or update a JIRA ticket.
+      1. Create or update a GitHub Issue.
       2. Clone the target repo and read relevant source files.
       3. Call the LLM to generate a failing pytest test case.
       4. Persist the QAResult to Redis.
@@ -55,11 +55,10 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     logger.info("qa agent started", extra={"incident_id": report.incident_id})
 
     gh_config = get_github_config()
-    jira_config = get_jira_config()
 
-    # Step 1 — JIRA ticket.
-    ticket_id, ticket_url, ticket_action = await _create_or_update_ticket(
-        report, jira_config
+    # Step 1 — GitHub Issue.
+    ticket_id, ticket_url, ticket_action = await _create_or_update_issue(
+        report, gh_config.target_repo
     )
 
     # Step 2 — Clone repo and read relevant source files.
@@ -131,55 +130,44 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-async def _create_or_update_ticket(
+async def _create_or_update_issue(
     report: CrashReport,
-    jira_config,
+    repo: str,
 ) -> tuple[str, str, TicketAction]:
     """
-    Find an existing JIRA ticket for this bug or create a new one.
+    Find an existing GitHub Issue for this bug or create a new one.
 
     Returns:
-        (ticket_id, ticket_url, ticket_action)
+        (issue_number, issue_url, ticket_action)
     """
-    summary = f"[Helix] {report.error_type}: {report.error_message[:120]}"
-    description = (
-        f"Incident ID: {report.incident_id}\n"
-        f"Severity: {report.severity.value}\n"
-        f"Affected component: {report.affected_component}\n"
-        f"Affected endpoint: {report.affected_endpoint}\n\n"
-        f"Summary:\n{report.summary}\n\n"
-        f"Stack trace:\n{report.stack_trace}"
+    title = f"[Helix] {report.error_type}: {report.error_message[:120]}"
+    body = (
+        f"**Incident ID:** {report.incident_id}\n"
+        f"**Severity:** {report.severity.value}\n"
+        f"**Affected component:** {report.affected_component}\n"
+        f"**Affected endpoint:** {report.affected_endpoint}\n\n"
+        f"**Summary:**\n{report.summary}\n\n"
+        f"**Stack trace:**\n```\n{report.stack_trace}\n```"
     )
 
-    existing = await jira.find_existing_issue(
-        summary=summary,
-        project_key=jira_config.project_key,
-        jira_url=jira_config.url,
-        email=jira_config.email,
-        token=jira_config.token,
-    )
+    existing = await github.find_existing_issue(repo=repo, title=title)
 
     if existing:
-        ticket_id, ticket_url = existing
-        await jira.add_comment(
-            issue_key=ticket_id,
-            comment=f"Helix re-detected this crash (incident {report.incident_id}). Generating a new test case.",
-            jira_url=jira_config.url,
-            email=jira_config.email,
-            token=jira_config.token,
+        issue_number, issue_url = existing
+        await github.add_issue_comment(
+            repo=repo,
+            issue_number=issue_number,
+            comment=f"Helix re-detected this crash (incident `{report.incident_id}`). Generating a new test case.",
         )
-        return ticket_id, ticket_url, TicketAction.updated
+        return issue_number, issue_url, TicketAction.updated
 
-    ticket_id, ticket_url = await jira.create_issue(
-        summary=summary,
-        description=description,
-        project_key=jira_config.project_key,
-        issue_type="Bug",
-        jira_url=jira_config.url,
-        email=jira_config.email,
-        token=jira_config.token,
+    issue_number, issue_url = await github.create_issue(
+        repo=repo,
+        title=title,
+        body=body,
+        labels=["bug", "helix"],
     )
-    return ticket_id, ticket_url, TicketAction.created
+    return issue_number, issue_url, TicketAction.created
 
 
 def _read_relevant_files(repo_dir: str, stack_trace: str) -> dict[str, str]:

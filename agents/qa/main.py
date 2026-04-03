@@ -35,17 +35,31 @@ async def main() -> None:
     If the CrashReport is not in Redis (e.g. expired), the event is skipped
     with a warning rather than crashing the loop.
     """
-    redis_client = aioredis.from_url(get_redis_url(), decode_responses=False)
-    logger.info("qa agent subscriber started")
+    redis_url = get_redis_url()
+    logger.info("qa agent connecting to redis", extra={"redis_url": redis_url})
+    redis_client = aioredis.from_url(redis_url, decode_responses=False)
+    logger.info("qa agent subscriber started — listening on helix:events:crash_analysed")
 
     async for incident_id, payload in subscribe(redis_client, "crash_analysed"):
+        logger.info("qa agent received event", extra={"incident_id": incident_id})
         try:
             # Prefer the Redis record (canonical); fall back to the event payload.
+            logger.debug("reading crash report from redis", extra={"incident_id": incident_id})
             report = await read_crash_report(redis_client, incident_id)
             if report is None:
+                logger.warning(
+                    "crash report not found in redis — falling back to event payload",
+                    extra={"incident_id": incident_id},
+                )
                 report = CrashReport.model_validate(payload)
+            else:
+                logger.info(
+                    "crash report loaded from redis",
+                    extra={"incident_id": incident_id, "severity": report.severity.value},
+                )
 
             await handle(report, redis_client)
+            logger.info("qa agent finished handling incident", extra={"incident_id": incident_id})
         except Exception as exc:
             logger.error(
                 "qa agent failed for incident",

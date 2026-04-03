@@ -222,7 +222,7 @@ EOF
 
 curl -X POST http://localhost:8000/webhook/rollbar \
   -H "Content-Type: application/json" \
-  -d @/tmp/rollbar_test.json
+  -d ./test_payloads/rollbar_new_item.json
 ```
 
 Replace `<your ROLLBAR_ACCESS_TOKEN>` with the value from your `.env`. A successful request returns `202 Accepted` with an `incident_id`.
@@ -263,24 +263,24 @@ uv run pytest tests/agents/test_crash_handler.py tests/integrations/test_rollbar
 Each agent runs as its own process. Start them all:
 
 ```bash
-# Crash Handler — webhook server (receives Sentry events)
+# Crash Handler — webhook server (receives Rollbar events)
 uv run uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
 
 # QA Agent — subscribes to crash_analysed
-uv run python -m agents.qa.main
+uv run --env-file .env python -m agents.qa.main
 
 # Dev Agent — subscribes to test_case_generated and quality_rejected
-uv run python -m agents.dev.main
+uv run --env-file .env python  -m agents.dev.main
 
 # Code Quality Agent — subscribes to pr_created
-uv run python -m agents.code_quality.main
+uv run --env-file .env python -m agents.code_quality.main
 
 # Human Approval Agent — receives Slack button clicks (Approve / Reject)
 # Configure Slack Interactivity Request URL: http://<host>:8001/slack/interactions
-uv run uvicorn agents.human_approval.main:app --host 0.0.0.0 --port 8001
+uv run --env-file .env uvicorn agents.human_approval.main:app --host 0.0.0.0 --port 8001
 ```
 
-Point your Sentry webhook at `http://<host>:8000/webhook/sentry`.
+Point your Rollbar webhook at `http://<host>:8000/webhook/rollbar`.
 
 ## Agent models
 

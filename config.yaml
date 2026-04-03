@@ -116,20 +116,6 @@ github:
   base_branch: main
   token_env: GITHUB_TOKEN           # env var holding the GitHub token
 
-# ---------------------------------------------------------------------------
-# JIRA integration
-# ---------------------------------------------------------------------------
-#
-# Used by the QA Agent to create or update a bug ticket before generating
-# the test case.  All fields can be overridden via env vars.
-#
-# Overrides: JIRA_URL, JIRA_EMAIL, JIRA_TOKEN, JIRA_PROJECT_KEY
-
-jira:
-  url_env: JIRA_URL                 # e.g. https://acme.atlassian.net
-  email_env: JIRA_EMAIL             # JIRA account email for Basic auth
-  token_env: JIRA_TOKEN             # JIRA API token (id.atlassian.com)
-  project_key_env: JIRA_PROJECT_KEY # e.g. PROJ
 
 # ---------------------------------------------------------------------------
 # Slack integration
