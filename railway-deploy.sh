@@ -23,7 +23,7 @@ ALL_SERVICES=(crash_handler qa dev notifier)
 
 start_command() {
   case "$1" in
-    crash_handler) echo "uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \$PORT" ;;
+    crash_handler) echo "sh -c 'uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \${PORT:-8000}'" ;;
     qa)            echo "python -m agents.qa.main" ;;
     dev)           echo "python -m agents.dev.main" ;;
     notifier)      echo "python -m agents.notifier.main" ;;
