@@ -361,3 +361,29 @@ See `docs/architecture.md` for a full breakdown.
 ## Scope
 
 Helix fixes **application-level bugs** only. Out of scope for MVP: infrastructure failures, performance optimisation, refactoring, mobile crashes, multi-tenant support.
+
+---
+
+## Roadmap
+
+### Phase 1 — Make it work
+- [ ] Restore Dev Agent TDD loop — clone repo, run failing test, write fix, run full suite, retry up to 3x, open GitHub PR
+- [ ] Restore Human Approval workflow — Slack Approve/Reject buttons, merge PR on approval, escalate on rejection
+
+### Phase 2 — Make it deployable
+- [ ] Add Sentry integration — webhook parser + signature verification, replace Rollbar as primary crash source
+- [ ] Add one-click Railway deploy button — railway.json + deploy badge in README
+
+### Phase 3 — Make it a SaaS
+- [ ] Add Postgres — store per-org config, replace static config.yaml for multi-tenant data
+- [ ] Add Auth0/Clerk authentication — login/signup, org model, all resources scoped by org_id
+- [ ] Add GitHub OAuth — repo connection via OAuth App instead of manual token setup
+- [ ] Add Slack OAuth app install — "Add to Slack" flow, store bot token per org
+- [ ] Add BYO Anthropic key — required on Free tier, optional override on paid tiers
+- [ ] Add Stripe billing — Free / Pro ($49/mo) / Team ($199/mo), metered by incidents resolved
+- [ ] Build onboarding wizard — connect GitHub → connect Slack → paste Sentry webhook URL → test fire
+- [ ] Build incident dashboard — live incident feed, agent activity log, repo settings, usage meter
+
+### Phase 4 — Launch
+- [ ] Build landing page — value prop, how-it-works diagram, demo video, deploy button
+- [ ] Record demo video — crash → test case → PR → Slack approval → merged (2 min)
