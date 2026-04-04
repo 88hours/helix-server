@@ -25,6 +25,30 @@ Always respond with a single JSON object — no prose, no markdown fences.
 """
 
 
+def rejection_note(problem: str) -> str:
+    """
+    Return a prompt section appended when the LLM's previous test was rejected.
+
+    Args:
+        problem: Plain-English description of why the test failed validation.
+
+    Returns:
+        A string to append to the base user prompt before retrying.
+    """
+    return f"""
+
+## IMPORTANT — Previous Attempt Rejected
+
+Your previous response was rejected for the following reason:
+
+  {problem}
+
+Write a NEW test that asserts the CORRECT, expected return value of the function.
+Do NOT use pytest.raises() for the crash exception type. Instead, call the function
+and assert what it should return (e.g. None, a default value, an error dict).
+"""
+
+
 def user(
     error_type: str,
     error_message: str,

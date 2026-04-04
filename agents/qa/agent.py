@@ -3,7 +3,12 @@ QA Agent — core logic.
 
 Receives a CrashReport, creates or updates a GitHub Issue, clones the target
 repository to read relevant source files, then uses the LLM to generate a
-minimal failing pytest test case that reproduces the bug.
+minimal failing pytest test case that asserts the correct behaviour of the
+affected function (not that the crash occurs).
+
+The LLM call is retried up to _MAX_TEST_RETRIES times when the generated test
+is detected to assert the crash rather than the fix (e.g. pytest.raises with
+the same exception type as the crash report).
 
 Entry point: handle()
 """
@@ -32,6 +37,9 @@ _MAX_SOURCE_FILES = 8
 
 # Maximum characters to read per source file (keeps prompt size manageable).
 _MAX_FILE_CHARS = 4_000
+
+# Maximum number of times to retry LLM generation when the test fails validation.
+_MAX_TEST_RETRIES = 2
 
 
 async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
@@ -69,8 +77,8 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         await github.clone_repo(clone_url, repo_dir)
         source_files = _read_relevant_files(repo_dir, report.stack_trace)
 
-        # Step 3 — LLM generates the test case.
-        prompt = prompts.user(
+        # Step 3 — LLM generates the test case (retried if validation fails).
+        base_prompt = prompts.user(
             error_type=report.error_type,
             error_message=report.error_message,
             stack_trace=report.stack_trace,
@@ -80,11 +88,28 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
             source_files=source_files,
         )
 
-        raw_response = await complete(
-            agent="qa",
-            prompt=prompt,
-            system=prompts.SYSTEM,
-        )
+        raw_response = None
+        rejection_note = ""
+        for attempt in range(1, _MAX_TEST_RETRIES + 2):  # attempts: 1, 2, 3
+            prompt = base_prompt if not rejection_note else base_prompt + rejection_note
+            raw_response = await complete(
+                agent="qa",
+                prompt=prompt,
+                system=prompts.SYSTEM,
+            )
+            data = extract_json(raw_response)
+            problem = _check_test(data.get("content", ""), report.error_type)
+            if not problem:
+                break
+            logger.warning(
+                "qa agent test failed validation — retrying",
+                extra={
+                    "incident_id": report.incident_id,
+                    "attempt": attempt,
+                    "problem": problem,
+                },
+            )
+            rejection_note = prompts.rejection_note(problem)
 
     finally:
         shutil.rmtree(repo_dir, ignore_errors=True)
@@ -255,3 +280,32 @@ def _extract_paths_from_stack_trace(stack_trace: str) -> list[str]:
 
     # Return most recent frame first (closest to the error).
     return list(reversed(paths))
+
+
+def _check_test(test_content: str, error_type: str) -> str:
+    """
+    Return a problem description if the test content looks wrong, or "" if it is fine.
+
+    Catches the most common mistake: asserting the crash occurs (pytest.raises
+    with the same exception type as the crash report) instead of asserting the
+    correct return value.
+
+    Args:
+        test_content: Full content of the generated test file.
+        error_type:   Exception class from the crash report, e.g. "AttributeError".
+
+    Returns:
+        A plain-English description of the problem, or "" if the test looks valid.
+    """
+    # Detect: pytest.raises(<CrashErrorType>) — asserting the crash, not the fix.
+    pattern = re.compile(
+        r"pytest\.raises\s*\(\s*" + re.escape(error_type) + r"\s*\)",
+        re.IGNORECASE,
+    )
+    if pattern.search(test_content):
+        return (
+            f"The test uses `pytest.raises({error_type})`, which asserts the crash "
+            f"occurs rather than asserting the correct behaviour. A test like this "
+            f"will pass on the buggy code, so the Dev Agent will never apply a fix."
+        )
+    return ""

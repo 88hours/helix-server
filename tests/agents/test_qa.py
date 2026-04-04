@@ -231,3 +231,73 @@ def test_read_relevant_files_respects_max_count(tmp_path):
     trace = "\n".join(trace_lines)
     files = _read_relevant_files(str(tmp_path), trace)
     assert len(files) <= _MAX_SOURCE_FILES
+
+
+# ---------------------------------------------------------------------------
+# _check_test
+# ---------------------------------------------------------------------------
+
+def test_check_test_rejects_pytest_raises_with_crash_error():
+    from agents.qa.agent import _check_test
+    bad_test = (
+        "import pytest\n"
+        "from greet import greet_user\n\n"
+        "def test_greet_user_raises():\n"
+        "    with pytest.raises(AttributeError):\n"
+        "        greet_user('bob')\n"
+    )
+    problem = _check_test(bad_test, "AttributeError")
+    assert problem != ""
+    assert "pytest.raises" in problem
+
+
+def test_check_test_accepts_correct_behaviour_assertion():
+    from agents.qa.agent import _check_test
+    good_test = (
+        "from greet import greet_user\n\n"
+        "def test_greet_user_returns_none_for_unknown():\n"
+        "    result = greet_user('bob')\n"
+        "    assert result is None\n"
+    )
+    assert _check_test(good_test, "AttributeError") == ""
+
+
+def test_check_test_allows_raises_for_different_exception():
+    from agents.qa.agent import _check_test
+    # pytest.raises(ValueError) is fine when the crash was AttributeError
+    test = (
+        "import pytest\n"
+        "from greet import greet_user\n\n"
+        "def test_greet_user_raises_value_error_on_empty():\n"
+        "    with pytest.raises(ValueError):\n"
+        "        greet_user('')\n"
+    )
+    assert _check_test(test, "AttributeError") == ""
+
+
+async def test_handle_retries_when_test_fails_validation(crash_report, mock_redis):
+    """handle() must retry the LLM call when _check_test flags the response."""
+    bad_response = json.dumps({
+        "file_path": "tests/test_checkout.py",
+        "test_name": "test_checkout_raises",
+        "content": "import pytest\ndef test_checkout_raises():\n    with pytest.raises(KeyError):\n        pass",
+    })
+    good_response = json.dumps({
+        "file_path": "tests/test_checkout.py",
+        "test_name": "test_checkout_returns_error",
+        "content": "def test_checkout_returns_error():\n    result = checkout(None)\n    assert result is None",
+    })
+    # First call returns bad test, second returns good test
+    complete_mock = AsyncMock(side_effect=[bad_response, good_response])
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("integrations.github.clone_repo", new=AsyncMock()), \
+         patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=None)), \
+         patch("integrations.github.create_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
+         patch("agents.qa.agent.complete", new=complete_mock):
+        from agents.qa.agent import handle
+        result = await handle(crash_report, mock_redis)
+
+    assert complete_mock.await_count == 2
+    assert result.test_case.test_name == "test_checkout_returns_error"
