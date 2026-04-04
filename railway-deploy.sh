@@ -19,14 +19,17 @@ set -euo pipefail
 # Service definitions
 # ---------------------------------------------------------------------------
 
-declare -A START_COMMANDS=(
-  [crash_handler]="uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \$PORT"
-  [qa]="python -m agents.qa.main"
-  [dev]="python -m agents.dev.main"
-  [notifier]="python -m agents.notifier.main"
-)
-
 ALL_SERVICES=(crash_handler qa dev notifier)
+
+start_command() {
+  case "$1" in
+    crash_handler) echo "uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \$PORT" ;;
+    qa)            echo "python -m agents.qa.main" ;;
+    dev)           echo "python -m agents.dev.main" ;;
+    notifier)      echo "python -m agents.notifier.main" ;;
+    *)             echo "error: unknown service '$1'" >&2; exit 1 ;;
+  esac
+}
 
 # ---------------------------------------------------------------------------
 # Parse arguments
@@ -69,11 +72,7 @@ fi
 
 # Validate service names
 for target in "${TARGETS[@]}"; do
-  if [[ -z "${START_COMMANDS[$target]+_}" ]]; then
-    echo "error: unknown service '$target'" >&2
-    echo "valid services: ${ALL_SERVICES[*]}" >&2
-    exit 1
-  fi
+  start_command "$target" > /dev/null
 done
 
 # ---------------------------------------------------------------------------
@@ -171,7 +170,7 @@ fi
 trap 'rm -f railway.json' EXIT
 
 for service in "${TARGETS[@]}"; do
-  cmd="${START_COMMANDS[$service]}"
+  cmd="$(start_command "$service")"
   echo "──────────────────────────────────────"
   echo "Service: $service"
   echo "Command: $cmd"
