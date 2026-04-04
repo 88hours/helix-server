@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @anthropic-ai/claude-code
 
 # ---------------------------------------------------------------------------
+# Non-root user
+# ---------------------------------------------------------------------------
+# Claude Code CLI refuses --dangerously-skip-permissions when run as root.
+RUN useradd --create-home --shell /bin/bash helix
+
+# ---------------------------------------------------------------------------
 # Python application
 # ---------------------------------------------------------------------------
 WORKDIR /app
@@ -33,8 +39,11 @@ COPY uv.lock* ./
 # Install all runtime deps (no dev extras — tests are not run at runtime)
 RUN pip install --no-cache-dir -e "."
 
-# Copy the rest of the source
+# Copy the rest of the source and hand ownership to the app user
 COPY . .
+RUN chown -R helix:helix /app
+
+USER helix
 
 # ---------------------------------------------------------------------------
 # Runtime
