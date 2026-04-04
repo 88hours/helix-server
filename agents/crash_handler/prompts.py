@@ -14,20 +14,36 @@ Always respond with a single JSON object — no prose, no markdown fences.
 """
 
 
-def user(event_title: str, level: str, culprit: str, stack_trace: str, raw_summary: str) -> str:
+def user(
+    event_title: str,
+    level: str,
+    culprit: str,
+    stack_trace: str,
+    raw_summary: str,
+    known_language: str = "",
+) -> str:
     """
     Build the user-turn prompt for the Crash Handler LLM call.
 
     Args:
-        event_title:  Rollbar item title / exception message.
-        level:        Rollbar severity level string, e.g. "error", "critical".
-        culprit:      Rollbar occurrence context — best guess at the offending call.
-        stack_trace:  Formatted stack trace string.
-        raw_summary:  Any additional context from the raw payload.
+        event_title:     Rollbar item title / exception message.
+        level:           Rollbar severity level string, e.g. "error", "critical".
+        culprit:         Rollbar occurrence context — best guess at the offending call.
+        stack_trace:     Formatted stack trace string.
+        raw_summary:     Any additional context from the raw payload.
+        known_language:  Language already known from Rollbar (e.g. "python"). When
+                         provided, the LLM is told to confirm rather than detect.
 
     Returns:
         Formatted prompt string.
     """
+    language_hint = (
+        f"The application language is already known to be: {known_language}\n"
+        f'Return this value as-is in the "language" field.\n'
+        if known_language
+        else 'Detect the language from the stack trace (e.g. "python", "javascript", "ruby", "java", "go").\n'
+    )
+
     return f"""\
 Analyse the following Rollbar crash event and return a JSON object with exactly
 these fields:
@@ -43,7 +59,9 @@ these fields:
                        e.g. "/api/v1/checkout" or "process_payment()"
   summary           — 2–3 sentence plain-English description of what went wrong
                       and the likely user impact
-
+  language          — the programming language of the application, lowercase,
+                      e.g. "python", "javascript", "typescript", "ruby", "java",
+                      "kotlin", "go". {language_hint}
 ---
 Event title:   {event_title}
 Level:         {level}
@@ -63,6 +81,7 @@ Respond with JSON only. Example shape:
   "stack_trace": "...",
   "affected_component": "checkout",
   "affected_endpoint": "/api/v1/checkout",
-  "summary": "A KeyError is raised when an item_id is missing from the cart dict ..."
+  "summary": "A KeyError is raised when an item_id is missing from the cart dict ...",
+  "language": "python"
 }}
 """

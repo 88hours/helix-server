@@ -61,6 +61,7 @@ def crash_report():
         affected_component="checkout",
         affected_endpoint="/api/v1/checkout",
         summary="A KeyError in the checkout process.",
+        language="python",
     )
 
 
@@ -237,6 +238,71 @@ def test_read_relevant_files_respects_max_count(tmp_path):
 # _check_test
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# _extract_paths_from_stack_trace — multi-language
+# ---------------------------------------------------------------------------
+
+def test_extract_paths_javascript():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "at process (/app/src/checkout.js:10:5)\nat Object.<anonymous> (/app/src/app.js:5:3)"
+    paths = _extract_paths_from_stack_trace(trace, language="javascript")
+    assert any("checkout.js" in p for p in paths)
+    assert any("app.js" in p for p in paths)
+
+
+def test_extract_paths_javascript_filters_node_modules():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "at fn (/app/node_modules/express/lib/router.js:10:5)"
+    paths = _extract_paths_from_stack_trace(trace, language="javascript")
+    assert paths == []
+
+
+def test_extract_paths_ruby():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "/app/lib/checkout.rb:42:in `process'"
+    paths = _extract_paths_from_stack_trace(trace, language="ruby")
+    assert any("checkout.rb" in p for p in paths)
+
+
+def test_extract_paths_ruby_filters_gems():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "/usr/local/bundle/gems/rails-7.0.0/lib/router.rb:10:in `call'"
+    paths = _extract_paths_from_stack_trace(trace, language="ruby")
+    assert paths == []
+
+
+def test_extract_paths_go():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "/home/user/app/checkout/processor.go:42 +0x1234"
+    paths = _extract_paths_from_stack_trace(trace, language="go")
+    assert any("processor.go" in p for p in paths)
+
+
+def test_extract_paths_go_filters_stdlib():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "/usr/local/go/src/runtime/panic.go:965 +0x1b6"
+    paths = _extract_paths_from_stack_trace(trace, language="go")
+    assert paths == []
+
+
+def test_extract_paths_java():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "at com.example.checkout.Processor.process(Processor.java:42)"
+    paths = _extract_paths_from_stack_trace(trace, language="java")
+    assert "Processor.java" in paths
+
+
+def test_extract_paths_java_filters_jdk():
+    from agents.qa.agent import _extract_paths_from_stack_trace
+    trace = "at java.lang.reflect.Method.invoke(Method.java:498)"
+    paths = _extract_paths_from_stack_trace(trace, language="java")
+    assert paths == []
+
+
+# ---------------------------------------------------------------------------
+# _check_test — multi-language anti-pattern detection
+# ---------------------------------------------------------------------------
+
 def test_check_test_rejects_pytest_raises_with_crash_error():
     from agents.qa.agent import _check_test
     bad_test = (
@@ -246,7 +312,7 @@ def test_check_test_rejects_pytest_raises_with_crash_error():
         "    with pytest.raises(AttributeError):\n"
         "        greet_user('bob')\n"
     )
-    problem = _check_test(bad_test, "AttributeError")
+    problem = _check_test(bad_test, "AttributeError", language="python")
     assert problem != ""
     assert "pytest.raises" in problem
 
@@ -259,7 +325,7 @@ def test_check_test_accepts_correct_behaviour_assertion():
         "    result = greet_user('bob')\n"
         "    assert result is None\n"
     )
-    assert _check_test(good_test, "AttributeError") == ""
+    assert _check_test(good_test, "AttributeError", language="python") == ""
 
 
 def test_check_test_allows_raises_for_different_exception():
@@ -272,7 +338,54 @@ def test_check_test_allows_raises_for_different_exception():
         "    with pytest.raises(ValueError):\n"
         "        greet_user('')\n"
     )
-    assert _check_test(test, "AttributeError") == ""
+    assert _check_test(test, "AttributeError", language="python") == ""
+
+
+def test_check_test_rejects_jest_to_throw():
+    from agents.qa.agent import _check_test
+    bad_test = (
+        "test('throws TypeError', () => {\n"
+        "  expect(() => process(null)).toThrow(TypeError);\n"
+        "});\n"
+    )
+    problem = _check_test(bad_test, "TypeError", language="javascript")
+    assert problem != ""
+    assert "toThrow" in problem
+
+
+def test_check_test_accepts_jest_return_assertion():
+    from agents.qa.agent import _check_test
+    good_test = (
+        "test('returns null for missing item', () => {\n"
+        "  const result = process(null);\n"
+        "  expect(result).toBeNull();\n"
+        "});\n"
+    )
+    assert _check_test(good_test, "TypeError", language="javascript") == ""
+
+
+def test_check_test_rejects_rspec_raise_error():
+    from agents.qa.agent import _check_test
+    bad_test = (
+        "it 'raises RuntimeError' do\n"
+        "  expect { process(nil) }.to raise_error(RuntimeError)\n"
+        "end\n"
+    )
+    problem = _check_test(bad_test, "RuntimeError", language="ruby")
+    assert problem != ""
+    assert "raise_error" in problem
+
+
+def test_check_test_rejects_junit_assert_throws():
+    from agents.qa.agent import _check_test
+    bad_test = (
+        "@Test\n"
+        "public void testThrows() {\n"
+        "  assertThrows(NullPointerException.class, () -> process(null));\n"
+        "}\n"
+    )
+    problem = _check_test(bad_test, "NullPointerException", language="java")
+    assert problem != ""
 
 
 async def test_handle_retries_when_test_fails_validation(crash_report, mock_redis):

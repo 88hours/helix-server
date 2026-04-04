@@ -55,6 +55,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
         culprit=event.culprit or "",
         stack_trace=event.stack_trace or "(no stack trace)",
         raw_summary=event.title,
+        known_language=event.language or "",
     )
 
     raw_response = await complete(
@@ -64,6 +65,9 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
     )
 
     data = extract_json(raw_response)
+
+    # Language: prefer Rollbar-provided value, fall back to LLM detection.
+    language = (event.language or data.get("language") or "python").lower()
 
     report = CrashReport(
         incident_id=incident_id,
@@ -75,6 +79,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
         affected_component=data["affected_component"],
         affected_endpoint=data["affected_endpoint"],
         summary=data["summary"],
+        language=language,
         raw_payload=event.raw,
     )
 

@@ -30,8 +30,35 @@ class Severity(str, Enum):
 
 class TestFormat(str, Enum):
     """Test framework used by the generated test case."""
-    pytest = "pytest"
-    unittest = "unittest"
+    pytest = "pytest"       # Python
+    unittest = "unittest"   # Python (legacy)
+    jest = "jest"           # JavaScript / TypeScript
+    rspec = "rspec"         # Ruby
+    junit = "junit"         # Java / Kotlin
+    go_test = "go_test"     # Go
+
+
+def language_to_test_format(language: str) -> "TestFormat":
+    """
+    Map a language name (as reported by Rollbar) to its default test framework.
+
+    Args:
+        language: Language string, e.g. "python", "javascript", "ruby".
+
+    Returns:
+        The TestFormat enum value for the language's default test framework.
+        Falls back to pytest for unknown languages.
+    """
+    mapping = {
+        "python": TestFormat.pytest,
+        "javascript": TestFormat.jest,
+        "typescript": TestFormat.jest,
+        "ruby": TestFormat.rspec,
+        "java": TestFormat.junit,
+        "kotlin": TestFormat.junit,
+        "go": TestFormat.go_test,
+    }
+    return mapping.get(language.lower(), TestFormat.pytest)
 
 
 class TicketAction(str, Enum):
@@ -84,6 +111,7 @@ class CrashReport(BaseModel):
     affected_component: str         # e.g. "auth", "payments", "api-gateway"
     affected_endpoint: str          # e.g. "/api/v1/checkout"
     summary: str                    # plain-English, one paragraph
+    language: str = "python"        # e.g. "python", "javascript", "ruby", "java", "go"
     timestamp: datetime = Field(default_factory=_now)
     raw_payload: dict = Field(default_factory=dict)
 

@@ -90,6 +90,7 @@ LLM_RESPONSE = json.dumps({
     "affected_component": "checkout",
     "affected_endpoint": "/api/v1/checkout",
     "summary": "A KeyError occurred in the checkout process.",
+    "language": "python",
 })
 
 
@@ -107,6 +108,66 @@ async def test_handle_returns_crash_report(rollbar_event, mock_redis):
     assert report.error_type == "KeyError"
     assert report.severity == Severity.high
     assert report.affected_component == "checkout"
+    assert report.language == "python"
+
+
+async def test_handle_uses_rollbar_language_over_llm(mock_redis):
+    """Rollbar-provided language takes precedence over the LLM-detected one."""
+    event = RollbarEvent(
+        item_id="12345",
+        occurrence_id="occ-uuid-002",
+        title="TypeError: Cannot read property",
+        level="error",
+        language="javascript",
+        stack_trace="at process (/app/checkout.js:10:5)",
+        raw={},
+    )
+    llm_response = json.dumps({
+        "severity": "high",
+        "error_type": "TypeError",
+        "error_message": "Cannot read property",
+        "stack_trace": "...",
+        "affected_component": "checkout",
+        "affected_endpoint": "/api/checkout",
+        "summary": "A TypeError in checkout.",
+        "language": "python",  # LLM incorrectly detects python
+    })
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.agent.complete", new=AsyncMock(return_value=llm_response)):
+        from agents.crash_handler.agent import handle
+        report = await handle(event, mock_redis)
+
+    # Rollbar said "javascript" — that wins
+    assert report.language == "javascript"
+
+
+async def test_handle_falls_back_to_llm_language_when_rollbar_omits_it(mock_redis):
+    """When Rollbar sends no language, the LLM-detected value is used."""
+    event = RollbarEvent(
+        item_id="12345",
+        occurrence_id="occ-uuid-003",
+        title="RuntimeError: boom",
+        level="error",
+        language=None,
+        stack_trace="/app/main.go:42 +0x1234",
+        raw={},
+    )
+    llm_response = json.dumps({
+        "severity": "medium",
+        "error_type": "RuntimeError",
+        "error_message": "boom",
+        "stack_trace": "...",
+        "affected_component": "main",
+        "affected_endpoint": "main()",
+        "summary": "A runtime error in main.",
+        "language": "go",
+    })
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.agent.complete", new=AsyncMock(return_value=llm_response)):
+        from agents.crash_handler.agent import handle
+        report = await handle(event, mock_redis)
+
+    assert report.language == "go"
 
 
 async def test_handle_persists_to_redis(rollbar_event, mock_redis):

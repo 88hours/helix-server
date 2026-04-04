@@ -25,7 +25,7 @@ from agents.qa import prompts
 from core.config import get_github_config
 from core.events import publish
 from core.llm import complete
-from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction
+from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction, language_to_test_format
 from core.state import write_qa_result, write_status
 from core.utils import extract_json
 from integrations import github
@@ -75,9 +75,11 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     try:
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
         await github.clone_repo(clone_url, repo_dir)
-        source_files = _read_relevant_files(repo_dir, report.stack_trace)
+        source_files = _read_relevant_files(repo_dir, report.stack_trace, report.language)
 
         # Step 3 — LLM generates the test case (retried if validation fails).
+        test_format = language_to_test_format(report.language)
+
         base_prompt = prompts.user(
             error_type=report.error_type,
             error_message=report.error_message,
@@ -86,6 +88,8 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
             affected_endpoint=report.affected_endpoint,
             summary=report.summary,
             source_files=source_files,
+            language=report.language,
+            test_format=test_format.value,
         )
 
         raw_response = None
@@ -98,7 +102,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
                 system=prompts.SYSTEM,
             )
             data = extract_json(raw_response)
-            problem = _check_test(data.get("content", ""), report.error_type)
+            problem = _check_test(data.get("content", ""), report.error_type, report.language)
             if not problem:
                 break
             logger.warning(
@@ -109,7 +113,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
                     "problem": problem,
                 },
             )
-            rejection_note = prompts.rejection_note(problem)
+            rejection_note = prompts.rejection_note(problem, test_format.value)
 
     finally:
         shutil.rmtree(repo_dir, ignore_errors=True)
@@ -120,7 +124,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         file_path=data["file_path"],
         test_name=data["test_name"],
         content=data["content"],
-        format=TestFormat.pytest,
+        format=test_format,
     )
 
     result = QAResult(
@@ -214,7 +218,7 @@ async def _create_or_update_issue(
     return issue_number, issue_url, TicketAction.created
 
 
-def _read_relevant_files(repo_dir: str, stack_trace: str) -> dict[str, str]:
+def _read_relevant_files(repo_dir: str, stack_trace: str, language: str = "python") -> dict[str, str]:
     """
     Identify and read the source files most likely involved in the crash.
 
@@ -224,11 +228,12 @@ def _read_relevant_files(repo_dir: str, stack_trace: str) -> dict[str, str]:
     Args:
         repo_dir:    Path to the cloned repository root.
         stack_trace: Formatted stack trace string.
+        language:    Application language, e.g. "python", "javascript".
 
     Returns:
         Mapping of relative file path → file content (truncated if large).
     """
-    candidate_paths = _extract_paths_from_stack_trace(stack_trace)
+    candidate_paths = _extract_paths_from_stack_trace(stack_trace, language)
     result: dict[str, str] = {}
 
     for relative_path in candidate_paths:
@@ -251,61 +256,171 @@ def _read_relevant_files(repo_dir: str, stack_trace: str) -> dict[str, str]:
     return result
 
 
-def _extract_paths_from_stack_trace(stack_trace: str) -> list[str]:
+def _extract_paths_from_stack_trace(stack_trace: str, language: str = "python") -> list[str]:
     """
-    Parse a Python stack trace and return unique relative file paths.
+    Parse a stack trace and return unique relative application file paths.
 
-    Filters out stdlib and site-packages paths — we only want application code.
+    Supports Python, JavaScript/TypeScript, Ruby, Java/Kotlin, and Go.
+    Filters out standard library and dependency paths — only application code
+    is returned.
 
     Args:
-        stack_trace: Formatted Python stack trace string.
+        stack_trace: Formatted stack trace string.
+        language:    Application language, e.g. "python", "javascript".
 
     Returns:
-        List of unique relative file paths, in order of appearance (deepest first).
+        List of unique relative file paths, most recent frame first.
     """
-    pattern = re.compile(r'File "([^"]+)", line \d+')
+    lang = language.lower()
     seen: set[str] = set()
     paths: list[str] = []
 
-    for match in pattern.finditer(stack_trace):
-        path = match.group(1)
-        # Skip absolute paths pointing to stdlib or installed packages.
-        if path.startswith("/") and ("site-packages" in path or "/lib/python" in path):
-            continue
-        # Normalise: strip leading "./" if present.
-        path = path.lstrip("./")
-        if path and path not in seen:
-            seen.add(path)
-            paths.append(path)
+    if lang in ("javascript", "typescript"):
+        # at functionName (/app/src/file.ts:10:5)
+        # at /app/src/file.js:10:5
+        pattern = re.compile(r"at (?:\S+ \()?([^\s()]+\.[jt]sx?):(\d+)")
+        for match in pattern.finditer(stack_trace):
+            path = match.group(1)
+            if "node_modules" in path:
+                continue
+            path = _normalise_path(path)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+    elif lang == "ruby":
+        # /app/lib/checkout.rb:42:in `process'
+        pattern = re.compile(r"([^\s:]+\.rb):(\d+):in")
+        for match in pattern.finditer(stack_trace):
+            path = match.group(1)
+            if "/gems/" in path or "/usr/lib/ruby" in path or "/usr/local/lib/ruby" in path:
+                continue
+            path = _normalise_path(path)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+    elif lang in ("java", "kotlin"):
+        # at com.example.checkout.Processor.process(Processor.java:42)
+        pattern = re.compile(r"at [\w.$]+\((\w+\.(?:java|kt)):(\d+)\)")
+        for match in pattern.finditer(stack_trace):
+            path = match.group(1)
+            # Skip JDK and common framework classes — we only have a filename,
+            # not a full path, so filter by the frame's package prefix instead.
+            frame = match.group(0)
+            if re.match(r"at (?:java|javax|sun|com\.sun|kotlin|kotlinx)\.", frame):
+                continue
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+    elif lang == "go":
+        # /home/user/app/checkout/processor.go:42 +0x1234
+        pattern = re.compile(r"(/[^\s:]+\.go):(\d+)")
+        for match in pattern.finditer(stack_trace):
+            path = match.group(1)
+            if "/usr/local/go/" in path or "/go/pkg/" in path:
+                continue
+            path = _normalise_path(path)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+    else:
+        # Python (default): File "path/to/file.py", line 42, in function_name
+        pattern = re.compile(r'File "([^"]+)", line \d+')
+        for match in pattern.finditer(stack_trace):
+            path = match.group(1)
+            if path.startswith("/") and ("site-packages" in path or "/lib/python" in path):
+                continue
+            path = _normalise_path(path)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
 
     # Return most recent frame first (closest to the error).
     return list(reversed(paths))
 
 
-def _check_test(test_content: str, error_type: str) -> str:
-    """
-    Return a problem description if the test content looks wrong, or "" if it is fine.
+def _normalise_path(path: str) -> str:
+    """Strip leading ./ or / from a path to make it relative."""
+    path = path.lstrip("./")
+    # Strip a leading absolute path component that looks like a container root
+    # (e.g. "/app/src/file.js" → "src/file.js" won't work, keep as-is for matching)
+    return path
 
-    Catches the most common mistake: asserting the crash occurs (pytest.raises
-    with the same exception type as the crash report) instead of asserting the
-    correct return value.
+
+def _check_test(test_content: str, error_type: str, language: str = "python") -> str:
+    """
+    Return a problem description if the test asserts the crash occurs rather
+    than asserting the correct behaviour, or "" if the test looks valid.
+
+    Checks the framework-specific anti-pattern for each supported language.
 
     Args:
         test_content: Full content of the generated test file.
         error_type:   Exception class from the crash report, e.g. "AttributeError".
+        language:     Application language, e.g. "python", "javascript".
 
     Returns:
         A plain-English description of the problem, or "" if the test looks valid.
     """
-    # Detect: pytest.raises(<CrashErrorType>) — asserting the crash, not the fix.
-    pattern = re.compile(
-        r"pytest\.raises\s*\(\s*" + re.escape(error_type) + r"\s*\)",
-        re.IGNORECASE,
-    )
-    if pattern.search(test_content):
-        return (
-            f"The test uses `pytest.raises({error_type})`, which asserts the crash "
-            f"occurs rather than asserting the correct behaviour. A test like this "
-            f"will pass on the buggy code, so the Dev Agent will never apply a fix."
+    lang = language.lower()
+
+    if lang in ("javascript", "typescript"):
+        # Jest: expect(...).toThrow(ErrorType) or .rejects.toThrow(ErrorType)
+        pattern = re.compile(
+            r"\.toThrow\s*\(\s*" + re.escape(error_type) + r"\s*\)",
+            re.IGNORECASE,
         )
+        if pattern.search(test_content):
+            return (
+                f"The test uses `.toThrow({error_type})`, which asserts the crash "
+                f"occurs rather than asserting the correct behaviour. Assert the "
+                f"expected return value instead."
+            )
+
+    elif lang == "ruby":
+        # RSpec: expect { }.to raise_error(ErrorType)
+        pattern = re.compile(
+            r"raise_error\s*\(\s*" + re.escape(error_type) + r"\s*\)",
+            re.IGNORECASE,
+        )
+        if pattern.search(test_content):
+            return (
+                f"The test uses `raise_error({error_type})`, which asserts the crash "
+                f"occurs rather than asserting the correct behaviour. Assert the "
+                f"expected return value instead."
+            )
+
+    elif lang in ("java", "kotlin"):
+        # JUnit: assertThrows(ErrorType.class, ...) or @Test(expected = ErrorType.class)
+        pattern = re.compile(
+            r"assertThrows\s*\(\s*" + re.escape(error_type) + r"(?:\.class)?\s*,",
+            re.IGNORECASE,
+        )
+        expected_pattern = re.compile(
+            r"expected\s*=\s*" + re.escape(error_type) + r"(?:\.class)?",
+            re.IGNORECASE,
+        )
+        if pattern.search(test_content) or expected_pattern.search(test_content):
+            return (
+                f"The test asserts that `{error_type}` is thrown, which asserts the "
+                f"crash occurs rather than asserting the correct behaviour. Assert the "
+                f"expected return value instead."
+            )
+
+    else:
+        # Python (default): pytest.raises(ErrorType)
+        pattern = re.compile(
+            r"pytest\.raises\s*\(\s*" + re.escape(error_type) + r"\s*\)",
+            re.IGNORECASE,
+        )
+        if pattern.search(test_content):
+            return (
+                f"The test uses `pytest.raises({error_type})`, which asserts the crash "
+                f"occurs rather than asserting the correct behaviour. A test like this "
+                f"will pass on the buggy code, so the Dev Agent will never apply a fix."
+            )
+
     return ""

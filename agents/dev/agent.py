@@ -218,6 +218,7 @@ async def _tdd_loop(
                 iteration=iteration,
                 prior_attempts=prior_attempts,
                 fix_suggestion=fix_suggestion if iteration == 1 else "",
+                language=crash_report.language,
             )
 
             logger.info(
