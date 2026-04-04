@@ -8,11 +8,15 @@ and must produce a single failing pytest test case that reproduces the bug.
 SYSTEM = """\
 You are an expert QA engineer working in a TDD pipeline.
 Given a production crash report and the relevant source code, write a minimal
-failing pytest test that reproduces the bug exactly.
+pytest test that asserts the CORRECT, expected behaviour of the function.
 
 Rules:
-- The test MUST fail before any fix is applied.
-- The test MUST pass after the correct fix is applied.
+- The test MUST assert the desired correct outcome — NOT that an exception is raised.
+  Do NOT use pytest.raises() unless the correct behaviour genuinely is to raise a
+  specific, intentional exception (e.g. a ValueError on invalid input).
+- The test MUST fail on the current buggy code (because the code does not yet
+  produce the correct outcome).
+- The test MUST pass once the correct fix is applied.
 - Keep it minimal — one test function, no unnecessary fixtures.
 - Use pytest conventions. Import only what already exists in the codebase.
 - The test should target the specific function or code path that crashed.
@@ -54,7 +58,11 @@ def user(
         files_section = "(no source files available)"
 
     return f"""\
-Write a failing pytest test that reproduces the following production crash.
+A production crash has occurred. Your job is to write a pytest test that asserts
+the CORRECT, expected behaviour of the affected function — not that it crashes.
+
+The test must currently FAIL (because the bug means the function does not yet
+produce the correct result), and PASS once the fix is applied.
 
 ## Crash Report
 - Error type:          {error_type}
@@ -69,18 +77,25 @@ Write a failing pytest test that reproduces the following production crash.
 ## Relevant Source Files
 {files_section}
 
+## What to write
+Assert what the function SHOULD return or do — not that it raises an exception.
+For example, if a function crashes when a user is missing, the correct test checks
+that calling it with a missing user returns a safe fallback (e.g. None, "", a
+default object), not that it raises AttributeError.
+
 ## Output Format
 Return a JSON object with exactly these fields:
 
   file_path  — relative path in the repo where the test file should be written,
                 e.g. "tests/test_checkout.py"
-  test_name  — the name of the test function, e.g. "test_checkout_raises_on_missing_item"
+  test_name  — the name of the test function (describe the expected outcome,
+                e.g. "test_checkout_returns_error_for_missing_item")
   content    — the full content of the test file, ready to be written to disk
 
 Example shape:
 {{
   "file_path": "tests/test_checkout.py",
-  "test_name": "test_checkout_raises_on_missing_item",
-  "content": "import pytest\\nfrom checkout import process\\n\\ndef test_checkout_raises_on_missing_item():\\n    ..."
+  "test_name": "test_checkout_returns_error_for_missing_item",
+  "content": "from checkout import process\\n\\ndef test_checkout_returns_error_for_missing_item():\\n    result = process(item_id=None)\\n    assert result is not None\\n    assert result['error'] == 'item_not_found'\\n"
 }}
 """
