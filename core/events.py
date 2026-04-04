@@ -20,6 +20,7 @@ Event channel / detail-type names map 1-to-1:
 
     crash_analysed          helix:events:crash_analysed
     test_case_generated     helix:events:test_case_generated
+    fix_suggested           helix:events:fix_suggested
     pr_created              helix:events:pr_created
     quality_approved        helix:events:quality_approved
     quality_rejected        helix:events:quality_rejected

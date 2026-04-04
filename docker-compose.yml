@@ -66,3 +66,14 @@ services:
       REDIS_URL: redis://redis:6379
     command: python -m agents.dev.main
 
+  notifier:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: python -m agents.notifier.main
+

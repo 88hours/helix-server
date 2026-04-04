@@ -2,8 +2,9 @@
 Dev Agent — core logic.
 
 Receives the QA Agent's failing test case, calls the LLM to generate a
-minimal code fix, posts the fix as a comment on the GitHub Issue, then
-notifies the team via Slack and email.
+minimal code fix, and posts the fix as a comment on the GitHub Issue.
+Publishes a fix_suggested event which the Notifier Agent picks up to send
+Slack and email notifications.
 
 Entry points:
   handle()  — called on test_case_generated events
@@ -16,12 +17,12 @@ import httpx
 import redis.asyncio as redis
 
 from agents.dev import prompts
-from core.config import get_email_config, get_github_config, get_slack_config
+from core.config import get_github_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, QAResult
 from core.state import write_status
-from integrations import email, github, slack
+from integrations import github
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,7 @@ async def handle(
       1. Fetch relevant source files from GitHub (no clone).
       2. Call the LLM to suggest a minimal code fix.
       3. Post the fix as a comment on the GitHub Issue.
-      4. Notify via Slack and email with a link to the issue.
-      5. Publish the fix_suggested event.
+      4. Publish the fix_suggested event (Notifier Agent handles Slack/email).
 
     Args:
         qa_result:    QAResult from the QA Agent (contains the failing test case).
@@ -104,41 +104,7 @@ async def handle(
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
     )
 
-    # Step 4 — Notify via Slack and email.
-    slack_config = get_slack_config()
-    email_config = get_email_config()
-
-    slack_text = (
-        f":wrench: *Helix suggested a fix* for incident `{incident_id}`\n"
-        f"*Error:* `{crash_report.error_type}: {crash_report.error_message}`\n"
-        f"*Component:* {crash_report.affected_component}\n"
-        f"*Review the fix:* {qa_result.ticket_url}"
-    )
-    await slack.post_message(
-        text=slack_text,
-        channel=slack_config.approval_channel,
-        token=slack_config.token,
-    )
-
-    await email.send_fix_suggested(
-        incident_id=incident_id,
-        error_type=crash_report.error_type,
-        error_message=crash_report.error_message,
-        issue_url=qa_result.ticket_url,
-        from_addr=email_config.from_addr,
-        to_addr=email_config.to_addrs,
-        sendgrid_api_key=email_config.sendgrid_api_key,
-        smtp_host=email_config.smtp_host,
-        smtp_port=email_config.smtp_port,
-        smtp_user=email_config.smtp_user,
-        smtp_password=email_config.smtp_password,
-    )
-    logger.info(
-        "slack and email notifications sent",
-        extra={"incident_id": incident_id},
-    )
-
-    # Step 5 — Update Redis status and publish event.
+    # Step 4 — Update Redis status and publish event.
     await write_status(redis_client, incident_id, "fix_suggested")
     await publish(
         redis_client,

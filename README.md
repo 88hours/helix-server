@@ -33,6 +33,9 @@ agents/
     agent.py           Clone → write test → claude-code fix loop → GitHub PR
     prompts.py         claude-code CLI prompt with TESTS_PASSED/TESTS_FAILED protocol
     main.py            Entry point: two concurrent subscriber loops
+  notifier/            Subscribes to fix_suggested
+    agent.py           Sends Slack and email notifications with a link to the fix
+    main.py            Entry point: subscriber loop
   code_quality/        Subscribes to pr_created
     agent.py           Fetches PR diff, LLM review, Slack approval or quality_rejected
     prompts.py
@@ -306,10 +309,10 @@ uv run uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
 uv run --env-file .env python -m agents.qa.main
 
 # Dev Agent — subscribes to test_case_generated and quality_rejected
-uv run --env-file .env python  -m agents.dev.main
+uv run --env-file .env python -m agents.dev.main
 
-# Code Quality Agent — subscribes to pr_created
-uv run --env-file .env python -m agents.code_quality.main
+# Notifier Agent — subscribes to fix_suggested, sends Slack + email
+uv run --env-file .env python -m agents.notifier.main
 
 ```
 
