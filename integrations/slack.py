@@ -140,16 +140,25 @@ async def post_message(
     """
     Post a plain-text message to a Slack channel.
 
+    Logs a warning and returns without raising if SLACK_BOT_TOKEN or
+    SLACK_APPROVAL_CHANNEL is not configured.
+
     Args:
         text:    Message body. Supports Slack mrkdwn formatting.
         channel: Channel ID or name. Defaults to SLACK_APPROVAL_CHANNEL env var.
         token:   Slack bot token. Defaults to SLACK_BOT_TOKEN env var.
     """
+    resolved_token = token or os.environ.get("SLACK_BOT_TOKEN")
+    if not resolved_token:
+        logger.warning("slack notification skipped — SLACK_BOT_TOKEN not configured")
+        return
+
     resolved_channel = channel or os.environ.get("SLACK_APPROVAL_CHANNEL")
     if not resolved_channel:
-        raise EnvironmentError("SLACK_APPROVAL_CHANNEL is not set")
+        logger.warning("slack notification skipped — SLACK_APPROVAL_CHANNEL not configured")
+        return
 
-    await _post({"channel": resolved_channel, "text": text}, token)
+    await _post({"channel": resolved_channel, "text": text}, resolved_token)
 
 
 async def post_escalation(
@@ -174,9 +183,15 @@ async def post_escalation(
         channel:       Channel ID or name. Defaults to SLACK_APPROVAL_CHANNEL.
         token:         Slack bot token. Defaults to SLACK_BOT_TOKEN.
     """
+    resolved_token = token or os.environ.get("SLACK_BOT_TOKEN")
+    if not resolved_token:
+        logger.warning("slack escalation skipped — SLACK_BOT_TOKEN not configured")
+        return
+
     resolved_channel = channel or os.environ.get("SLACK_APPROVAL_CHANNEL")
     if not resolved_channel:
-        raise EnvironmentError("SLACK_APPROVAL_CHANNEL is not set")
+        logger.warning("slack escalation skipped — SLACK_APPROVAL_CHANNEL not configured")
+        return
 
     blocks = [
         {
@@ -200,5 +215,5 @@ async def post_escalation(
         },
     ]
 
-    await _post({"channel": resolved_channel, "blocks": blocks}, token)
+    await _post({"channel": resolved_channel, "blocks": blocks}, resolved_token)
     logger.info("escalation posted", extra={"incident_id": incident_id, "attempts": attempts})

@@ -11,6 +11,9 @@ Supports two sending backends — the active one is selected automatically:
     Used when SENDGRID_API_KEY is not set. Works with any SMTP provider:
     Gmail, AWS SES, Mailgun, Postmark, etc. Requires aiosmtplib.
 
+If neither backend is configured, or EMAIL_FROM / EMAIL_TO are missing,
+all public functions log a warning and return without raising.
+
 Backend selection is handled internally by _deliver() — callers always use
 the same three public functions regardless of which backend is active.
 
@@ -20,14 +23,14 @@ Provides notification types for the pipeline:
   send_pr_merged         — confirmation after Human Approval merges the PR
 
 Environment variables (names stored in config.yaml):
-  Always required:
+  Always required for email to be sent:
     EMAIL_FROM            — sender address, e.g. helix@acme.com
     EMAIL_TO              — comma-separated recipients, e.g. oncall@acme.com
 
-  SendGrid backend (set this and SMTP vars are optional):
+  SendGrid backend (preferred; set this and SMTP vars are not needed):
     SENDGRID_API_KEY      — SendGrid API key (starts with SG.)
 
-  SMTP backend (required when SENDGRID_API_KEY is not set):
+  SMTP backend (fallback when SENDGRID_API_KEY is not set):
     SMTP_HOST             — e.g. smtp.gmail.com or email-smtp.us-east-1.amazonaws.com
     SMTP_PORT             — 587 (STARTTLS, default) or 465 (SSL)
     SMTP_USER             — SMTP username
@@ -61,8 +64,8 @@ def _resolve(env_var: str, override: Optional[str]) -> str:
 
 
 def _recipients(to_override: Optional[str]) -> list[str]:
-    """Parse the TO address(es) into a deduplicated list."""
-    raw = _resolve("EMAIL_TO", to_override)
+    """Parse the TO address(es) into a list. Returns [] if not configured."""
+    raw = to_override or os.environ.get("EMAIL_TO", "")
     return [addr.strip() for addr in raw.split(",") if addr.strip()]
 
 
@@ -200,7 +203,8 @@ async def _deliver(
 
     Selection order:
       1. SendGrid API — if sendgrid_api_key is provided OR SENDGRID_API_KEY env var is set.
-      2. SMTP         — fallback when no SendGrid key is found.
+      2. SMTP         — fallback when no SendGrid key is found and smtp_host is set.
+      3. Neither      — logs a warning and returns without raising.
 
     Args:
         from_addr:        Sender address.
@@ -216,11 +220,20 @@ async def _deliver(
 
     if api_key:
         await _send_sendgrid(api_key, from_addr, to_addrs, subject, body_text, body_html)
-    else:
+        return
+
+    resolved_smtp_host = smtp_host or os.environ.get("SMTP_HOST")
+    if resolved_smtp_host:
         await _send_smtp(
             from_addr, to_addrs, subject, body_text, body_html,
-            smtp_host, smtp_port, smtp_user, smtp_password,
+            resolved_smtp_host, smtp_port, smtp_user, smtp_password,
         )
+        return
+
+    logger.warning(
+        "email skipped — no backend configured (set SENDGRID_API_KEY or SMTP_HOST)",
+        extra={"subject": subject},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -255,8 +268,14 @@ async def send_escalation(
         sendgrid_api_key: SendGrid API key override. Falls back to SENDGRID_API_KEY.
         smtp_*:           SMTP credentials. Used only when SendGrid is not active.
     """
-    resolved_from = _resolve("EMAIL_FROM", from_addr)
-    to_addrs = _recipients(to_addr)
+    resolved_from = from_addr or os.environ.get("EMAIL_FROM")
+    if not resolved_from:
+        logger.warning("escalation email skipped — EMAIL_FROM not configured")
+        return
+    to_addrs_list = _recipients(to_addr)
+    if not to_addrs_list:
+        logger.warning("escalation email skipped — EMAIL_TO not configured")
+        return
     subject = f"[Helix] Dev Agent escalation — incident {incident_id[:8]}"
 
     body_text = (
@@ -284,7 +303,7 @@ async def send_escalation(
 """
 
     await _deliver(
-        resolved_from, to_addrs, subject, body_text, body_html,
+        resolved_from, to_addrs_list, subject, body_text, body_html,
         sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
     )
     logger.info("escalation email sent", extra={"incident_id": incident_id})
@@ -316,8 +335,14 @@ async def send_pr_merged(
         sendgrid_api_key: SendGrid API key override. Falls back to SENDGRID_API_KEY.
         smtp_*:           SMTP credentials. Used only when SendGrid is not active.
     """
-    resolved_from = _resolve("EMAIL_FROM", from_addr)
-    to_addrs = _recipients(to_addr)
+    resolved_from = from_addr or os.environ.get("EMAIL_FROM")
+    if not resolved_from:
+        logger.warning("pr merged email skipped — EMAIL_FROM not configured")
+        return
+    to_addrs_list = _recipients(to_addr)
+    if not to_addrs_list:
+        logger.warning("pr merged email skipped — EMAIL_TO not configured")
+        return
     subject = f"[Helix] PR #{pr_number} merged — incident {incident_id[:8]}"
 
     body_text = (
@@ -342,7 +367,7 @@ async def send_pr_merged(
 """
 
     await _deliver(
-        resolved_from, to_addrs, subject, body_text, body_html,
+        resolved_from, to_addrs_list, subject, body_text, body_html,
         sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
     )
     logger.info(
@@ -377,8 +402,14 @@ async def send_fix_suggested(
         sendgrid_api_key: SendGrid API key override.
         smtp_*:        SMTP credentials. Used only when SendGrid is not active.
     """
-    resolved_from = _resolve("EMAIL_FROM", from_addr)
-    to_addrs = _recipients(to_addr)
+    resolved_from = from_addr or os.environ.get("EMAIL_FROM")
+    if not resolved_from:
+        logger.warning("fix suggested email skipped — EMAIL_FROM not configured")
+        return
+    to_addrs_list = _recipients(to_addr)
+    if not to_addrs_list:
+        logger.warning("fix suggested email skipped — EMAIL_TO not configured")
+        return
     subject = f"[Helix] Fix suggested for {error_type} — incident {incident_id[:8]}"
 
     body_text = (
@@ -408,7 +439,7 @@ async def send_fix_suggested(
 """
 
     await _deliver(
-        resolved_from, to_addrs, subject, body_text, body_html,
+        resolved_from, to_addrs_list, subject, body_text, body_html,
         sendgrid_api_key, smtp_host, smtp_port, smtp_user, smtp_password,
     )
     logger.info("fix suggested email sent", extra={"incident_id": incident_id})

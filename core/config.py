@@ -95,16 +95,16 @@ class JiraConfig:
 @dataclass
 class SlackConfig:
     """Slack integration settings."""
-    token: str              # Slack bot token (xoxb-...)
-    signing_secret: str     # Slack app signing secret — used to verify interaction payloads
-    approval_channel: str   # channel ID or name for approval/escalation messages
+    token: str | None           # Slack bot token (xoxb-...); None → notifications skipped
+    signing_secret: str | None  # Slack app signing secret — used to verify interaction payloads
+    approval_channel: str | None  # channel ID or name for approval/escalation messages
 
 
 @dataclass
 class EmailConfig:
     """Email notification settings — SendGrid API or SMTP fallback."""
-    from_addr: str                  # sender address, e.g. "helix@acme.com"
-    to_addrs: str                   # comma-separated recipient list
+    from_addr: str | None           # sender address; None → email notifications skipped
+    to_addrs: str | None            # comma-separated recipient list; None → skipped
     sendgrid_api_key: str | None    # set → SendGrid API is used; None → SMTP fallback
     smtp_host: str | None           # SMTP hostname (only needed when no SendGrid key)
     smtp_port: int                  # SMTP port, default 587
@@ -293,9 +293,8 @@ def get_slack_config() -> SlackConfig:
     Return Slack integration settings.
 
     Resolution order: environment variable → config.yaml default env var name.
-
-    Raises:
-        EnvironmentError: SLACK_BOT_TOKEN or SLACK_APPROVAL_CHANNEL is not set.
+    Missing variables resolve to None — callers must handle None gracefully
+    (the Slack integration logs a warning and skips rather than raising).
     """
     raw = _load_yaml()
     slack = raw.get("slack", {})
@@ -305,9 +304,9 @@ def get_slack_config() -> SlackConfig:
     channel_env = slack.get("approval_channel_env", "SLACK_APPROVAL_CHANNEL")
 
     return SlackConfig(
-        token=_require_env(token_env),
-        signing_secret=_require_env(signing_secret_env),
-        approval_channel=_require_env(channel_env),
+        token=os.environ.get(token_env) or None,
+        signing_secret=os.environ.get(signing_secret_env) or None,
+        approval_channel=os.environ.get(channel_env) or None,
     )
 
 
@@ -315,14 +314,10 @@ def get_email_config() -> EmailConfig:
     """
     Return email notification settings.
 
-    SendGrid is used when SENDGRID_API_KEY is set (or the env var named in
-    email.sendgrid_api_key_env resolves to a value). SMTP is used otherwise.
-
-    EMAIL_FROM and EMAIL_TO are always required. SMTP_* vars are only required
-    when no SendGrid key is available.
-
-    Raises:
-        EnvironmentError: EMAIL_FROM or EMAIL_TO is not set.
+    SendGrid is used when SENDGRID_API_KEY is set. SMTP is used as a fallback
+    when no SendGrid key is present. If neither backend is configured, or
+    EMAIL_FROM / EMAIL_TO are missing, the email integration logs a warning
+    and skips rather than raising.
     """
     raw = _load_yaml()
     email = raw.get("email", {})
@@ -335,12 +330,10 @@ def get_email_config() -> EmailConfig:
     smtp_password_env = email.get("smtp_password_env", "SMTP_PASSWORD")
     smtp_port = int(os.environ.get("SMTP_PORT", str(email.get("smtp_port", 587))))
 
-    sendgrid_api_key = os.environ.get(sg_env) or None
-
     return EmailConfig(
-        from_addr=_require_env(from_env),
-        to_addrs=_require_env(to_env),
-        sendgrid_api_key=sendgrid_api_key,
+        from_addr=os.environ.get(from_env) or None,
+        to_addrs=os.environ.get(to_env) or None,
+        sendgrid_api_key=os.environ.get(sg_env) or None,
         smtp_host=os.environ.get(smtp_host_env) or None,
         smtp_port=smtp_port,
         smtp_user=os.environ.get(smtp_user_env) or None,
