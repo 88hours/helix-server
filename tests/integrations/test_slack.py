@@ -86,10 +86,12 @@ async def test_post_message_slack_error_raises():
         await slack.post_message("Hello")
 
 
-async def test_post_message_missing_channel_raises(monkeypatch):
+async def test_post_message_missing_channel_skips(monkeypatch, caplog):
     monkeypatch.delenv("SLACK_APPROVAL_CHANNEL", raising=False)
-    with pytest.raises(EnvironmentError, match="SLACK_APPROVAL_CHANNEL"):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="integrations.slack"):
         await slack.post_message("Hello", channel=None)
+    assert "SLACK_APPROVAL_CHANNEL" in caplog.text
 
 
 # ---------------------------------------------------------------------------

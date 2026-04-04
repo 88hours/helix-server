@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.models import (
     CrashReport,
+    PRResult,
     QAResult,
     Severity,
     TestCase,
@@ -96,21 +97,39 @@ def mock_redis():
     return r
 
 
-LLM_FIX = "**Root cause:** `get_user` returns None for unknown users.\n\n```python\n# Before\nreturn f\"Hello, {user.get('name')}!\"\n# After\nif user is None:\n    return 'Unknown user'\nreturn f\"Hello, {user.get('name')}!\"\n```"
+@pytest.fixture
+def pr_result():
+    return PRResult(
+        incident_id="inc-001",
+        pr_url="https://github.com/acme/repo/pull/7",
+        pr_number=7,
+        branch_name="helix/fix/inc-001-1",
+        iterations_taken=1,
+        files_changed=["send_error.py"],
+        fix_summary="Added None guard in greet_user.",
+    )
+
+
+LLM_FIX = (
+    "**Root cause:** `get_user` returns None for unknown users.\n\n"
+    "```python\n# Before\nreturn f\"Hello, {user.get('name')}!\"\n"
+    "# After\nif user is None:\n    return 'Unknown user'\n"
+    "return f\"Hello, {user.get('name')}!\"\n```"
+)
 
 
 # ---------------------------------------------------------------------------
-# handle()
+# handle() — pre-TDD steps (comment + event); TDD loop is mocked out
 # ---------------------------------------------------------------------------
 
-async def test_handle_posts_fix_comment(crash_report, qa_result, mock_redis):
+async def test_handle_posts_fix_comment(crash_report, qa_result, mock_redis, pr_result):
+    """handle() must post the LLM fix suggestion as a GitHub Issue comment."""
     add_comment = AsyncMock()
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
          patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
          patch("integrations.github.add_issue_comment", new=add_comment), \
-         patch("integrations.slack.post_message", new=AsyncMock()), \
-         patch("integrations.email.send_fix_suggested", new=AsyncMock()):
+         patch("agents.dev.agent._tdd_loop", new=AsyncMock(return_value=pr_result)):
         from agents.dev.agent import handle
         await handle(qa_result, crash_report, mock_redis)
 
@@ -120,36 +139,49 @@ async def test_handle_posts_fix_comment(crash_report, qa_result, mock_redis):
     assert LLM_FIX in kwargs["comment"]
 
 
-async def test_handle_sends_slack_notification(crash_report, qa_result, mock_redis):
-    post_message = AsyncMock()
+async def test_handle_publishes_fix_suggested_event(crash_report, qa_result, mock_redis, pr_result):
+    """handle() must publish fix_suggested after posting the GitHub comment."""
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
          patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
          patch("integrations.github.add_issue_comment", new=AsyncMock()), \
-         patch("integrations.slack.post_message", new=post_message), \
-         patch("integrations.email.send_fix_suggested", new=AsyncMock()):
-        from agents.dev.agent import handle
-        await handle(qa_result, crash_report, mock_redis)
-
-    post_message.assert_awaited_once()
-    _, kwargs = post_message.call_args
-    assert "fix" in kwargs["text"].lower()
-    assert "github.com/acme/repo/issues/42" in kwargs["text"]
-
-
-async def test_handle_publishes_fix_suggested_event(crash_report, qa_result, mock_redis):
-    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
-         patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
-         patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
-         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
-         patch("integrations.slack.post_message", new=AsyncMock()), \
-         patch("integrations.email.send_fix_suggested", new=AsyncMock()):
+         patch("agents.dev.agent._tdd_loop", new=AsyncMock(return_value=pr_result)):
         from agents.dev.agent import handle
         await handle(qa_result, crash_report, mock_redis)
 
     mock_redis.publish.assert_called_once()
     channel = mock_redis.publish.call_args[0][0]
     assert "fix_suggested" in channel
+
+
+async def test_handle_calls_tdd_loop(crash_report, qa_result, mock_redis, pr_result):
+    """handle() must invoke _tdd_loop after posting the comment and the event."""
+    tdd_loop = AsyncMock(return_value=pr_result)
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
+         patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
+         patch("agents.dev.agent._tdd_loop", new=tdd_loop):
+        from agents.dev.agent import handle
+        result = await handle(qa_result, crash_report, mock_redis)
+
+    tdd_loop.assert_awaited_once()
+    assert result == pr_result
+
+
+async def test_handle_passes_fix_suggestion_to_tdd_loop(crash_report, qa_result, mock_redis, pr_result):
+    """handle() must pass the LLM response to _tdd_loop as fix_suggestion."""
+    tdd_loop = AsyncMock(return_value=pr_result)
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
+         patch("agents.dev.agent.complete", new=AsyncMock(return_value=LLM_FIX)), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
+         patch("agents.dev.agent._tdd_loop", new=tdd_loop):
+        from agents.dev.agent import handle
+        await handle(qa_result, crash_report, mock_redis)
+
+    _, kwargs = tdd_loop.call_args
+    assert kwargs["fix_suggestion"] == LLM_FIX
 
 
 # ---------------------------------------------------------------------------
