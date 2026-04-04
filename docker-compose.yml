@@ -1,8 +1,11 @@
 # ---------------------------------------------------------------------------
 # Helix — full local stack
 #
-# Usage:
-#   cp .env.example .env          # fill in secrets
+# Local Redis (default):
+#   docker compose --profile local up --build
+#
+# External Redis (Redis Cloud, AWS ElastiCache, etc.):
+#   Set REDIS_URL in .env, then:
 #   docker compose up --build
 #
 # Individual service logs:
@@ -12,10 +15,11 @@
 services:
 
   # -------------------------------------------------------------------------
-  # Infrastructure
+  # Infrastructure — only started with: --profile local
   # -------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
+    profiles: [local]
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -27,6 +31,12 @@ services:
 
   # -------------------------------------------------------------------------
   # Helix agents
+  #
+  # REDIS_URL defaults to the local Redis container when --profile local is
+  # used. Set REDIS_URL in .env to point agents at an external instance.
+  #
+  # depends_on.redis.required: false means agents start even when the local
+  # Redis container is not present (i.e. when using an external Redis).
   # -------------------------------------------------------------------------
   crash_handler:
     build: .
@@ -34,11 +44,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false
     ports:
       - "8000:8000"
     env_file: .env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     command: >
       uvicorn agents.crash_handler.main:app
         --host 0.0.0.0
@@ -50,9 +61,10 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false
     env_file: .env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     command: python -m agents.qa.main
 
   dev:
@@ -61,9 +73,10 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false
     env_file: .env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     command: python -m agents.dev.main
 
   notifier:
@@ -72,8 +85,9 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false
     env_file: .env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     command: python -m agents.notifier.main
 
