@@ -1,11 +1,13 @@
 """
 Notifier Agent — core logic.
 
-Subscribes to fix_suggested events and sends Slack and email notifications
-with a link to the GitHub Issue where the suggested fix was posted.
+Handles all outbound Slack and email notifications for the pipeline.
 
 Entry points:
-  handle()  — called on fix_suggested events
+  handle()            — called on fix_suggested events; sends the team a
+                        link to the GitHub Issue where the fix was posted.
+  handle_escalation() — called on fix_failed events; sends an escalation
+                        message when the Dev Agent exhausts all retries.
 """
 
 import logging
@@ -86,5 +88,59 @@ async def handle(
 
     logger.info(
         "slack and email notifications sent",
+        extra={"incident_id": incident_id},
+    )
+
+
+async def handle_escalation(
+    incident_id: str,
+    crash_summary: str,
+    attempts: int,
+    context: str,
+    redis_client: redis.Redis,
+) -> None:
+    """
+    Send escalation notifications when the Dev Agent exhausts all retries.
+
+    Called on fix_failed events.
+
+    Args:
+        incident_id:   Helix incident ID.
+        crash_summary: Plain-English crash summary from the Crash Handler.
+        attempts:      Number of fix attempts that were made.
+        context:       Per-attempt summaries from the Dev Agent.
+        redis_client:  Async Redis client (unused here; kept for consistency).
+    """
+    logger.info("notifier agent escalating", extra={"incident_id": incident_id})
+
+    slack_config = get_slack_config()
+    email_config = get_email_config()
+
+    await slack.post_escalation(
+        incident_id=incident_id,
+        crash_summary=crash_summary,
+        attempts=attempts,
+        context=context,
+        channel=slack_config.approval_channel,
+        token=slack_config.token,
+    )
+    logger.debug("slack escalation sent", extra={"incident_id": incident_id})
+
+    await email.send_escalation(
+        incident_id=incident_id,
+        crash_summary=crash_summary,
+        attempts=attempts,
+        context=context,
+        from_addr=email_config.from_addr,
+        to_addr=email_config.to_addrs,
+        sendgrid_api_key=email_config.sendgrid_api_key,
+        smtp_host=email_config.smtp_host,
+        smtp_port=email_config.smtp_port,
+        smtp_user=email_config.smtp_user,
+        smtp_password=email_config.smtp_password,
+    )
+
+    logger.info(
+        "escalation notifications sent",
         extra={"incident_id": incident_id},
     )

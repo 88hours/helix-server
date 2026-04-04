@@ -2,12 +2,17 @@
 Dev Agent — core logic.
 
 Receives the QA Agent's failing test case, calls the LLM to generate a
-minimal fix suggestion, posts it as a GitHub Issue comment, notifies the
-team via Slack and email, then performs a full TDD loop: clones the repo,
-writes the failing test, uses the claude-code CLI to implement the fix,
-verifies the full test suite, and opens a GitHub PR on success.  Retries
-up to MAX_ITERATIONS times.  On exhaustion, escalates to Slack and email
-directly and raises.
+minimal fix suggestion, posts it as a GitHub Issue comment, then performs
+a full TDD loop: clones the repo, writes the failing test, uses the
+claude-code CLI to implement the fix, verifies the full test suite, and
+opens a GitHub PR on success.  Retries up to MAX_ITERATIONS times.
+
+All Slack and email notifications are delegated to the Notifier Agent via
+events:
+  fix_suggested — published after the GitHub comment; Notifier sends the
+                  team a link to the issue.
+  fix_failed    — published when all retries are exhausted; Notifier sends
+                  an escalation message with full context.
 
 Entry points:
   handle()  — called on test_case_generated events
@@ -22,7 +27,7 @@ import httpx
 import redis.asyncio as redis
 
 from agents.dev import prompts
-from core.config import get_email_config, get_github_config, get_slack_config
+from core.config import get_github_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, PRResult, QAResult
@@ -32,7 +37,7 @@ from core.state import (
     write_pr_result,
     write_status,
 )
-from integrations import email, github, slack
+from integrations import github
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +61,11 @@ async def handle(
       1. Fetch relevant source files from GitHub (no clone).
       2. Call the LLM to suggest a minimal code fix.
       3. Post the fix suggestion as a comment on the GitHub Issue.
-      4. Publish fix_suggested event (Notifier Agent sends Slack/email).
+      4. Publish fix_suggested event → Notifier Agent sends Slack/email.
       5. TDD loop: clone repo → write test → claude-code iterate → PR.
          On success: persist PRResult, update status, publish pr_created.
-         On exhaustion: post failure comment, escalate directly via Slack/email.
+         On exhaustion: post failure comment, publish fix_failed event
+         → Notifier Agent sends escalation via Slack/email.
 
     Args:
         qa_result:    QAResult from the QA Agent (contains the failing test case).
@@ -126,7 +132,7 @@ async def handle(
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
     )
 
-    # Step 4 — Notify the team that a fix has been suggested.
+    # Step 4 — Publish fix_suggested; Notifier Agent handles Slack/email.
     await write_status(redis_client, incident_id, "fix_suggested")
     await publish(
         redis_client,
@@ -180,7 +186,7 @@ async def _tdd_loop(
     current_iterations = await read_iterations(redis_client, incident_id)
     if current_iterations >= MAX_ITERATIONS:
         await _post_failure_comment(qa_result, gh_config.target_repo, [])
-        await _escalate(crash_report, [])
+        await _escalate(crash_report, [], redis_client)
         raise RuntimeError(
             f"Dev Agent for incident {incident_id} has exhausted all {MAX_ITERATIONS} iterations."
         )
@@ -298,7 +304,7 @@ async def _tdd_loop(
 
     # All iterations exhausted.
     await _post_failure_comment(qa_result, gh_config.target_repo, prior_attempts)
-    await _escalate(crash_report, prior_attempts)
+    await _escalate(crash_report, prior_attempts, redis_client)
     raise RuntimeError(
         f"Dev Agent for incident {incident_id} exhausted all {MAX_ITERATIONS} iterations."
     )
@@ -406,11 +412,9 @@ async def _post_failure_comment(
 async def _escalate(
     crash_report: CrashReport,
     prior_attempts: list[str],
+    redis_client: redis.Redis,
 ) -> None:
-    """Send escalation notifications via Slack and email when all retries are exhausted."""
-    slack_config = get_slack_config()
-    email_config = get_email_config()
-
+    """Publish fix_failed event so the Notifier Agent escalates via Slack and email."""
     context = "\n\n---\n\n".join(
         f"Attempt {i + 1}:\n{attempt}"
         for i, attempt in enumerate(prior_attempts)
@@ -423,26 +427,17 @@ async def _escalate(
         extra={"incident_id": crash_report.incident_id, "attempts": len(prior_attempts)},
     )
 
-    await slack.post_escalation(
-        incident_id=crash_report.incident_id,
-        crash_summary=crash_report.summary,
-        attempts=MAX_ITERATIONS,
-        context=context,
-        channel=slack_config.approval_channel,
-        token=slack_config.token,
-    )
-    await email.send_escalation(
-        incident_id=crash_report.incident_id,
-        crash_summary=crash_report.summary,
-        attempts=MAX_ITERATIONS,
-        context=context,
-        from_addr=email_config.from_addr,
-        to_addr=email_config.to_addrs,
-        sendgrid_api_key=email_config.sendgrid_api_key,
-        smtp_host=email_config.smtp_host,
-        smtp_port=email_config.smtp_port,
-        smtp_user=email_config.smtp_user,
-        smtp_password=email_config.smtp_password,
+    await write_status(redis_client, crash_report.incident_id, "fix_failed")
+    await publish(
+        redis_client,
+        "fix_failed",
+        crash_report.incident_id,
+        {
+            "incident_id": crash_report.incident_id,
+            "crash_summary": crash_report.summary,
+            "attempts": MAX_ITERATIONS,
+            "context": context,
+        },
     )
 
 
