@@ -73,12 +73,20 @@ The following test was written to reproduce this bug. It currently fails.
 {source_section}
 ## Your Task
 
-Write the minimal code change that will make the failing test pass without breaking other functionality.
+Write the minimal code change that makes the failing test pass without breaking other functionality.
+
+The test asserts the CORRECT behaviour — it does not assert that an exception is raised.
+Your fix must make the function return the expected value instead of crashing.
 
 Your response must:
 1. Identify the root cause in one sentence.
-2. Show the exact code change using a diff or clearly labelled before/after blocks.
-3. Explain why this change fixes the bug in 2–3 sentences.
+2. Show the exact code change using clearly labelled BEFORE and AFTER blocks.
+   - The AFTER block MUST include the defensive guard or fix — it must not be
+     identical to the BEFORE block.
+   - Example of a correct guard for a None-dereference bug:
+     BEFORE: `return f"Hello, {{user.get('name')}}!"`
+     AFTER:  `if user is None: return None` (then the original return)
+3. Explain why this change makes the test pass in 2–3 sentences.
 
 Be concise. Do not refactor unrelated code. Do not add new dependencies.
 """
@@ -129,8 +137,10 @@ def build_tdd(
     suggestion_section = ""
     if fix_suggestion:
         suggestion_section = (
-            f"\n## Suggested Fix (already posted to GitHub Issue)\n"
-            f"Use this as a starting point, but verify it against the actual code:\n\n"
+            f"\n## Suggested Fix (hint only — may be incomplete or wrong)\n"
+            f"This was posted to the GitHub Issue as a starting point. "
+            f"Do NOT apply it blindly. Run the test first, read the actual error, "
+            f"then decide whether the suggestion is correct:\n\n"
             f"{fix_suggestion}\n"
         )
 
@@ -157,6 +167,9 @@ Follow these steps exactly:
 2. Read the relevant source files to understand the bug.
 
 3. Write the minimal code change that makes the test pass.
+   - The test asserts correct behaviour (e.g. a return value) — not that an
+     exception is raised. Your fix must make the function return the expected
+     value rather than crash.
    - Fix only the bug — do not refactor, rename, or clean up unrelated code.
    - Do not modify the test file.
    - Do not add new dependencies.
