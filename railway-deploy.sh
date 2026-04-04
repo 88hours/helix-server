@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# railway-deploy.sh — create and deploy all Helix services on Railway
+# railway-deploy.sh — create, configure, and deploy all Helix services
 #
 # Usage:
-#   ./railway-deploy.sh              # deploy all four agents
-#   ./railway-deploy.sh crash_handler qa   # deploy specific agents only
+#   ./railway-deploy.sh                        # deploy all four agents
+#   ./railway-deploy.sh --env-file .env        # sync .env vars first, then deploy all
+#   ./railway-deploy.sh --env-only             # sync .env vars only, no deploy
+#   ./railway-deploy.sh crash_handler qa       # deploy specific agents only
+#   ./railway-deploy.sh --env-file .env qa     # sync vars + deploy qa only
 #
 # Prerequisites:
-#   - railway CLI installed and logged in (railway login)
-#   - project linked (railway link)
-#   - environment variables set in Railway dashboard or via:
-#       railway variable --service <name> set KEY=value
+#   - railway CLI installed and logged in  (railway login)
+#   - project linked to this directory     (railway link)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-# Service name → start command
+# ---------------------------------------------------------------------------
+# Service definitions
+# ---------------------------------------------------------------------------
+
 declare -A START_COMMANDS=(
   [crash_handler]="uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \$PORT"
   [qa]="python -m agents.qa.main"
@@ -22,17 +26,48 @@ declare -A START_COMMANDS=(
   [notifier]="python -m agents.notifier.main"
 )
 
-# Deploy order
 ALL_SERVICES=(crash_handler qa dev notifier)
 
-# If args given, deploy only those; otherwise deploy all
-if [[ $# -gt 0 ]]; then
-  TARGETS=("$@")
-else
+# ---------------------------------------------------------------------------
+# Parse arguments
+# ---------------------------------------------------------------------------
+
+ENV_FILE=""
+ENV_ONLY=false
+TARGETS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env-file)
+      shift
+      ENV_FILE="${1:-}"
+      if [[ -z "$ENV_FILE" ]]; then
+        echo "error: --env-file requires a path argument" >&2
+        exit 1
+      fi
+      shift
+      ;;
+    --env-only)
+      ENV_ONLY=true
+      shift
+      ;;
+    --*)
+      echo "error: unknown flag '$1'" >&2
+      exit 1
+      ;;
+    *)
+      TARGETS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Default to all services if none specified
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
   TARGETS=("${ALL_SERVICES[@]}")
 fi
 
-# Validate requested service names
+# Validate service names
 for target in "${TARGETS[@]}"; do
   if [[ -z "${START_COMMANDS[$target]+_}" ]]; then
     echo "error: unknown service '$target'" >&2
@@ -41,16 +76,98 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
-# Ensure we are linked to a Railway project
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
 if ! railway status &>/dev/null; then
   echo "error: not linked to a Railway project — run 'railway link' first" >&2
   exit 1
 fi
 
-echo "Project: $(railway status | grep Project | awk '{print $2}')"
+PROJECT=$(railway status | awk '/Project:/ {print $2}')
+ENV=$(railway status | awk '/Environment:/ {print $2}')
+echo "Project:     $PROJECT"
+echo "Environment: $ENV"
 echo ""
 
-# Clean up any leftover railway.json from a previous failed run
+# ---------------------------------------------------------------------------
+# Sync .env → Railway variables (all services receive all variables)
+# ---------------------------------------------------------------------------
+
+sync_env() {
+  local env_file="$1"
+
+  if [[ ! -f "$env_file" ]]; then
+    echo "error: env file not found: $env_file" >&2
+    exit 1
+  fi
+
+  echo "Reading $env_file..."
+
+  # Parse KEY=VALUE pairs; skip blank lines and comments.
+  # Strips surrounding quotes from values (both single and double).
+  local pairs=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Skip blank lines and comments
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    # Strip leading 'export ' if present
+    line="${line#export }"
+    # Must contain '='
+    [[ "$line" != *=* ]] && continue
+
+    local key="${line%%=*}"
+    local val="${line#*=}"
+
+    # Strip surrounding double or single quotes
+    if [[ "$val" =~ ^\"(.*)\"$ ]]; then
+      val="${BASH_REMATCH[1]}"
+    elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
+      val="${BASH_REMATCH[1]}"
+    fi
+
+    # Skip empty values — leave those unset on Railway
+    [[ -z "$val" ]] && continue
+
+    pairs+=("${key}=${val}")
+  done < "$env_file"
+
+  if [[ ${#pairs[@]} -eq 0 ]]; then
+    echo "  no variables found in $env_file"
+    return
+  fi
+
+  echo "  found ${#pairs[@]} variable(s) — syncing to all services..."
+  echo ""
+
+  for service in "${ALL_SERVICES[@]}"; do
+    echo "  → $service"
+    # Pass all pairs as separate arguments in a single call
+    railway variable set --service "$service" --skip-deploys "${pairs[@]}"
+  done
+
+  echo ""
+  echo "  ✓ variables synced"
+  echo ""
+}
+
+if [[ -n "$ENV_FILE" ]]; then
+  echo "──────────────────────────────────────"
+  echo "Syncing environment variables"
+  echo ""
+  sync_env "$ENV_FILE"
+fi
+
+if [[ "$ENV_ONLY" == true ]]; then
+  echo "──────────────────────────────────────"
+  echo "Done (--env-only, skipping deploy)."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Create services and deploy
+# ---------------------------------------------------------------------------
+
 trap 'rm -f railway.json' EXIT
 
 for service in "${TARGETS[@]}"; do
@@ -61,14 +178,15 @@ for service in "${TARGETS[@]}"; do
   echo ""
 
   # Create the service if it does not already exist
-  if railway add --service "$service" 2>&1 | grep -q "already exists"; then
+  add_output=$(railway add --service "$service" 2>&1 || true)
+  if echo "$add_output" | grep -qi "already exists"; then
     echo "  service already exists — skipping create"
   else
     echo "  service created"
   fi
 
-  # Write a temporary root railway.json with this service's start command.
-  # railway up reads this file to configure the build and start command.
+  # Write a temporary root railway.json so railway up picks up the correct
+  # start command and Dockerfile path for this service.
   cat > railway.json <<EOF
 {
   "\$schema": "https://railway.app/railway.schema.json",
@@ -91,6 +209,10 @@ EOF
   rm railway.json
   echo ""
 done
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
 
 echo "──────────────────────────────────────"
 echo "All deployments queued."
