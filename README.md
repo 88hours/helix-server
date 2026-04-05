@@ -1,4 +1,5 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/88hours/helix/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/88hours/helix/tree/main)
+[![Railway](https://railway.com/project/22b7457e-0bec-4e93-8236-4cb3c06cf3e7/service/7feb4e1c-1c8e-4911-95da-7f6213148cb0/deploy-badge.svg)](https://railway.com/project/22b7457e-0bec-4e93-8236-4cb3c06cf3e7)
 # Helix
 
 Helix is an autonomous incident response platform. It takes a production crash from Rollbar all the way to a ready-to-merge pull request in under 10 minutes — no human involvement required until the PR review.
