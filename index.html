@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helix — Autonomous Incident Response</title>
+  <meta name="description" content="Helix takes a production crash from Rollbar all the way to a ready-to-merge pull request in under 10 minutes — no human involvement required until the PR review." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: '#6366f1',
+            'brand-dark': '#4f46e5',
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .gradient-text {
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .pipeline-line::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 100%;
+      width: 2px;
+      height: 2rem;
+      background: linear-gradient(to bottom, #6366f1, transparent);
+      transform: translateX(-50%);
+    }
+    .card-glow:hover {
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3), 0 8px 32px rgba(99, 102, 241, 0.12);
+    }
+    .code-block {
+      background: #0d1117;
+      border: 1px solid #21262d;
+    }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 antialiased">
+
+  <!-- Nav -->
+  <nav class="fixed top-0 left-0 right-0 z-50 border-b border-gray-800/60 bg-gray-950/80 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <span class="font-bold text-lg tracking-tight">
+        <span class="gradient-text">Helix</span>
+      </span>
+      <div class="flex items-center gap-6 text-sm text-gray-400">
+        <a href="#how-it-works" class="hover:text-white transition-colors">How it works</a>
+        <a href="#features" class="hover:text-white transition-colors">Features</a>
+        <a href="#getting-started" class="hover:text-white transition-colors">Getting started</a>
+        <a href="https://github.com/88hours/helix" target="_blank"
+           class="flex items-center gap-2 text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="pt-32 pb-24 px-6 text-center">
+    <div class="max-w-4xl mx-auto">
+      <div class="inline-flex items-center gap-2 text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-full mb-8">
+        <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
+        v1.0.0 — open source
+      </div>
+
+      <h1 class="text-5xl sm:text-6xl font-extrabold leading-tight mb-6 tracking-tight">
+        Production crash to<br />
+        <span class="gradient-text">merged PR in 10 minutes</span>
+      </h1>
+
+      <p class="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+        Helix is an autonomous incident response platform. It takes a crash from Rollbar, writes a failing test, fixes the bug, and opens a pull request — no human involvement until review.
+      </p>
+
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="https://railway.com/new/template?template=https://github.com/88hours/helix"
+           target="_blank"
+           class="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-semibold px-6 py-3 rounded-lg transition-colors text-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Deploy on Railway
+        </a>
+        <a href="https://github.com/88hours/helix"
+           target="_blank"
+           class="flex items-center gap-2 text-gray-300 hover:text-white border border-gray-700 hover:border-gray-500 px-6 py-3 rounded-lg transition-colors text-sm font-medium">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pipeline diagram -->
+  <section id="how-it-works" class="py-24 px-6 border-t border-gray-800/60">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-16">
+        <h2 class="text-3xl font-bold mb-4">How it works</h2>
+        <p class="text-gray-400 text-lg">Four agents. Zero manual steps. One pull request.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+
+        <!-- Step 1 -->
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200 relative">
+          <div class="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center mb-4">
+            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div class="text-xs text-indigo-400 font-mono font-medium mb-2">01</div>
+          <h3 class="font-semibold mb-2">Crash Handler</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Receives the Rollbar webhook, classifies severity, detects language, and produces a structured crash report.</p>
+        </div>
+
+        <!-- Arrow -->
+        <div class="hidden md:flex items-center justify-center">
+          <div class="flex items-center gap-1 text-gray-700">
+            <div class="h-px w-8 bg-gradient-to-r from-transparent to-indigo-500/50"></div>
+            <svg class="w-4 h-4 text-indigo-500/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center mb-4">
+            <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+          </div>
+          <div class="text-xs text-purple-400 font-mono font-medium mb-2">02</div>
+          <h3 class="font-semibold mb-2">QA Agent</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Opens a GitHub Issue, clones the repo, and generates a failing test that asserts correct behaviour — not that the crash occurs.</p>
+        </div>
+
+        <!-- Arrow -->
+        <div class="hidden md:flex items-center justify-center col-start-4 row-start-1" style="display:none"></div>
+
+      </div>
+
+      <!-- Row 2 -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+
+        <div class="hidden md:block"></div>
+
+        <!-- Arrow down -->
+        <div class="hidden md:flex items-center justify-center">
+          <div class="flex flex-col items-center gap-1 text-gray-700">
+            <div class="w-px h-8 bg-gradient-to-b from-indigo-500/50 to-transparent"></div>
+          </div>
+        </div>
+
+        <!-- Arrow -->
+        <div class="hidden md:flex items-center justify-center">
+          <div class="flex items-center gap-1">
+            <div class="h-px w-8 bg-gradient-to-r from-transparent to-pink-500/50"></div>
+            <svg class="w-4 h-4 text-pink-500/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="w-8 h-8 bg-pink-500/20 rounded-lg flex items-center justify-center mb-4">
+            <svg class="w-4 h-4 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+            </svg>
+          </div>
+          <div class="text-xs text-pink-400 font-mono font-medium mb-2">04</div>
+          <h3 class="font-semibold mb-2">Notifier Agent</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Sends Slack and email notifications with the fix suggestion and PR link. Escalates with full context if the Dev Agent exhausts retries.</p>
+        </div>
+
+      </div>
+
+      <!-- Row 3 -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+
+        <div class="hidden md:block"></div>
+
+        <!-- Step 3 -->
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200 md:col-span-2">
+          <div class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+            </svg>
+          </div>
+          <div class="text-xs text-emerald-400 font-mono font-medium mb-2">03</div>
+          <h3 class="font-semibold mb-2">Dev Agent</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Posts a fix suggestion to the GitHub Issue, then runs a full TDD loop: clones the repo, runs the failing test, writes the minimum fix, verifies the full suite. Retries up to 3 times. On success, opens a pull request.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="py-24 px-6 border-t border-gray-800/60">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-16">
+        <h2 class="text-3xl font-bold mb-4">Built for real codebases</h2>
+        <p class="text-gray-400 text-lg">Not a toy. Every decision was made to handle production crashes reliably.</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🧪</div>
+          <h3 class="font-semibold mb-2">Correct-behaviour tests</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">The QA Agent writes tests that assert what the function <em>should return</em>, not that the crash occurs. Validated and retried if wrong.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🌐</div>
+          <h3 class="font-semibold mb-2">Multi-language</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Python, JavaScript, TypeScript, Ruby, Java, Kotlin, and Go. Stack trace parsing, test generation, and fix commands are all language-aware.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🔁</div>
+          <h3 class="font-semibold mb-2">TDD loop with retries</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">The Dev Agent runs the failing test, writes a fix, runs the full suite, and retries up to 3 times. Each retry learns from previous failed attempts.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🔔</div>
+          <h3 class="font-semibold mb-2">Optional notifications</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Slack and email (SendGrid or SMTP) are fully optional. Missing config is logged as a warning — the pipeline never stops for a missing token.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🎫</div>
+          <h3 class="font-semibold mb-2">Deduplication</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">The QA Agent searches open GitHub Issues before creating a new one. Repeated crashes append to the existing ticket, not create duplicates.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🚀</div>
+          <h3 class="font-semibold mb-2">One-command deploy</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Deploy all four agents to Railway in one command. Sync your <code class="font-mono text-xs text-indigo-300">.env</code> file directly to Railway with <code class="font-mono text-xs text-indigo-300">--env-file</code>.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Language support table -->
+  <section class="py-24 px-6 border-t border-gray-800/60">
+    <div class="max-w-3xl mx-auto text-center">
+      <h2 class="text-3xl font-bold mb-4">Language support</h2>
+      <p class="text-gray-400 mb-12">Detected automatically from the Rollbar payload.</p>
+
+      <div class="code-block rounded-xl overflow-hidden text-left">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
+          <div class="w-3 h-3 rounded-full bg-red-500/60"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500/60"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500/60"></div>
+          <span class="ml-2 text-xs text-gray-500 font-mono">supported languages</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left border-b border-gray-800">
+              <th class="px-6 py-3 text-gray-400 font-medium">Language</th>
+              <th class="px-6 py-3 text-gray-400 font-medium">Test framework</th>
+              <th class="px-6 py-3 text-gray-400 font-medium">Run command</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/60">
+            <tr>
+              <td class="px-6 py-3 font-medium">Python</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">pytest</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">pytest file::test -v</td>
+            </tr>
+            <tr>
+              <td class="px-6 py-3 font-medium">JavaScript</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">jest</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">npx jest --testNamePattern</td>
+            </tr>
+            <tr>
+              <td class="px-6 py-3 font-medium">TypeScript</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">jest</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">npx jest --testNamePattern</td>
+            </tr>
+            <tr>
+              <td class="px-6 py-3 font-medium">Ruby</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">rspec</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">bundle exec rspec --example</td>
+            </tr>
+            <tr>
+              <td class="px-6 py-3 font-medium">Java</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">junit</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">mvn test -Dtest</td>
+            </tr>
+            <tr>
+              <td class="px-6 py-3 font-medium">Kotlin</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">junit</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">mvn test -Dtest</td>
+            </tr>
+            <tr>
+              <td class="px-6 py-3 font-medium">Go</td>
+              <td class="px-6 py-3 text-gray-400 font-mono text-xs">go test</td>
+              <td class="px-6 py-3 text-gray-500 font-mono text-xs">go test ./... -run</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Getting started -->
+  <section id="getting-started" class="py-24 px-6 border-t border-gray-800/60">
+    <div class="max-w-3xl mx-auto">
+      <div class="text-center mb-16">
+        <h2 class="text-3xl font-bold mb-4">Get started in minutes</h2>
+        <p class="text-gray-400 text-lg">Local Docker setup or one-command Railway deploy.</p>
+      </div>
+
+      <div class="space-y-6">
+
+        <div class="code-block rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+            <span class="text-xs text-gray-500 font-mono">Local setup</span>
+            <span class="text-xs text-gray-600">requires Docker</span>
+          </div>
+          <pre class="px-6 py-5 text-sm font-mono text-gray-300 overflow-x-auto leading-relaxed"><span class="text-gray-500"># 1. Clone and install</span>
+git clone https://github.com/88hours/helix
+cd helix && uv sync --extra dev
+
+<span class="text-gray-500"># 2. Configure</span>
+cp .env.example .env
+<span class="text-gray-500"># fill in ANTHROPIC_API_KEY, GITHUB_TOKEN, ROLLBAR_ACCESS_TOKEN</span>
+
+<span class="text-gray-500"># 3. Run</span>
+docker compose --profile local up --build</pre>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <div class="h-px flex-1 bg-gray-800"></div>
+          <span class="text-xs text-gray-600 font-medium">OR</span>
+          <div class="h-px flex-1 bg-gray-800"></div>
+        </div>
+
+        <div class="code-block rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+            <span class="text-xs text-gray-500 font-mono">Railway deploy</span>
+            <span class="text-xs text-gray-600">requires Railway CLI</span>
+          </div>
+          <pre class="px-6 py-5 text-sm font-mono text-gray-300 overflow-x-auto leading-relaxed"><span class="text-gray-500"># Deploy all four agents with env vars in one command</span>
+./railway-deploy.sh --env-file .env</pre>
+        </div>
+
+        <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-5 text-sm text-gray-400 leading-relaxed">
+          <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · ROLLBAR_ACCESS_TOKEN · REDIS_URL<br/>
+          <span class="text-gray-600 font-medium">Optional:</span> SLACK_BOT_TOKEN · SENDGRID_API_KEY · SMTP_HOST
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-800/60 py-12 px-6">
+    <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-6 text-sm text-gray-500">
+        <span class="font-semibold text-gray-400">Helix</span>
+        <a href="https://github.com/88hours/helix/blob/main/LICENSE" target="_blank" class="hover:text-gray-300 transition-colors">MIT License</a>
+        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v1.0.0</a>
+        <a href="https://github.com/88hours/helix/blob/main/docs/features.md" target="_blank" class="hover:text-gray-300 transition-colors">Docs</a>
+      </div>
+      <a href="https://github.com/88hours/helix" target="_blank"
+         class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 transition-colors">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+        </svg>
+        88hours/helix
+      </a>
+    </div>
+  </footer>
+
+</body>
+</html>
