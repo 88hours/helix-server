@@ -36,7 +36,7 @@ async def main() -> None:
     redis_client = aioredis.from_url(redis_url, decode_responses=False)
     logger.info("dev agent subscriber started — listening on helix:events:test_case_generated")
 
-    async for incident_id, payload in subscribe(redis_client, "test_case_generated"):
+    async for incident_id, payload in subscribe(redis_client, "test_case_generated", agent_name="dev"):
         logger.info("dev agent received test_case_generated event", extra={"incident_id": incident_id})
         try:
             logger.debug("reading qa_result from redis", extra={"incident_id": incident_id})

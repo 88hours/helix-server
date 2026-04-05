@@ -79,6 +79,7 @@ def mock_redis():
     r = AsyncMock()
     r.set = AsyncMock(return_value=True)
     r.publish = AsyncMock(return_value=1)
+    r.xadd = AsyncMock(return_value=b"1234567890-0")
     return r
 
 
@@ -186,9 +187,9 @@ async def test_handle_publishes_event(rollbar_event, mock_redis):
         from agents.crash_handler.agent import handle
         await handle(rollbar_event, mock_redis)
 
-    mock_redis.publish.assert_called_once()
-    channel = mock_redis.publish.call_args[0][0]
-    assert "crash_analysed" in channel
+    mock_redis.xadd.assert_called_once()
+    stream = mock_redis.xadd.call_args[0][0]
+    assert "crash_analysed" in stream
 
 
 async def test_handle_uses_event_stack_trace_as_fallback(rollbar_event, mock_redis):

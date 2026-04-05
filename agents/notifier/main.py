@@ -30,7 +30,7 @@ logging.basicConfig(
 async def _listen_fix_suggested(redis_client: aioredis.Redis) -> None:
     """Subscribe to fix_suggested and dispatch handle() for each event."""
     logger.info("notifier agent listening on helix:events:fix_suggested")
-    async for incident_id, payload in subscribe(redis_client, "fix_suggested"):
+    async for incident_id, payload in subscribe(redis_client, "fix_suggested", agent_name="notifier"):
         logger.info(
             "notifier received fix_suggested",
             extra={"incident_id": incident_id},
@@ -59,7 +59,7 @@ async def _listen_fix_suggested(redis_client: aioredis.Redis) -> None:
 async def _listen_fix_failed(redis_client: aioredis.Redis) -> None:
     """Subscribe to fix_failed and dispatch handle_escalation() for each event."""
     logger.info("notifier agent listening on helix:events:fix_failed")
-    async for incident_id, payload in subscribe(redis_client, "fix_failed"):
+    async for incident_id, payload in subscribe(redis_client, "fix_failed", agent_name="notifier"):
         logger.info(
             "notifier received fix_failed",
             extra={"incident_id": incident_id},

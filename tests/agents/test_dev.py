@@ -94,6 +94,7 @@ def mock_redis():
     r = AsyncMock()
     r.set = AsyncMock(return_value=True)
     r.publish = AsyncMock(return_value=1)
+    r.xadd = AsyncMock(return_value=b"1234567890-0")
     return r
 
 
@@ -149,9 +150,9 @@ async def test_handle_publishes_fix_suggested_event(crash_report, qa_result, moc
         from agents.dev.agent import handle
         await handle(qa_result, crash_report, mock_redis)
 
-    mock_redis.publish.assert_called_once()
-    channel = mock_redis.publish.call_args[0][0]
-    assert "fix_suggested" in channel
+    mock_redis.xadd.assert_called_once()
+    stream = mock_redis.xadd.call_args[0][0]
+    assert "fix_suggested" in stream
 
 
 async def test_handle_calls_tdd_loop(crash_report, qa_result, mock_redis, pr_result):

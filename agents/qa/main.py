@@ -40,7 +40,7 @@ async def main() -> None:
     redis_client = aioredis.from_url(redis_url, decode_responses=False)
     logger.info("qa agent subscriber started — listening on helix:events:crash_analysed")
 
-    async for incident_id, payload in subscribe(redis_client, "crash_analysed"):
+    async for incident_id, payload in subscribe(redis_client, "crash_analysed", agent_name="qa"):
         logger.info("qa agent received event", extra={"incident_id": incident_id})
         try:
             # Prefer the Redis record (canonical); fall back to the event payload.
