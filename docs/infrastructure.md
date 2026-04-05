@@ -70,7 +70,7 @@ Each agent runs as a long-lived Fargate task. Fargate is preferred over Lambda f
 | dev | 1 | 2 GB | Needs headroom for repo clone + claude-code |
 | notifier | 0.25 | 512 MB | Scales to 0 when idle |
 
-**Auto-scaling:** qa, dev, and notifier scale based on EventBridge queue depth via Application Auto Scaling. crash_handler and api maintain a minimum of 2 tasks for availability.
+**Auto-scaling:** qa, dev, and notifier scale to 0 when idle and wake on incoming events. crash_handler and api maintain a minimum of 2 tasks for availability. When using EventBridge, scaling triggers are SQS queue depth via Application Auto Scaling. When using Redis, a lightweight queue-depth metric is emitted to CloudWatch via a sidecar.
 
 ### Container Registry — ECR
 
@@ -107,27 +107,63 @@ Single ALB with two target groups:
 
 HTTPS only. HTTP redirects to HTTPS. TLS certificate from ACM (auto-renewed).
 
-### Event Bus — EventBridge
+### Event Bus
 
-One EventBridge bus: `helix-prod`. Rules route events to ECS task triggers via EventBridge Pipes.
+Helix supports two event backends, switchable via `HELIX_EVENT_BACKEND`. The default is Redis — no code change is needed when migrating from Railway.
 
-| Event | Rule | Target |
-|---|---|---|
-| `crash_analysed` | source = `helix.crash_handler` | ECS qa task |
-| `test_case_generated` | source = `helix.qa` | ECS dev task |
-| `fix_suggested` | source = `helix.dev` | ECS notifier task |
-| `fix_failed` | source = `helix.dev` | ECS notifier task |
-| `pr_created` | source = `helix.dev` | — (archived only) |
+#### Default: Redis Pub/Sub (recommended)
 
-Dead letter queue (SQS) on every rule. Failed events are retried 3 times then sent to DLQ and trigger a CloudWatch alarm.
+Redis Pub/Sub is already implemented and running. It is the right choice until there is a concrete reason to add another system.
 
-### Cache + Pub/Sub — ElastiCache (Redis)
+- Cost: included in the ElastiCache bill — effectively $0
+- No extra services, IAM rules, or Terraform modules
+- Works identically to the Railway deployment
+- Limitation: fire-and-forget — if an agent is not running when a message is published, the message is lost
+
+**If durability is needed:** upgrade to Redis Streams (`XADD`/`XREAD`) on the same ElastiCache instance. Streams persist messages until consumed, survive agent restarts, and support replay. This is the right upgrade before reaching for EventBridge or Kafka.
+
+#### Optional upgrade: EventBridge
+
+Switch to EventBridge (`HELIX_EVENT_BACKEND=eventbridge`) when:
+- You need a built-in audit trail of every event (CloudWatch captures all events automatically)
+- You need dead-letter queues with automatic retry without building it yourself
+- You are already deep in AWS-native tooling and want consistent observability across the stack
+
+Cost: $1 per million events. At 100 incidents/day (~500 events/day), that is **$0.15/month** — cost is never the reason to avoid or choose EventBridge.
+
+When using EventBridge, one bus (`helix-prod`) with rules routing to ECS task triggers via EventBridge Pipes:
+
+| Event | Target |
+|---|---|
+| `crash_analysed` | ECS qa task |
+| `test_case_generated` | ECS dev task |
+| `fix_suggested` | ECS notifier task |
+| `fix_failed` | ECS notifier task |
+| `pr_created` | — (archived to S3 only) |
+
+SQS dead-letter queue on every rule. Failed events retry 3 times then land in DLQ and trigger a CloudWatch alarm.
+
+#### Not recommended: Kafka / AWS MSK
+
+Kafka solves high-throughput fan-out streaming at millions of events per second. Helix generates hundreds of events per day at most. MSK starts at ~$200/month idle regardless of usage. The ops overhead and cost are not justified.
+
+| | Redis Pub/Sub | Redis Streams | EventBridge | Kafka / MSK |
+|---|---|---|---|---|
+| Cost | Included | Included | ~$0.15/mo | ~$200+/mo |
+| Durability | None | Yes | Yes (DLQ) | Yes |
+| Message replay | No | Yes | No | Yes |
+| Ops overhead | None | None | Low | High |
+| Right for Helix | ✓ Default | ✓ If durability needed | ✓ AWS-native | ✗ |
+
+**Recommendation:** start with Redis Pub/Sub (already working). Add Redis Streams if agents missing messages becomes a real problem. Switch to EventBridge only if the audit trail or DLQ behaviour is specifically needed.
+
+### Cache + State — ElastiCache (Redis)
 
 Single ElastiCache Serverless cluster. Automatically scales capacity. Multi-AZ with automatic failover.
 
 Used for:
 - Incident state (crash report, QA result, PR result, status, iterations)
-- Redis Pub/Sub channels (same as current — no code change needed)
+- Redis Pub/Sub or Streams event channels (same as current — no code change needed)
 
 Encryption at rest and in transit. Auth token stored in Secrets Manager.
 
