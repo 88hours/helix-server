@@ -205,6 +205,16 @@ EOF
   railway up --service "$service" --detach
   echo "  ✓ deployment queued"
 
+  if [[ "$service" == "crash_handler" ]]; then
+    domain=$(railway domain --service crash_handler 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "$domain" ]]; then
+      echo ""
+      echo "  Webhook URLs:"
+      echo "    Rollbar → https://${domain}/webhook/rollbar"
+      echo "    Sentry  → https://${domain}/webhook/sentry"
+    fi
+  fi
+
   rm railway.json
   echo ""
 done
@@ -221,5 +231,23 @@ for service in "${TARGETS[@]}"; do
   echo "  railway logs --service $service"
 done
 echo ""
+
+# Print webhook URLs if crash_handler was deployed
+for service in "${TARGETS[@]}"; do
+  if [[ "$service" == "crash_handler" ]]; then
+    domain=$(railway domain --service crash_handler 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "$domain" ]]; then
+      echo "Webhook URLs:"
+      echo "  Rollbar → https://${domain}/webhook/rollbar"
+      echo "  Sentry  → https://${domain}/webhook/sentry"
+      echo ""
+    else
+      echo "Webhook URLs: (domain not yet assigned — run 'railway domain --service crash_handler' once DNS is ready)"
+      echo ""
+    fi
+    break
+  fi
+done
+
 echo "Open dashboard:"
 echo "  railway open"
