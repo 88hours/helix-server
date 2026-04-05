@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# railway-deploy.sh — create, configure, and deploy all Helix services
+# railway-deploy.sh — build, push, and deploy Helix to Railway
 #
 # Usage:
-#   ./railway-deploy.sh                        # deploy all four agents
-#   ./railway-deploy.sh --env-file .env        # sync .env vars first, then deploy all
-#   ./railway-deploy.sh --env-only             # sync .env vars only, no deploy
-#   ./railway-deploy.sh crash_handler qa       # deploy specific agents only
-#   ./railway-deploy.sh --env-file .env qa     # sync vars + deploy qa only
+#   ./railway-deploy.sh                    # build + push + redeploy
+#   ./railway-deploy.sh --env-file .env    # sync .env vars, then deploy
+#   ./railway-deploy.sh --no-build         # skip docker build, just redeploy
+#   ./railway-deploy.sh --env-only         # sync .env vars only, no deploy
+#
+# First-time setup (run once in Railway dashboard):
+#   Service → Settings → Source → Docker Image → set to $HELIX_IMAGE
 #
 # Prerequisites:
-#   - railway CLI installed and logged in  (railway login)
-#   - project linked to this directory     (railway link)
+#   - HELIX_IMAGE exported (or set in .env), e.g. nomij/helix
+#   - docker login
+#   - railway login && railway link
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Service definitions
-# ---------------------------------------------------------------------------
-
-ALL_SERVICES=(crash_handler qa dev notifier)
-
-start_command() {
-  case "$1" in
-    crash_handler) echo "uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \${PORT:-8000}" ;;
-    qa)            echo "python -m agents.qa.main" ;;
-    dev)           echo "python -m agents.dev.main" ;;
-    notifier)      echo "python -m agents.notifier.main" ;;
-    all)           echo "" ;;  # no START_COMMAND — entrypoint.sh starts all agents
-    *)             echo "error: unknown service '$1'" >&2; exit 1 ;;
-  esac
-}
+IMAGE="${HELIX_IMAGE:-}"
+TAG="${HELIX_IMAGE_TAG:-latest}"
+SERVICE="${HELIX_SERVICE:-helix}"
 
 # ---------------------------------------------------------------------------
 # Parse arguments
@@ -38,47 +28,32 @@ start_command() {
 
 ENV_FILE=""
 ENV_ONLY=false
-TARGETS=()
+NO_BUILD=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env-file)
       shift
       ENV_FILE="${1:-}"
-      if [[ -z "$ENV_FILE" ]]; then
-        echo "error: --env-file requires a path argument" >&2
-        exit 1
-      fi
+      [[ -z "$ENV_FILE" ]] && { echo "error: --env-file requires a path" >&2; exit 1; }
       shift
       ;;
-    --env-only)
-      ENV_ONLY=true
-      shift
-      ;;
-    --*)
-      echo "error: unknown flag '$1'" >&2
-      exit 1
-      ;;
-    *)
-      TARGETS+=("$1")
-      shift
-      ;;
+    --env-only) ENV_ONLY=true; shift ;;
+    --no-build) NO_BUILD=true; shift ;;
+    --*) echo "error: unknown flag '$1'" >&2; exit 1 ;;
+    *) echo "error: unexpected argument '$1'" >&2; exit 1 ;;
   esac
-done
-
-# Default to all services if none specified
-if [[ ${#TARGETS[@]} -eq 0 ]]; then
-  TARGETS=("${ALL_SERVICES[@]}")
-fi
-
-# Validate service names
-for target in "${TARGETS[@]}"; do
-  start_command "$target" > /dev/null
 done
 
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
+
+if [[ -z "$IMAGE" ]]; then
+  echo "error: HELIX_IMAGE is not set." >&2
+  echo "  export HELIX_IMAGE=nomij/helix" >&2
+  exit 1
+fi
 
 if ! railway status &>/dev/null; then
   echo "error: not linked to a Railway project — run 'railway link' first" >&2
@@ -89,174 +64,107 @@ PROJECT=$(railway status | awk '/Project:/ {print $2}')
 ENV=$(railway status | awk '/Environment:/ {print $2}')
 echo "Project:     $PROJECT"
 echo "Environment: $ENV"
+echo "Image:       ${IMAGE}:${TAG}"
+echo "Service:     $SERVICE"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Sync .env → Railway variables (all services receive all variables)
+# Build and push
 # ---------------------------------------------------------------------------
 
-sync_env() {
-  local env_file="$1"
-
-  if [[ ! -f "$env_file" ]]; then
-    echo "error: env file not found: $env_file" >&2
-    exit 1
-  fi
-
-  echo "Reading $env_file..."
-
-  # Parse KEY=VALUE pairs; skip blank lines and comments.
-  # Strips surrounding quotes from values (both single and double).
-  local pairs=()
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    # Skip blank lines and comments
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    # Strip leading 'export ' if present
-    line="${line#export }"
-    # Must contain '='
-    [[ "$line" != *=* ]] && continue
-
-    local key="${line%%=*}"
-    local val="${line#*=}"
-
-    # Strip surrounding double or single quotes
-    if [[ "$val" =~ ^\"(.*)\"$ ]]; then
-      val="${BASH_REMATCH[1]}"
-    elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
-      val="${BASH_REMATCH[1]}"
-    fi
-
-    # Skip empty values — leave those unset on Railway
-    [[ -z "$val" ]] && continue
-
-    pairs+=("${key}=${val}")
-  done < "$env_file"
-
-  if [[ ${#pairs[@]} -eq 0 ]]; then
-    echo "  no variables found in $env_file"
-    return
-  fi
-
-  echo "  found ${#pairs[@]} variable(s) — syncing to target services..."
+if [[ "$NO_BUILD" == false && "$ENV_ONLY" == false ]]; then
+  echo "──────────────────────────────────────"
+  echo "Building ${IMAGE}:${TAG}"
   echo ""
-
-  for service in "${TARGETS[@]}"; do
-    echo "  → $service"
-    # Pass all pairs as separate arguments in a single call
-    railway variable set --service "$service" --skip-deploys "${pairs[@]}"
-  done
-
+  docker buildx build --platform linux/amd64 -t "${IMAGE}:${TAG}" --push .
+  echo "✓ built and pushed"
   echo ""
-  echo "  ✓ variables synced"
-  echo ""
-}
+fi
 
 # ---------------------------------------------------------------------------
-# Create services first (so env var sync never hits a missing service)
+# Ensure service exists
 # ---------------------------------------------------------------------------
 
-echo "──────────────────────────────────────"
-echo "Ensuring services exist"
-echo ""
-for service in "${TARGETS[@]}"; do
-  add_output=$(railway add --service "$service" 2>&1 || true)
-  if echo "$add_output" | grep -qi "already exists"; then
-    echo "  $service — already exists"
-  else
-    echo "  $service — created"
-  fi
-done
+add_output=$(railway add --service "$SERVICE" 2>&1 || true)
+if echo "$add_output" | grep -qi "already exists"; then
+  echo "Service $SERVICE already exists"
+else
+  echo "Service $SERVICE created"
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# Sync .env → Railway variables (runs after services are guaranteed to exist)
+# Sync .env → Railway variables
 # ---------------------------------------------------------------------------
 
 if [[ -n "$ENV_FILE" ]]; then
   echo "──────────────────────────────────────"
-  echo "Syncing environment variables"
+  echo "Syncing ${ENV_FILE} → Railway"
   echo ""
-  sync_env "$ENV_FILE"
+
+  [[ ! -f "$ENV_FILE" ]] && { echo "error: file not found: $ENV_FILE" >&2; exit 1; }
+
+  pairs=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    line="${line#export }"
+    [[ "$line" != *=* ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    [[ "$val" =~ ^\"(.*)\"$ ]] && val="${BASH_REMATCH[1]}"
+    [[ "$val" =~ ^\'(.*)\'$ ]] && val="${BASH_REMATCH[1]}"
+    [[ -z "$val" ]] && continue
+    pairs+=("${key}=${val}")
+  done < "$ENV_FILE"
+
+  if [[ ${#pairs[@]} -gt 0 ]]; then
+    railway variable set --service "$SERVICE" --skip-deploys "${pairs[@]}"
+    echo "  ✓ ${#pairs[@]} variable(s) synced"
+  else
+    echo "  no variables found"
+  fi
+  echo ""
 fi
 
 if [[ "$ENV_ONLY" == true ]]; then
-  echo "──────────────────────────────────────"
-  echo "Done (--env-only, skipping deploy)."
+  echo "Done (--env-only)."
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Stop and deploy
-# ---------------------------------------------------------------------------
-
-for service in "${TARGETS[@]}"; do
-  cmd="$(start_command "$service")"
-  echo "──────────────────────────────────────"
-  echo "Service: $service"
-  echo "Command: $cmd"
-  echo ""
-
-  # Stop the service before deploying so the new start command takes effect cleanly.
-  echo "  stopping..."
-  railway down --service "$service" 2>/dev/null || true
-  echo "  ✓ stopped"
-
-  # Set START_COMMAND as a Railway env var — read by entrypoint.sh at startup.
-  # For the "all" service, START_COMMAND is empty so entrypoint starts all agents.
-  if [[ -n "$cmd" ]]; then
-    railway variables set --service "$service" --skip-deploys "START_COMMAND=$cmd"
-    echo "  START_COMMAND set: $cmd"
-  else
-    railway variables delete --service "$service" START_COMMAND 2>/dev/null || true
-    echo "  START_COMMAND unset — entrypoint will start all agents"
-  fi
-
-  echo "  deploying..."
-  railway up --service "$service" --detach
-  echo "  ✓ deployment queued"
-
-  if [[ "$service" == "crash_handler" || "$service" == "all" ]]; then
-    domain=$(railway domain --service "$service" 2>/dev/null | tr -d '[:space:]')
-    if [[ -n "$domain" ]]; then
-      echo ""
-      echo "  Webhook URLs:"
-      echo "    Rollbar → https://${domain}/webhook/rollbar"
-      echo "    Sentry  → https://${domain}/webhook/sentry"
-    fi
-  fi
-
-  echo ""
-done
-
-# ---------------------------------------------------------------------------
-# Summary
+# Redeploy
 # ---------------------------------------------------------------------------
 
 echo "──────────────────────────────────────"
-echo "All deployments queued."
-echo ""
-echo "Monitor logs:"
-for service in "${TARGETS[@]}"; do
-  echo "  railway logs --service $service"
-done
-echo ""
-
-# Print webhook URLs if crash_handler or all was deployed
-for service in "${TARGETS[@]}"; do
-  if [[ "$service" == "crash_handler" || "$service" == "all" ]]; then
-    domain=$(railway domain --service "$service" 2>/dev/null | tr -d '[:space:]')
-    if [[ -n "$domain" ]]; then
-      echo "Webhook URLs:"
-      echo "  Rollbar → https://${domain}/webhook/rollbar"
-      echo "  Sentry  → https://${domain}/webhook/sentry"
-      echo ""
-    else
-      echo "Webhook URLs: (domain not yet assigned — run 'railway domain --service $service' once DNS is ready)"
-      echo ""
-    fi
-    break
+echo "Redeploying $SERVICE..."
+redeploy_output=$(railway redeploy --service "$SERVICE" --yes 2>&1) && {
+  echo "✓ redeployment triggered"
+} || {
+  if echo "$redeploy_output" | grep -qi "no deployment found"; then
+    echo ""
+    echo "No deployment found — first-time setup required."
+    echo ""
+    echo "In the Railway dashboard:"
+    echo "  1. Open the '$SERVICE' service → Settings → Source"
+    echo "  2. Switch to Docker Image"
+    echo "  3. Enter: ${IMAGE}:${TAG}"
+    echo "  4. Click Deploy"
+    echo ""
+    echo "After that, re-run this script to deploy future updates."
+  else
+    echo "$redeploy_output" >&2
+    exit 1
   fi
-done
+}
+echo ""
 
-echo "Open dashboard:"
-echo "  railway open"
+domain=$(railway domain --service "$SERVICE" 2>/dev/null | grep -oE '[a-zA-Z0-9.-]+\.up\.railway\.app' | head -1)
+if [[ -n "$domain" ]]; then
+  echo "Webhook URLs:"
+  echo "  Rollbar → https://${domain}/webhook/rollbar"
+  echo "  Sentry  → https://${domain}/webhook/sentry"
+  echo ""
+fi
+
+echo "Logs:      railway logs --service $SERVICE"
+echo "Dashboard: railway open"

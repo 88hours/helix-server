@@ -41,8 +41,7 @@ RUN pip install --no-cache-dir -e "."
 
 # Copy the rest of the source and hand ownership to the app user
 COPY . .
-RUN chown -R helix:helix /app
-RUN chmod +x /app/entrypoint.sh
+RUN chown -R helix:helix /app && chmod +x /app/entrypoint.sh
 
 USER helix
 
@@ -51,14 +50,8 @@ USER helix
 # ---------------------------------------------------------------------------
 EXPOSE 8000
 
-# ENTRYPOINT reads START_COMMAND from the environment and execs it.
-# Using ENTRYPOINT (not CMD) means Railway's stored startCommand cannot
-# bypass this script — Railway overrides CMD but never ENTRYPOINT.
-#
-# Set START_COMMAND as a Railway environment variable per service:
-#   crash_handler:  uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port ${PORT:-8000}
-#   qa:             python -m agents.qa.main
-#   dev:            python -m agents.dev.main
-#   notifier:       python -m agents.notifier.main
-#   all agents:     (leave START_COMMAND unset — entrypoint starts everything)
+# entrypoint.sh reads START_COMMAND from the environment.
+# Set START_COMMAND as a Railway env var per service, or leave unset to run
+# all agents in one container.
+# docker-compose overrides this via its own `command:` per service.
 ENTRYPOINT ["/app/entrypoint.sh"]
