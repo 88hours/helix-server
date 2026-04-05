@@ -23,10 +23,11 @@ ALL_SERVICES=(crash_handler qa dev notifier)
 
 start_command() {
   case "$1" in
-    crash_handler) echo "sh -c 'uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \${PORT:-8000}'" ;;
+    crash_handler) echo "uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port \${PORT:-8000}" ;;
     qa)            echo "python -m agents.qa.main" ;;
     dev)           echo "python -m agents.dev.main" ;;
     notifier)      echo "python -m agents.notifier.main" ;;
+    all)           echo "" ;;  # no START_COMMAND — entrypoint.sh starts all agents
     *)             echo "error: unknown service '$1'" >&2; exit 1 ;;
   esac
 }
@@ -150,6 +151,27 @@ sync_env() {
   echo ""
 }
 
+# ---------------------------------------------------------------------------
+# Create services first (so env var sync never hits a missing service)
+# ---------------------------------------------------------------------------
+
+echo "──────────────────────────────────────"
+echo "Ensuring services exist"
+echo ""
+for service in "${TARGETS[@]}"; do
+  add_output=$(railway add --service "$service" 2>&1 || true)
+  if echo "$add_output" | grep -qi "already exists"; then
+    echo "  $service — already exists"
+  else
+    echo "  $service — created"
+  fi
+done
+echo ""
+
+# ---------------------------------------------------------------------------
+# Sync .env → Railway variables (runs after services are guaranteed to exist)
+# ---------------------------------------------------------------------------
+
 if [[ -n "$ENV_FILE" ]]; then
   echo "──────────────────────────────────────"
   echo "Syncing environment variables"
@@ -164,10 +186,8 @@ if [[ "$ENV_ONLY" == true ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Create services and deploy
+# Stop and deploy
 # ---------------------------------------------------------------------------
-
-trap 'rm -f railway.json' EXIT
 
 for service in "${TARGETS[@]}"; do
   cmd="$(start_command "$service")"
@@ -181,41 +201,22 @@ for service in "${TARGETS[@]}"; do
   railway down --service "$service" 2>/dev/null || true
   echo "  ✓ stopped"
 
-  # Create the service if it does not already exist
-  add_output=$(railway add --service "$service" 2>&1 || true)
-  if echo "$add_output" | grep -qi "already exists"; then
-    echo "  service already exists — skipping create"
+  # Set START_COMMAND as a Railway env var — read by entrypoint.sh at startup.
+  # For the "all" service, START_COMMAND is empty so entrypoint starts all agents.
+  if [[ -n "$cmd" ]]; then
+    railway variables set --service "$service" --skip-deploys "START_COMMAND=$cmd"
+    echo "  START_COMMAND set: $cmd"
   else
-    echo "  service created"
+    railway variables delete --service "$service" START_COMMAND 2>/dev/null || true
+    echo "  START_COMMAND unset — entrypoint will start all agents"
   fi
-
-  # Write a railway.json with the correct startCommand for this service.
-  # This explicitly overrides any start command Railway has stored from a previous
-  # deploy — without it, Railway keeps running the old command (often crash_handler's
-  # uvicorn) even for qa/dev services.
-  cat > railway.json <<EOF
-{
-  "\$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "Dockerfile"
-  },
-  "deploy": {
-    "startCommand": "$cmd",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 1
-  }
-}
-EOF
 
   echo "  deploying..."
   railway up --service "$service" --detach
   echo "  ✓ deployment queued"
 
-  rm -f railway.json
-
-  if [[ "$service" == "crash_handler" ]]; then
-    domain=$(railway domain --service crash_handler 2>/dev/null | tr -d '[:space:]')
+  if [[ "$service" == "crash_handler" || "$service" == "all" ]]; then
+    domain=$(railway domain --service "$service" 2>/dev/null | tr -d '[:space:]')
     if [[ -n "$domain" ]]; then
       echo ""
       echo "  Webhook URLs:"
@@ -240,17 +241,17 @@ for service in "${TARGETS[@]}"; do
 done
 echo ""
 
-# Print webhook URLs if crash_handler was deployed
+# Print webhook URLs if crash_handler or all was deployed
 for service in "${TARGETS[@]}"; do
-  if [[ "$service" == "crash_handler" ]]; then
-    domain=$(railway domain --service crash_handler 2>/dev/null | tr -d '[:space:]')
+  if [[ "$service" == "crash_handler" || "$service" == "all" ]]; then
+    domain=$(railway domain --service "$service" 2>/dev/null | tr -d '[:space:]')
     if [[ -n "$domain" ]]; then
       echo "Webhook URLs:"
       echo "  Rollbar → https://${domain}/webhook/rollbar"
       echo "  Sentry  → https://${domain}/webhook/sentry"
       echo ""
     else
-      echo "Webhook URLs: (domain not yet assigned — run 'railway domain --service crash_handler' once DNS is ready)"
+      echo "Webhook URLs: (domain not yet assigned — run 'railway domain --service $service' once DNS is ready)"
       echo ""
     fi
     break

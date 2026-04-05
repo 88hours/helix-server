@@ -42,18 +42,23 @@ RUN pip install --no-cache-dir -e "."
 # Copy the rest of the source and hand ownership to the app user
 COPY . .
 RUN chown -R helix:helix /app
+RUN chmod +x /app/entrypoint.sh
 
 USER helix
 
 # ---------------------------------------------------------------------------
 # Runtime
 # ---------------------------------------------------------------------------
-# crash_handler (port 8000) is the HTTP service. The other agents (qa, dev)
-# are Redis subscribers with no inbound port.
 EXPOSE 8000
 
-# Default: start the Crash Handler webhook server.
-# Override CMD in docker-compose or at `docker run` time to run other agents:
-#   python -m agents.qa.main
-#   python -m agents.dev.main
-CMD ["uvicorn", "agents.crash_handler.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ENTRYPOINT reads START_COMMAND from the environment and execs it.
+# Using ENTRYPOINT (not CMD) means Railway's stored startCommand cannot
+# bypass this script — Railway overrides CMD but never ENTRYPOINT.
+#
+# Set START_COMMAND as a Railway environment variable per service:
+#   crash_handler:  uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port ${PORT:-8000}
+#   qa:             python -m agents.qa.main
+#   dev:            python -m agents.dev.main
+#   notifier:       python -m agents.notifier.main
+#   all agents:     (leave START_COMMAND unset — entrypoint starts everything)
+ENTRYPOINT ["/app/entrypoint.sh"]
