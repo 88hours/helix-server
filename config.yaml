@@ -59,7 +59,7 @@ agents:
 # ---------------------------------------------------------------------------
 #
 # backend options:
-#   redis        — Redis Pub/Sub (default; recommended for Railway / local dev)
+#   redis        — Redis (default; recommended for Railway / local dev)
 #   eventbridge  — AWS EventBridge (recommended for AWS deployments)
 #
 # Override: HELIX_EVENT_BACKEND
@@ -67,10 +67,18 @@ agents:
 events:
   backend: redis
 
-  # Redis Pub/Sub — used when backend is "redis"
-  # Override: REDIS_URL (e.g. redis://localhost:6379 or rediss://... for TLS)
+  # Redis — used when backend is "redis"
+  #
+  # redis_mode options:
+  #   streams  — Redis Streams (default; messages are persisted, agents can
+  #              start late or restart without missing events)
+  #   pubsub   — Redis Pub/Sub (fire-and-forget; only use for local testing
+  #              where all agents start together)
+  #
+  # Override: HELIX_REDIS_MODE
   redis:
     url_env: REDIS_URL          # name of the env var that holds the Redis URL
+    redis_mode: streams         # "streams" (default) or "pubsub"
 
   # AWS EventBridge — used when backend is "eventbridge"
   # Override: HELIX_EVENTBRIDGE_BUS

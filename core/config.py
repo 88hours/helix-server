@@ -246,6 +246,28 @@ def get_redis_url() -> str:
     return _require_env(url_env)
 
 
+def get_redis_mode() -> str:
+    """
+    Return the Redis messaging mode: "streams" or "pubsub".
+
+    Resolution order:
+      1. HELIX_REDIS_MODE environment variable
+      2. events.redis.redis_mode in config.yaml
+      3. Defaults to "streams"
+
+    Raises:
+        ValueError: The resolved mode is not a recognised value.
+    """
+    raw = _load_yaml()
+    yaml_mode = raw.get("events", {}).get("redis", {}).get("redis_mode", "streams")
+    mode = os.environ.get("HELIX_REDIS_MODE", yaml_mode).lower()
+    if mode not in ("streams", "pubsub"):
+        raise ValueError(
+            f"Unknown HELIX_REDIS_MODE '{mode}'. Must be 'streams' or 'pubsub'."
+        )
+    return mode
+
+
 def get_rollbar_config() -> RollbarConfig:
     """
     Return Rollbar webhook integration settings.

@@ -42,6 +42,8 @@ from typing import Any
 import redis.asyncio as redis
 from redis.exceptions import ResponseError
 
+from core.config import get_redis_mode
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -56,6 +58,9 @@ _EVENTBRIDGE_SOURCE_PREFIX = "helix"
 
 # Redis Streams key prefix.
 _REDIS_STREAM_PREFIX = "helix:stream"
+
+# Redis Pub/Sub channel prefix.
+_REDIS_CHANNEL_PREFIX = "helix:events"
 
 # Maximum number of entries to keep per stream (older entries are trimmed).
 # 1 000 entries per stream is more than enough for an MVP.
@@ -160,6 +165,58 @@ async def _publish_redis(
 
 
 # ---------------------------------------------------------------------------
+# Redis Pub/Sub helpers
+# ---------------------------------------------------------------------------
+
+async def _publish_pubsub(
+    client: redis.Redis,
+    event_name: str,
+    incident_id: str,
+    payload: dict,
+) -> None:
+    """Publish an event to a Redis Pub/Sub channel (fire-and-forget)."""
+    channel = f"{_REDIS_CHANNEL_PREFIX}:{event_name}"
+    message = json.dumps({"incident_id": incident_id, "payload": payload})
+    await client.publish(channel, message)
+    logger.info(
+        "event published via redis pubsub",
+        extra={"event": event_name, "incident_id": incident_id, "channel": channel},
+    )
+
+
+async def _subscribe_pubsub(
+    client: redis.Redis,
+    event_name: str,
+) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+    """Subscribe to a Redis Pub/Sub channel and yield (incident_id, payload) tuples."""
+    channel = f"{_REDIS_CHANNEL_PREFIX}:{event_name}"
+    pubsub = client.pubsub()
+    await pubsub.subscribe(channel)
+    logger.info("subscribed to pubsub channel", extra={"event": event_name, "channel": channel})
+
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+
+        try:
+            data = json.loads(message["data"])
+            incident_id = data["incident_id"]
+            payload = data["payload"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.error(
+                "malformed pubsub message — skipping",
+                extra={"channel": channel, "error": str(exc)},
+            )
+            continue
+
+        logger.info(
+            "event received via pubsub",
+            extra={"event": event_name, "incident_id": incident_id},
+        )
+        yield incident_id, payload
+
+
+# ---------------------------------------------------------------------------
 # EventBridge helpers
 # ---------------------------------------------------------------------------
 
@@ -221,10 +278,12 @@ async def publish(
                      output model of the publishing agent.
     """
     backend = _get_backend()
-    if backend == "redis":
-        await _publish_redis(client, event_name, incident_id, payload)
-    else:
+    if backend == "eventbridge":
         await _publish_eventbridge(event_name, incident_id, payload)
+    elif get_redis_mode() == "pubsub":
+        await _publish_pubsub(client, event_name, incident_id, payload)
+    else:
+        await _publish_redis(client, event_name, incident_id, payload)
 
 
 async def subscribe(
@@ -264,6 +323,11 @@ async def subscribe(
             "subscribe() called with EventBridge backend — no-op; "
             "agents should be triggered via EventBridge rules instead"
         )
+        return
+
+    if get_redis_mode() == "pubsub":
+        async for item in _subscribe_pubsub(client, event_name):
+            yield item
         return
 
     stream = _stream_key(event_name)
