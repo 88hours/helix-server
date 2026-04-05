@@ -46,7 +46,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
     incident_id = str(uuid.uuid4())
     logger.info(
         "crash handler started",
-        extra={"incident_id": incident_id, "rollbar_item_id": event.item_id},
+        extra={"incident_id": incident_id, "source": event.source, "source_item_id": event.item_id},
     )
 
     prompt = prompts.user(
@@ -71,7 +71,8 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
 
     report = CrashReport(
         incident_id=incident_id,
-        rollbar_item_id=event.item_id,
+        source_item_id=event.item_id,
+        source=event.source,
         severity=Severity(data["severity"]),
         error_type=data["error_type"],
         error_message=data["error_message"],

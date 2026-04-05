@@ -53,7 +53,7 @@ def env_vars(monkeypatch):
 def crash_report():
     return CrashReport(
         incident_id="inc-001",
-        rollbar_item_id="12345",
+        source_item_id="12345", source="rollbar",
         severity=Severity.high,
         error_type="KeyError",
         error_message="'item_id'",

@@ -90,13 +90,28 @@ rollbar:
   access_token_env: ROLLBAR_ACCESS_TOKEN   # env var holding the Rollbar project read token
 
 # ---------------------------------------------------------------------------
+# Sentry integration
+# ---------------------------------------------------------------------------
+#
+# Helix verifies inbound Sentry webhooks using HMAC-SHA256 with the client
+# secret from the Sentry integration settings page.  The secret is sent in
+# the `sentry-hook-signature` request header.
+#
+# webhook_secret_env is optional — if the env var is not set, signature
+# verification is skipped (not recommended in production).
+#
+# Override: SENTRY_WEBHOOK_SECRET
+
+sentry:
+  webhook_secret_env: SENTRY_WEBHOOK_SECRET
+
+# ---------------------------------------------------------------------------
 # GitHub integration
 # ---------------------------------------------------------------------------
 #
 # Used by:
-#   QA Agent      — reads source files from the target repo to write test cases
-#   Dev Agent     — clones the target repo; the claude-code CLI runs inside it
-#   Code Quality  — fetches PR diffs for review
+#   QA Agent   — reads source files from the target repo to write test cases
+#   Dev Agent  — clones the target repo; the claude-code CLI runs inside it
 #
 # target_repo: the "owner/name" of the repo Helix is fixing bugs in.
 #   e.g. "acme/backend"
@@ -119,8 +134,8 @@ github:
 # ---------------------------------------------------------------------------
 #
 # Used by:
-#   Code Quality Agent — posts the approval request with Approve/Reject buttons
-#   Dev Agent          — posts an escalation message if all retries are exhausted
+#   Notifier Agent — posts the PR approval request and escalation messages
+#   Dev Agent      — posts an escalation message if all retries are exhausted
 #
 # approval_channel: the Slack channel ID (C...) or name (#channel) where
 #   Helix posts PR reviews for human approval.
@@ -182,11 +197,6 @@ pipeline:
   # Maximum characters read per source file by the QA Agent.
   # Override: HELIX_QA_MAX_FILE_CHARS
   qa_max_file_chars: 4000
-
-  # Maximum characters of PR diff the Code Quality Agent sends to the LLM.
-  # Diffs larger than this are truncated with a notice.
-  # Override: HELIX_CQ_MAX_DIFF_CHARS
-  cq_max_diff_chars: 12000
 
 # ---------------------------------------------------------------------------
 # Server (Crash Handler FastAPI app)

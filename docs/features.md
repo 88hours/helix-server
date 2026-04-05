@@ -7,26 +7,26 @@ Complete reference for all features in the current release.
 ## Pipeline Overview
 
 ```
-Rollbar crash → Crash Handler → QA Agent → Dev Agent → PR + Notifications
+Rollbar / Sentry crash → Crash Handler → QA Agent → Dev Agent → PR + Notifications
 ```
 
-Helix takes a production crash all the way to a ready-to-merge pull request without human intervention. The four agents are fully decoupled — they communicate only via events (Redis Pub/Sub or AWS EventBridge) and share state through Redis.
+Helix takes a production crash all the way to a ready-to-merge pull request without human intervention. The three agents are fully decoupled — they communicate only via events (Redis Pub/Sub or AWS EventBridge) and share state through Redis.
 
 ---
 
 ## Crash Handler Agent
 
-**Trigger:** `POST /webhook/rollbar`
+**Triggers:** `POST /webhook/rollbar`, `POST /webhook/sentry`
 
 ### Webhook receiver
-- Accepts Rollbar webhook payloads over HTTP POST at `/webhook/rollbar`
-- Verifies the Rollbar access token on every request (checked against `ROLLBAR_ACCESS_TOKEN`)
+- Accepts Rollbar webhook payloads at `/webhook/rollbar` — verifies the access token embedded in the payload against `ROLLBAR_ACCESS_TOKEN`
+- Accepts Sentry issue-alert webhooks at `/webhook/sentry` — verifies the HMAC-SHA256 signature in `sentry-hook-signature` against `SENTRY_WEBHOOK_SECRET`
 - Returns `202 Accepted` with an `incident_id` immediately; processing continues asynchronously
-- Returns `400 Bad Request` for invalid or missing tokens
+- Returns `401 Unauthorized` for invalid tokens or signatures
 
 ### Crash analysis
-- Passes the raw Rollbar payload to the LLM for structured extraction
-- Produces a `CrashReport` with: `incident_id`, `rollbar_item_id`, `severity`, `error_type`, `error_message`, `stack_trace`, `affected_component`, `affected_endpoint`, and a plain-English `summary`
+- Normalises Rollbar and Sentry payloads into the same internal event format before LLM analysis
+- Produces a `CrashReport` with: `incident_id`, `source_item_id`, `source`, `severity`, `error_type`, `error_message`, `stack_trace`, `affected_component`, `affected_endpoint`, and a plain-English `summary`
 - Classifies severity as `low`, `medium`, `high`, or `critical`
 
 ### State and events

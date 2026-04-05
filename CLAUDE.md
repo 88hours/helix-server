@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Helix is an autonomous incident response platform. It runs a pipeline of four AI agents that take a production crash from Sentry all the way to a ready-to-merge pull request, with a human approval step via Slack before anything reaches production.
+Helix is an autonomous incident response platform. It runs a pipeline of three AI agents that take a production crash from Sentry all the way to a ready-to-merge pull request, with a human approval step via Slack before anything reaches production.
 
-Pipeline: **Crash Handler → QA Agent → Dev Agent → Code Quality Agent → Human Approval**
+Pipeline: **Crash Handler → QA Agent → Dev Agent → Human Approval**
 
 Agents communicate via events (AWS EventBridge or Redis Pub/Sub). State is shared through Redis, keyed by `incident_id`. No agent calls another agent directly.
 
@@ -49,8 +49,6 @@ The Dev Agent defaults to `claude-code` — it invokes the Claude Code CLI via s
 helix:events:crash_analysed
 helix:events:test_case_generated
 helix:events:pr_created
-helix:events:quality_approved
-helix:events:quality_rejected
 ```
 
 EventBridge uses the same names as `detail-type` on the `helix-mvp` bus.

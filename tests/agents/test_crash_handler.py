@@ -295,7 +295,7 @@ def test_webhook_valid_request_returns_202():
 
     mock_report = CrashReport(
         incident_id="inc-001",
-        rollbar_item_id="12345",
+        source_item_id="12345", source="rollbar",
         severity=Severity.high,
         error_type="KeyError",
         error_message="'item_id'",

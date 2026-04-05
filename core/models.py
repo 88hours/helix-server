@@ -73,21 +73,26 @@ class TicketAction(str, Enum):
 
 class RollbarEvent(BaseModel):
     """
-    Normalised representation of a Rollbar webhook payload.
+    Normalised inbound crash event produced by integrations/rollbar.py and
+    integrations/sentry.py.
+
+    Both parsers produce this model so the Crash Handler Agent can treat all
+    crash sources identically.  The `source` field identifies the origin.
 
     The raw dict is preserved in `raw` so downstream agents can access
     any fields not explicitly mapped here.
     """
-    item_id: str                            # Rollbar item ID (numeric, as string)
-    occurrence_id: str                      # UUID of the specific occurrence
+    item_id: str                            # source issue / item ID (numeric string)
+    occurrence_id: str                      # UUID of the specific occurrence or event
     title: str
     level: Optional[str] = None            # e.g. "error", "critical"
     environment: Optional[str] = None      # e.g. "production", "staging"
     language: Optional[str] = None         # e.g. "python", "javascript"
-    culprit: Optional[str] = None          # Rollbar occurrence context
+    culprit: Optional[str] = None          # function or file that caused the error
     stack_trace: Optional[str] = None      # formatted stack trace string
-    url: Optional[str] = None             # URL of the Rollbar item
+    url: Optional[str] = None             # URL of the issue in the source tool
     project_id: Optional[int] = None
+    source: str = "rollbar"               # "rollbar" or "sentry"
     raw: dict = Field(default_factory=dict)
 
 
@@ -103,7 +108,8 @@ class CrashReport(BaseModel):
     Published as the payload of the CrashAnalysed event.
     """
     incident_id: str
-    rollbar_item_id: str
+    source_item_id: str     # issue / item ID from the originating tool (Rollbar or Sentry)
+    source: str             # "rollbar" or "sentry"
     severity: Severity
     error_type: str                 # e.g. "KeyError", "NullPointerException"
     error_message: str

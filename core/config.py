@@ -76,6 +76,12 @@ class RollbarConfig:
 
 
 @dataclass
+class SentryConfig:
+    """Sentry webhook integration settings."""
+    webhook_secret: str | None  # Sentry client secret for HMAC-SHA256 signature verification; None → check skipped
+
+
+@dataclass
 class GitHubConfig:
     """GitHub integration settings."""
     target_repo: str    # "owner/name" of the repo Helix is fixing, e.g. "acme/backend"
@@ -231,6 +237,24 @@ def get_rollbar_config() -> RollbarConfig:
     raw = _load_yaml()
     token_env = raw.get("rollbar", {}).get("access_token_env", "ROLLBAR_ACCESS_TOKEN")
     return RollbarConfig(access_token=_require_env(token_env))
+
+
+def get_sentry_config() -> SentryConfig:
+    """
+    Return Sentry webhook integration settings.
+
+    The webhook secret is optional — if SENTRY_WEBHOOK_SECRET is not set,
+    signature verification is skipped and a warning is logged.  This allows
+    the endpoint to be tested without a secret, but should always be set in
+    production.
+
+    Resolution order:
+      1. SENTRY_WEBHOOK_SECRET environment variable
+      2. config.yaml sentry.webhook_secret_env (defaults to SENTRY_WEBHOOK_SECRET)
+    """
+    raw = _load_yaml()
+    secret_env = raw.get("sentry", {}).get("webhook_secret_env", "SENTRY_WEBHOOK_SECRET")
+    return SentryConfig(webhook_secret=os.environ.get(secret_env) or None)
 
 
 def get_github_config() -> GitHubConfig:

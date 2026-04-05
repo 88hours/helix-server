@@ -36,7 +36,7 @@ This process can take days. During that time, the bug remains live in production
 
 ## Core Value Proposition
 
-Helix reduces bug-to-fix time from days to minutes by automating the entire incident response workflow: crash detection, issue creation, reproduction, test case generation, code fix, and quality review. Developers receive a ready-to-merge pull request with a verified fix, rather than a raw crash notification to investigate manually. Human approval is always required before anything reaches production.
+Helix reduces bug-to-fix time from days to minutes by automating the entire incident response workflow: crash detection, issue creation, reproduction, test case generation, and code fix. Developers receive a ready-to-merge pull request with a verified fix, rather than a raw crash notification to investigate manually. Human approval is always required before anything reaches production.
 
 ---
 
@@ -67,17 +67,11 @@ The Dev Agent receives the test case and relevant code context. It follows TDD s
 
 Once all tests pass, the Dev Agent creates a pull request with the fix, the new test case, and a plain-English description of what was changed and why. The agent emits a `PRCreated` event.
 
-### Step 4: Code Quality Agent
+### Step 4: Human Approval
 
 **Triggered by:** `PRCreated` event
 
-The Code Quality Agent reviews the pull request for production-grade quality. It checks test coverage, code standards, security, and performance. If the quality check passes, the agent sends a Slack notification to the designated human reviewer with a summary of the fix and quality report. If the quality check fails, the agent sends the PR back to the Dev Agent with specific feedback.
-
-### Step 5: Human Approval
-
-**Triggered by:** Slack notification from Code Quality Agent
-
-The human reviewer reads the fix summary, reviews the PR if needed, and approves or rejects via Slack. On approval, the PR is merged and the fix is deployed.
+Once the Dev Agent creates the pull request, a Slack notification is sent to the designated human reviewer with a plain-English summary of the fix. The reviewer reads the summary, reviews the PR if needed, and approves or rejects via Slack. On approval, the PR is merged and the fix is deployed.
 
 ---
 
@@ -111,11 +105,6 @@ The human reviewer reads the fix summary, reviews the PR if needed, and approves
 - Create a pull request with the fix and test case
 - Include a plain-English description of the change and rationale
 - Tag the PR with Helix metadata
-
-#### Code quality review
-- Check test coverage, design patterns, and coding standards
-- Flag security or performance concerns
-- Send fix summary and quality report to human reviewer via Slack
 
 #### Human approval workflow
 - Slack notification to designated reviewer with fix summary
@@ -189,7 +178,7 @@ TDD ensures the fix addresses the root cause, not just the symptom. Writing a fa
 If the Dev Agent fails after three iterations, it escalates to a human developer with the full context: crash report, test case, agent reasoning, and what was tried. This is better than an automated fix that does not work.
 
 ### Why use cheaper models for routine tasks?
-The Crash Handler and QA agents perform largely pattern-matching and structured analysis. Claude Haiku is sufficient and significantly cheaper. The Dev Agent and Code Quality Agent require deeper reasoning and use Claude Sonnet. This cost optimisation keeps Helix economically viable at scale.
+The Crash Handler and QA agents perform largely pattern-matching and structured analysis. Claude Haiku is sufficient and significantly cheaper. The Dev Agent requires deeper reasoning and uses Claude Sonnet. This cost optimisation keeps Helix economically viable at scale.
 
 ### Why MCP integration in Phase 2?
 MCP integration makes Helix accessible from any Claude-powered tool without rebuilding integrations. It transforms Helix from a standalone system into a composable building block that fits into any AI workflow.
@@ -221,7 +210,7 @@ MCP integration makes Helix accessible from any Claude-powered tool without rebu
 
 Helix is built agentic-first and event-driven. Each agent operates in its own context window with a focused purpose. Agents communicate via events (AWS EventBridge) rather than direct calls. No agent knows about or depends on another agent's internal state.
 
-The system is built in phases: Crash Handler and QA Agent first, then Dev Agent, then Code Quality Agent. Each phase is validated in staging before the next phase begins. Human approval is non-negotiable at every phase of the build.
+The system is built in phases: Crash Handler and QA Agent first, then Dev Agent. Each phase is validated in staging before the next phase begins. Human approval is non-negotiable at every phase of the build.
 
 See `CLAUDE.md` for development instructions for Claude Code sessions.
 
