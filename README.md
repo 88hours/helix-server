@@ -1,5 +1,5 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/88hours/helix/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/88hours/helix/tree/main)
-[![Railway](https://railway.com/project/22b7457e-0bec-4e93-8236-4cb3c06cf3e7/service/7feb4e1c-1c8e-4911-95da-7f6213148cb0/deploy-badge.svg)](https://railway.com/project/22b7457e-0bec-4e93-8236-4cb3c06cf3e7)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/88hours/helix)
 # Helix
 
 Helix is an autonomous incident response platform. It takes a production crash from Rollbar all the way to a ready-to-merge pull request in under 10 minutes — no human involvement required until the PR review.
@@ -294,6 +294,20 @@ EventBridge uses the same names as `detail-type` on the `helix-mvp` bus. Switch 
 | Local dev | `docker compose --profile local up --build` |
 | MVP launch | Railway (one service per agent) + Redis Cloud |
 | AWS-native | Lambda per agent + EventBridge + ElastiCache |
+
+### One-click Railway deploy
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/88hours/helix)
+
+The button deploys the **crash_handler** (the webhook-receiving service) as the primary service. After it's running:
+
+1. Set the required environment variables in the Railway dashboard (see `.env.example` for the full list)
+2. Add Redis: Railway dashboard → **New** → **Database** → **Redis**
+3. Deploy the remaining three agents:
+```bash
+railway link   # link to the newly created project
+./railway-deploy.sh --env-file .env qa dev notifier
+```
 
 See `docs/architecture.md` for a full breakdown.
 

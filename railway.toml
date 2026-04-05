@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Railway deployment configuration — crash_handler (primary service)
+#
+# This file configures the crash_handler as the default service deployed
+# when using the Railway deploy button. The remaining three agents (qa, dev,
+# notifier) are deployed via railway-deploy.sh or the Railway dashboard.
+#
+# Required environment variables (set in Railway dashboard after deploy):
+#   ANTHROPIC_API_KEY      Anthropic API key
+#   REDIS_URL              Redis connection URL (e.g. Redis Cloud)
+#   ROLLBAR_ACCESS_TOKEN   Rollbar project access token
+#   GITHUB_TOKEN           GitHub personal access token (repo + issues scope)
+#
+# Optional:
+#   SLACK_BOT_TOKEN        Slack bot token for notifications
+#   SLACK_APPROVAL_CHANNEL Slack channel ID for notifications
+#   SENDGRID_API_KEY       SendGrid API key for email notifications
+#   EMAIL_FROM             Sender address for email notifications
+#   EMAIL_TO               Recipient addresses for email notifications
+# ---------------------------------------------------------------------------
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "sh -c 'uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
