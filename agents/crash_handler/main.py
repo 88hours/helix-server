@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, status
 
 from agents.crash_handler.agent import handle
-from core.config import get_redis_url, get_rollbar_config, get_sentry_config
+from core.config import get_redis_url, get_rollbar_config, get_sentry_config, is_demo_mode
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
 
@@ -86,13 +86,16 @@ async def rollbar_webhook(request: Request):
         logger.info("rollbar connectivity test received — acknowledged")
         return {"status": "ok"}
 
-    rollbar_cfg = get_rollbar_config()
-    if not rollbar_integration.verify_token(raw, rollbar_cfg.access_token):
-        logger.warning("rollbar webhook access token mismatch")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid access token",
-        )
+    if is_demo_mode():
+        logger.warning("demo mode enabled — skipping rollbar access token verification")
+    else:
+        rollbar_cfg = get_rollbar_config()
+        if not rollbar_integration.verify_token(raw, rollbar_cfg.access_token):
+            logger.warning("rollbar webhook access token mismatch")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid access token",
+            )
 
     crash_event = rollbar_integration.parse_event(raw)
     logger.debug(
@@ -122,16 +125,19 @@ async def sentry_webhook(request: Request):
     body = await request.body()
     signature = request.headers.get("sentry-hook-signature", "")
 
-    sentry_cfg = get_sentry_config()
-    if sentry_cfg.webhook_secret:
-        if not sentry_integration.verify_signature(body, signature, sentry_cfg.webhook_secret):
-            logger.warning("sentry webhook signature verification failed")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid webhook signature",
-            )
+    if is_demo_mode():
+        logger.warning("demo mode enabled — skipping sentry signature verification")
     else:
-        logger.warning("SENTRY_WEBHOOK_SECRET not configured — skipping signature check")
+        sentry_cfg = get_sentry_config()
+        if sentry_cfg.webhook_secret:
+            if not sentry_integration.verify_signature(body, signature, sentry_cfg.webhook_secret):
+                logger.warning("sentry webhook signature verification failed")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid webhook signature",
+                )
+        else:
+            logger.warning("SENTRY_WEBHOOK_SECRET not configured — skipping signature check")
 
     try:
         raw = json.loads(body)

@@ -186,6 +186,28 @@ def get_agent_config(agent: str) -> AgentConfig:
     return AgentConfig(agent=agent, provider=provider, model=model)
 
 
+def is_demo_mode() -> bool:
+    """
+    Return True when demo mode is enabled.
+
+    In demo mode the crash handler skips webhook signature and access-token
+    verification for both /webhook/rollbar and /webhook/sentry, so the
+    pipeline can be exercised without real credentials.
+
+    Resolution order:
+      1. HELIX_DEMO environment variable ("true" / "1" → True)
+      2. demo key in config.yaml (default: false)
+    """
+    raw = _load_yaml()
+    yaml_value = raw.get("demo", False)
+    env_value = os.environ.get("HELIX_DEMO", "").lower()
+    if env_value in ("true", "1"):
+        return True
+    if env_value in ("false", "0"):
+        return False
+    return bool(yaml_value)
+
+
 def get_event_backend() -> str:
     """
     Return the configured event backend: "redis" or "eventbridge".

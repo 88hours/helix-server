@@ -8,6 +8,20 @@
 # See the override key for each section below.
 
 # ---------------------------------------------------------------------------
+# Demo mode
+# ---------------------------------------------------------------------------
+#
+# When demo: true, webhook signature and access-token verification is skipped
+# for both /webhook/rollbar and /webhook/sentry.  Use this to test the
+# pipeline without needing real Rollbar or Sentry credentials.
+#
+# WARNING: never enable this in production.
+#
+# Override: HELIX_DEMO=true
+
+demo: false
+
+# ---------------------------------------------------------------------------
 # LLM providers
 # ---------------------------------------------------------------------------
 #
