@@ -28,6 +28,10 @@ jobs:
             - "SHA256:ahmQ7//T7KF7j0z6VjJXICSWKBU4AUyWOohjlELg5ew"
       - checkout
       - run:
+          name: Skip if only markdown files changed
+          command: |
+            git diff --name-only origin/main...HEAD | grep -qv '\.md$' || circleci-agent step halt
+      - run:
           name: Install dependencies
           command: pip install --editable ".[dev]"
       - run:
@@ -43,6 +47,10 @@ jobs:
           fingerprints:
             - "SHA256:ahmQ7//T7KF7j0z6VjJXICSWKBU4AUyWOohjlELg5ew"
       - checkout
+      - run:
+          name: Skip if only markdown files changed
+          command: |
+            git diff --name-only origin/main...HEAD | grep -qv '\.md$' || circleci-agent step halt
       - setup_remote_docker:
           docker_layer_caching: true
       - run:
