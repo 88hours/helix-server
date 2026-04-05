@@ -317,6 +317,75 @@ Helix fixes **application-level bugs** only. Out of scope for MVP: infrastructur
 
 ---
 
+## Production Considerations
+
+Known limitations of the current architecture and what needs to change before running Helix as a multi-tenant SaaS.
+
+### Sequential processing bottleneck
+
+Each agent is a single process that handles one incident at a time. At scale, incidents queue behind each other:
+
+```
+Org A crash → dev agent processing (5–10 min)
+Org B crash → waiting...
+Org C crash → waiting...
+```
+
+The Dev Agent is the worst offender — it clones a repo, runs tests, and iterates up to 3 times. A single slow incident blocks every other org.
+
+**Fix:** run each agent as a pool of workers pulling from a queue. In ECS Fargate, this means multiple task instances per agent with auto-scaling based on queue depth. The agent logic itself does not change — only how work is distributed to it.
+
+### No per-org isolation
+
+All orgs share the same worker pool. A single org with a burst of crashes can starve others.
+
+**Fix:** priority queues per plan tier. Free incidents go into a low-priority queue; Pro into a standard queue; Team gets dedicated workers. Redis Streams supports this with multiple stream keys — workers poll the high-priority stream first.
+
+| Plan | Model |
+|---|---|
+| Free | Shared pool, low-priority queue |
+| Pro | Shared pool, standard-priority queue |
+| Team | Dedicated worker pool — no noisy neighbour |
+
+### Concurrent fixes on the same repo
+
+If the same repo has two crashes at the same time, two Dev Agent workers will clone it simultaneously, create conflicting branches, and potentially open duplicate PRs.
+
+**Fix:** a per-repo lock in Redis before starting the TDD loop. One line: `SET helix:{org_id}:repo_lock:{repo} 1 NX EX 600`. If the lock is held, the incident waits in a short retry queue.
+
+### No Dev Agent timeout budget
+
+The Dev Agent retries up to 3 times but has no wall-clock limit. A pathological case (large repo, flaky tests) can hold a worker indefinitely.
+
+**Fix:** a hard timeout per incident (e.g. 8 minutes total). If the budget is exceeded, escalate rather than continuing to retry. The timeout is enforced at the worker level, not inside the agent.
+
+### Redis Pub/Sub is fire-and-forget
+
+If an agent is not running when a message is published, the message is lost. For a single-tenant deployment this is acceptable — a new Rollbar webhook will re-trigger the pipeline. For multi-tenant SaaS, silent message loss is not acceptable.
+
+**Fix:** switch from Redis Pub/Sub to Redis Streams (`XADD`/`XREAD`). Streams persist messages until consumed and survive agent restarts. The change is isolated to `core/events.py` — no agent logic changes.
+
+### Static `config.yaml` does not support multiple organisations
+
+`config.yaml` holds a single `github.target_repo`. There is no concept of per-org configuration, tokens, or repo lists.
+
+**Fix:** replace `config.yaml` with a Postgres table (`repos`, `organisations`). Agents receive `org_id` in the event payload and look up config at runtime. Required before any multi-tenant work.
+
+### Summary
+
+| Concern | Fix | Complexity |
+|---|---|---|
+| Sequential bottleneck | Multiple ECS task instances + auto-scaling | Low — ECS handles this |
+| No org isolation | Priority queues per plan tier | Medium |
+| Concurrent repo fixes | Per-repo Redis lock (`SET NX EX`) | Low |
+| No Dev Agent timeout | Wall-clock budget at worker level | Low |
+| Message loss on restart | Redis Streams instead of Pub/Sub | Low — isolated to `core/events.py` |
+| Single-tenant config | Postgres org/repo tables | High — requires Phase 3 work |
+
+None of these require changes to agent logic. The event-driven architecture is the right foundation — these are distribution and configuration concerns layered on top of it.
+
+---
+
 ## Roadmap
 
 ### Phase 2 — Make it deployable
