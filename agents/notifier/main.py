@@ -86,6 +86,7 @@ async def _listen_fix_failed(redis_client: aioredis.Redis) -> None:
 
 async def main() -> None:
     """Connect to Redis and run both subscription loops concurrently."""
+    logger.info("=== Notifier Agent starting ===")
     redis_url = get_redis_url()
     logger.info("notifier agent connecting to redis", extra={"redis_url": redis_url})
     redis_client = aioredis.from_url(redis_url, decode_responses=False)

@@ -31,6 +31,7 @@ logging.basicConfig(
 
 async def main() -> None:
     """Subscribe to test_case_generated events and run the Dev Agent for each one."""
+    logger.info("=== Dev Agent starting ===")
     redis_url = get_redis_url()
     logger.info("dev agent connecting to redis", extra={"redis_url": redis_url})
     redis_client = aioredis.from_url(redis_url, decode_responses=False)

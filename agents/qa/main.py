@@ -35,6 +35,7 @@ async def main() -> None:
     If the CrashReport is not in Redis (e.g. expired), the event is skipped
     with a warning rather than crashing the loop.
     """
+    logger.info("=== QA Agent starting ===")
     redis_url = get_redis_url()
     logger.info("qa agent connecting to redis", extra={"redis_url": redis_url})
     redis_client = aioredis.from_url(redis_url, decode_responses=False)

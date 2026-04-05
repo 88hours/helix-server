@@ -136,10 +136,10 @@ sync_env() {
     return
   fi
 
-  echo "  found ${#pairs[@]} variable(s) — syncing to all services..."
+  echo "  found ${#pairs[@]} variable(s) — syncing to target services..."
   echo ""
 
-  for service in "${ALL_SERVICES[@]}"; do
+  for service in "${TARGETS[@]}"; do
     echo "  → $service"
     # Pass all pairs as separate arguments in a single call
     railway variable set --service "$service" --skip-deploys "${pairs[@]}"
@@ -176,6 +176,11 @@ for service in "${TARGETS[@]}"; do
   echo "Command: $cmd"
   echo ""
 
+  # Stop the service before deploying so the new start command takes effect cleanly.
+  echo "  stopping..."
+  railway down --service "$service" 2>/dev/null || true
+  echo "  ✓ stopped"
+
   # Create the service if it does not already exist
   add_output=$(railway add --service "$service" 2>&1 || true)
   if echo "$add_output" | grep -qi "already exists"; then
@@ -184,8 +189,10 @@ for service in "${TARGETS[@]}"; do
     echo "  service created"
   fi
 
-  # Write a temporary root railway.json so railway up picks up the correct
-  # start command and Dockerfile path for this service.
+  # Write a railway.json with the correct startCommand for this service.
+  # This explicitly overrides any start command Railway has stored from a previous
+  # deploy — without it, Railway keeps running the old command (often crash_handler's
+  # uvicorn) even for qa/dev services.
   cat > railway.json <<EOF
 {
   "\$schema": "https://railway.app/railway.schema.json",
@@ -196,7 +203,7 @@ for service in "${TARGETS[@]}"; do
   "deploy": {
     "startCommand": "$cmd",
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "restartPolicyMaxRetries": 1
   }
 }
 EOF
@@ -204,6 +211,8 @@ EOF
   echo "  deploying..."
   railway up --service "$service" --detach
   echo "  ✓ deployment queued"
+
+  rm -f railway.json
 
   if [[ "$service" == "crash_handler" ]]; then
     domain=$(railway domain --service crash_handler 2>/dev/null | tr -d '[:space:]')
@@ -215,7 +224,6 @@ EOF
     fi
   fi
 
-  rm railway.json
   echo ""
 done
 

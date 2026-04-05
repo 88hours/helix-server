@@ -35,6 +35,7 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     """Create the Redis client on startup and close it on shutdown."""
     redis_url = get_redis_url()
+    logger.info("=== Crash Handler starting ===")
     logger.info("crash handler connecting to redis", extra={"redis_url": redis_url})
     app.state.redis = aioredis.from_url(redis_url, decode_responses=False)
     logger.info("crash handler started — redis connected, listening on :8000/webhook/rollbar")
