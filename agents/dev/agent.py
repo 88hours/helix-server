@@ -38,6 +38,7 @@ from core.state import (
     write_pr_result,
     write_status,
 )
+from core.ui_events import publish_ui_event
 from integrations import github
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ async def handle(
     incident_id = crash_report.incident_id
 
     logger.info("dev agent started", extra={"incident_id": incident_id})
+    await publish_ui_event(redis_client, incident_id, "agent_start", "dev", "Dev Agent started — fetching source files…")
 
     # Step 1 — Fetch source files from GitHub API.
     require(permissions, "github", "fetch_source_files")
@@ -95,6 +97,8 @@ async def handle(
         "source files fetched",
         extra={"incident_id": incident_id, "files": list(source_files.keys())},
     )
+
+    await publish_ui_event(redis_client, incident_id, "agent_step", "dev", f"Fetched {len(source_files)} source file(s) — generating fix suggestion…")
 
     # Step 2 — LLM generates a fix suggestion.
     suggestion_prompt = prompts.build_suggestion(
@@ -135,6 +139,8 @@ async def handle(
         "fix suggestion posted to github issue",
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
     )
+
+    await publish_ui_event(redis_client, incident_id, "agent_step", "dev", "Fix suggestion posted to GitHub issue — starting TDD loop…")
 
     # Step 4 — Publish fix_suggested; Notifier Agent handles Slack/email.
     require(permissions, "redis", "write_status")
@@ -222,6 +228,10 @@ async def _tdd_loop(
         )
 
         while iteration <= MAX_ITERATIONS:
+            await publish_ui_event(
+                redis_client, incident_id, "agent_step", "dev",
+                f"TDD iteration {iteration}/{MAX_ITERATIONS} — running Claude Code…",
+            )
             prompt = prompts.build_tdd(
                 incident_id=incident_id,
                 error_type=crash_report.error_type,
@@ -286,6 +296,11 @@ async def _tdd_loop(
                 await write_pr_result(redis_client, pr_result)
                 require(permissions, "redis", "write_status")
                 await write_status(redis_client, incident_id, "pr_created")
+                await publish_ui_event(
+                    redis_client, incident_id, "agent_step", "dev",
+                    f"Tests passed on iteration {iteration} — PR #{pr_number} created",
+                )
+                await publish_ui_event(redis_client, incident_id, "status_changed", "dev", "pr_created")
                 require(permissions, "events", "publish:pr_created")
                 await publish(
                     redis_client,
@@ -293,6 +308,7 @@ async def _tdd_loop(
                     incident_id,
                     pr_result.model_dump(mode="json"),
                 )
+                await publish_ui_event(redis_client, incident_id, "agent_done", "dev", f"Fix complete — awaiting human approval for PR #{pr_number}")
 
                 logger.info(
                     "dev agent complete",
@@ -307,6 +323,10 @@ async def _tdd_loop(
             # Tests failed — record attempt and retry if budget remains.
             explanation = _extract_explanation(response)
             prior_attempts.append(explanation)
+            await publish_ui_event(
+                redis_client, incident_id, "agent_step", "dev",
+                f"Iteration {iteration} failed — {'retrying' if iteration < MAX_ITERATIONS else 'escalating'}",
+            )
             logger.warning(
                 "dev agent tdd iteration failed",
                 extra={"incident_id": incident_id, "iteration": iteration},
@@ -325,6 +345,7 @@ async def _tdd_loop(
         shutil.rmtree(repo_dir, ignore_errors=True)
 
     # All iterations exhausted.
+    await publish_ui_event(redis_client, incident_id, "agent_done", "dev", f"All {MAX_ITERATIONS} iterations exhausted — escalating to human")
     await _post_failure_comment(qa_result, gh_config.target_repo, prior_attempts, permissions)
     await _escalate(crash_report, prior_attempts, redis_client, permissions)
     raise RuntimeError(

@@ -1,12 +1,22 @@
 """
 Crash Handler Agent — FastAPI entry point.
 
-Exposes three endpoints:
-  - POST /webhook/rollbar  — verifies the Rollbar access token, parses the payload, delegates to agent.py.
-  - POST /webhook/sentry   — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
-  - POST /slack/actions    — receives Slack button interactions (Approve / Reject PR).
+Exposes three webhook endpoints plus the streaming dashboard API:
+
+  Webhooks:
+    POST /webhook/rollbar  — verifies the Rollbar access token, parses the payload, delegates to agent.py.
+    POST /webhook/sentry   — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
+    POST /slack/actions    — receives Slack button interactions (Approve / Reject PR).
                              Verifies the Slack signing secret, then merges or rejects the PR.
                              Only active when SLACK_SIGNING_SECRET is configured.
+
+  Dashboard API:
+    GET /api/incidents              — list all known incidents (reads Redis state).
+    GET /api/incidents/{id}         — full state for one incident (crash report, QA result, PR).
+    GET /api/stream/{id}            — Server-Sent Events stream of live agent progress.
+
+  Dashboard SPA:
+    GET /app  and  GET /app/*       — serve the built React frontend from dashboard/dist/.
 
 Run with:
     uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
@@ -16,18 +26,25 @@ import json
 import logging
 import os
 import urllib.parse
+from pathlib import Path
 
 import redis.asyncio as aioredis
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse
+from sse_starlette.sse import EventSourceResponse
 
 from agents.crash_handler.agent import handle
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
-from core.state import read_pr_result, write_status
+from core.state import read_crash_report, read_pr_result, read_qa_result, read_status, write_status
+from core.ui_events import subscribe_ui_events
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
 from integrations import slack as slack_integration
 from integrations.github import merge_pull_request
+
+# Path to the built React dashboard (populated by: cd dashboard && npm run build).
+_DASHBOARD_DIST = Path(__file__).parent.parent.parent / "dashboard" / "dist"
 
 logger = logging.getLogger(__name__)
 
@@ -303,3 +320,161 @@ async def slack_actions(request: Request):
 
     logger.warning("unknown slack action_id", extra={"action_id": action_id, "incident_id": incident_id})
     return {"text": f"Unknown action: {action_id}"}
+
+
+# ---------------------------------------------------------------------------
+# Dashboard API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/incidents", tags=["dashboard"])
+async def list_incidents(request: Request):
+    """
+    List all known incidents.
+
+    Scans Redis for helix:incident:*:status keys to enumerate incident IDs,
+    then reads the status and crash report summary for each.  Returns newest
+    incidents first (sorted by crash report timestamp).
+    """
+    redis_client = request.app.state.redis
+    incidents = []
+
+    async for raw_key in redis_client.scan_iter("helix:incident:*:status"):
+        key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+        # key format: helix:incident:{id}:status
+        parts = key.split(":")
+        if len(parts) != 4:
+            continue
+        incident_id = parts[2]
+
+        status_val = await read_status(redis_client, incident_id)
+        report = await read_crash_report(redis_client, incident_id)
+
+        incidents.append(
+            {
+                "incident_id": incident_id,
+                "status": status_val or "unknown",
+                "error_type": report.error_type if report else None,
+                "error_message": report.error_message if report else None,
+                "severity": report.severity.value if report else None,
+                "affected_component": report.affected_component if report else None,
+                "summary": report.summary if report else None,
+                "timestamp": report.timestamp.isoformat() if report and report.timestamp else None,
+            }
+        )
+
+    incidents.sort(key=lambda i: i["timestamp"] or "", reverse=True)
+    return {"incidents": incidents}
+
+
+@app.get("/api/incidents/{incident_id}", tags=["dashboard"])
+async def get_incident(incident_id: str, request: Request):
+    """
+    Return the full state for a single incident.
+
+    Reads crash_report, qa_result, pr_result, and status from Redis.
+    Returns 404 if the incident does not exist.
+    """
+    redis_client = request.app.state.redis
+
+    status_val = await read_status(redis_client, incident_id)
+    if status_val is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident '{incident_id}' not found",
+        )
+
+    report = await read_crash_report(redis_client, incident_id)
+    qa_result = await read_qa_result(redis_client, incident_id)
+    pr_result = await read_pr_result(redis_client, incident_id)
+
+    return {
+        "incident_id": incident_id,
+        "status": status_val,
+        "crash_report": report.model_dump(mode="json") if report else None,
+        "qa_result": qa_result.model_dump(mode="json") if qa_result else None,
+        "pr_result": pr_result.model_dump(mode="json") if pr_result else None,
+    }
+
+
+@app.get("/api/stream/{incident_id}", tags=["dashboard"])
+async def stream_incident(incident_id: str, request: Request):
+    """
+    Server-Sent Events stream of live agent progress for an incident.
+
+    On connect: immediately sends a "snapshot" event with the current full
+    incident state so the browser renders something before any new events fire.
+
+    Then: subscribes to helix:ui:{incident_id} Pub/Sub and forwards each
+    "progress" event as it is published by an agent.
+
+    Uses a dedicated Redis client for Pub/Sub (pub/sub is stateful — cannot
+    share the application-wide client).
+    """
+    redis_client = request.app.state.redis
+    redis_url = get_redis_url()
+
+    async def event_generator():
+        # Snapshot — send current state so the UI is immediately populated.
+        status_val = await read_status(redis_client, incident_id)
+        report = await read_crash_report(redis_client, incident_id)
+        qa_result = await read_qa_result(redis_client, incident_id)
+        pr_result = await read_pr_result(redis_client, incident_id)
+
+        yield {
+            "event": "snapshot",
+            "data": json.dumps(
+                {
+                    "incident_id": incident_id,
+                    "status": status_val,
+                    "crash_report": report.model_dump(mode="json") if report else None,
+                    "qa_result": qa_result.model_dump(mode="json") if qa_result else None,
+                    "pr_result": pr_result.model_dump(mode="json") if pr_result else None,
+                }
+            ),
+        }
+
+        # Live stream — forward agent progress events.
+        pubsub_client = aioredis.from_url(redis_url, decode_responses=True)
+        try:
+            async for event in subscribe_ui_events(pubsub_client, incident_id):
+                if await request.is_disconnected():
+                    break
+                yield {"event": "progress", "data": json.dumps(event)}
+        finally:
+            await pubsub_client.aclose()
+
+    return EventSourceResponse(event_generator())
+
+
+# ---------------------------------------------------------------------------
+# Dashboard SPA — serve the built React app for all /app/* routes
+# ---------------------------------------------------------------------------
+
+@app.get("/app", include_in_schema=False)
+async def serve_dashboard_root():
+    """Redirect the bare /app path to the SPA index."""
+    index = _DASHBOARD_DIST / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    return {"error": "Dashboard not built. Run: cd dashboard && npm run build"}
+
+
+@app.get("/app/{path:path}", include_in_schema=False)
+async def serve_dashboard(path: str):
+    """
+    Serve the React SPA for all /app/* routes.
+
+    Asset requests (JS, CSS, images) are served directly from dashboard/dist/.
+    All other paths return index.html so React Router handles client-side routing.
+    """
+    # Try to serve the file directly first (assets: JS, CSS, images, fonts).
+    asset = _DASHBOARD_DIST / path
+    if asset.is_file():
+        return FileResponse(str(asset))
+
+    # Fall back to SPA index for all other paths (React Router handles them).
+    index = _DASHBOARD_DIST / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+
+    return {"error": "Dashboard not built. Run: cd dashboard && npm run build"}
