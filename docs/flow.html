@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helix — How It Works</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 48px 24px 80px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #64748b;
+      font-size: 1rem;
+      margin-bottom: 56px;
+    }
+
+    /* ── Layout ── */
+    .flow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* ── Cards ── */
+    .card {
+      width: 100%;
+      border-radius: 16px;
+      padding: 24px 28px;
+      position: relative;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .card-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .icon {
+      font-size: 2rem;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .card-text h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+
+    .card-text p {
+      font-size: 0.88rem;
+      color: #94a3b8;
+      line-height: 1.55;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 99px;
+      margin-bottom: 6px;
+    }
+
+    /* Colour themes */
+    .trigger   { background: #1a1f2e; border-color: #334155; }
+    .trigger .badge   { background: #334155; color: #94a3b8; }
+
+    .agent-blue  { background: #0d1f3c; border-color: #1e3a5f; }
+    .agent-blue .badge  { background: #1e3a5f; color: #60a5fa; }
+
+    .agent-violet { background: #1a0d3c; border-color: #3b1f7a; }
+    .agent-violet .badge { background: #3b1f7a; color: #a78bfa; }
+
+    .agent-teal  { background: #0d2e2e; border-color: #134e4a; }
+    .agent-teal .badge  { background: #134e4a; color: #2dd4bf; }
+
+    .agent-amber { background: #2e1d0d; border-color: #78350f; }
+    .agent-amber .badge { background: #78350f; color: #fbbf24; }
+
+    .human  { background: #1a2e0d; border-color: #14532d; }
+    .human .badge  { background: #14532d; color: #4ade80; }
+
+    .outcome-good { background: #0d2e1a; border-color: #166534; }
+    .outcome-bad  { background: #2e0d0d; border-color: #7f1d1d; }
+
+    /* ── Connectors ── */
+    .connector {
+      width: 2px;
+      height: 32px;
+      background: linear-gradient(to bottom, #334155, #334155);
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .connector::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 8px solid #334155;
+    }
+
+    /* ── Fork (two branches) ── */
+    .fork-label {
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #475569;
+      margin: 4px 0;
+    }
+
+    .fork {
+      display: flex;
+      gap: 16px;
+      width: 100%;
+      align-items: flex-start;
+    }
+
+    .fork-branch {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    .fork-branch .card { width: 100%; }
+
+    .fork-line {
+      width: 2px;
+      height: 24px;
+      background: #334155;
+      position: relative;
+    }
+    .fork-line::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #334155;
+    }
+
+    .branch-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 99px;
+      margin-bottom: 2px;
+    }
+    .branch-yes { background: #14532d; color: #4ade80; }
+    .branch-no  { background: #7f1d1d; color: #f87171; }
+    .branch-dup { background: #1e3a5f; color: #60a5fa; }
+
+    /* ── Detail tags ── */
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .tag {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #64748b;
+    }
+
+    /* ── Legend ── */
+    .legend {
+      max-width: 720px;
+      margin: 56px auto 0;
+      border-top: 1px solid #1e293b;
+      padding-top: 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px 28px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    hr.section { border: none; border-top: 1px solid #1e293b; margin: 28px 0; }
+  </style>
+</head>
+<body>
+
+  <h1>Helix</h1>
+  <p class="subtitle">From production crash to merged fix — automatically</p>
+
+  <div class="flow">
+
+    <!-- 1. Trigger -->
+    <div class="card trigger">
+      <div class="card-inner">
+        <div class="icon">🚨</div>
+        <div class="card-text">
+          <div class="badge">Trigger</div>
+          <h2>A crash happens in production</h2>
+          <p>Sentry detects an error (e.g. a 500, an unhandled exception) and sends Helix a notification within seconds.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector"></div>
+
+    <!-- 2. Crash Handler -->
+    <div class="card agent-blue">
+      <div class="card-inner">
+        <div class="icon">🔍</div>
+        <div class="card-text">
+          <div class="badge">Agent 1 — Crash Handler</div>
+          <h2>Understand the crash</h2>
+          <p>AI reads the raw error, stack trace, and context, then produces a structured summary: what broke, where, how severe, and what it was doing at the time.</p>
+          <div class="tags">
+            <span class="tag">AI-powered</span>
+            <span class="tag">Severity rating</span>
+            <span class="tag">Plain-English summary</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector"></div>
+
+    <!-- 3. QA Agent -->
+    <div class="card agent-violet">
+      <div class="card-inner">
+        <div class="icon">🧪</div>
+        <div class="card-text">
+          <div class="badge">Agent 2 — QA Agent</div>
+          <h2>Open a ticket &amp; write a failing test</h2>
+          <p>Creates a GitHub issue, reads the relevant source code, then writes a test that <em>proves</em> the bug exists. The test is designed to pass once the fix is applied — not before.</p>
+          <div class="tags">
+            <span class="tag">GitHub issue created</span>
+            <span class="tag">Reads source code</span>
+            <span class="tag">Writes failing test</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fork: duplicate check -->
+    <div style="width:100%; padding: 20px 0 8px; display:flex; align-items:flex-start; gap:16px;">
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+        <span class="branch-label branch-dup">Seen before?</span>
+        <div class="fork-line"></div>
+        <div class="card trigger" style="width:100%">
+          <div class="card-inner">
+            <div class="icon">🔔</div>
+            <div class="card-text">
+              <div class="badge">Duplicate</div>
+              <h2>Notify team — skip re-run</h2>
+              <p>The same bug has already been seen. Helix pings Slack to remind the team there's a fix PR waiting for review instead of starting over.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+        <span class="branch-label branch-yes">New bug?</span>
+        <div class="fork-line"></div>
+        <div class="card agent-teal" style="width:100%">
+          <div class="card-inner">
+            <div class="icon">🛠️</div>
+            <div class="card-text">
+              <div class="badge">Agent 3 — Dev Agent</div>
+              <h2>Write &amp; verify the fix</h2>
+              <p>AI writes the minimum code change to make the test pass, then runs the entire test suite to confirm nothing else broke. Posts the fix idea to the GitHub issue first so there's always a human-readable audit trail.</p>
+              <div class="tags">
+                <span class="tag">Fix posted to issue</span>
+                <span class="tag">TDD loop</span>
+                <span class="tag">Up to 3 attempts</span>
+                <span class="tag">Full test suite</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fork: fix outcome -->
+    <div style="width:100%; padding: 8px 0; display:flex; align-items:flex-start; gap:16px; margin-left: calc(50% + 8px); width: calc(50% - 8px);">
+    </div>
+
+    <!-- Full-width fork for fix result -->
+    <div style="width:100%; display:flex; gap:16px; padding: 0 0 0 calc(50% + 8px);">
+    </div>
+
+    <!-- Inline fork under new-bug branch only -->
+    <div style="display:flex; width:100%; gap:16px;">
+
+      <!-- Left half: spacer -->
+      <div style="flex:1;"></div>
+
+      <!-- Right half: fork into pass/fail -->
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:0;">
+
+        <div style="width:2px; height:20px; background:#334155; position:relative;">
+          <div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%);
+               border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #334155;"></div>
+        </div>
+
+        <div style="display:flex; gap:12px; width:100%; align-items:flex-start; padding-top:8px;">
+
+          <!-- Pass -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+            <span class="branch-label branch-yes">Tests pass</span>
+            <div class="fork-line"></div>
+            <div class="card agent-amber" style="width:100%">
+              <div class="card-inner">
+                <div class="icon">📬</div>
+                <div class="card-text">
+                  <div class="badge">Pull Request</div>
+                  <h2>PR opened on GitHub</h2>
+                  <p>A pull request is created with the fix, the new test, and a plain-English description of what changed and why.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fail -->
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+            <span class="branch-label branch-no">3 attempts fail</span>
+            <div class="fork-line"></div>
+            <div class="card outcome-bad" style="width:100%">
+              <div class="card-inner">
+                <div class="icon">🆘</div>
+                <div class="card-text">
+                  <div class="badge">Escalation</div>
+                  <h2>Human escalation via Slack</h2>
+                  <p>Helix sends a full context dump — crash, test, and all 3 failed attempts — so a developer can pick up exactly where it left off.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Connector to human approval (only from pass path) -->
+    <div style="display:flex; width:100%; gap:16px;">
+      <div style="flex:1;"></div>
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+        <div style="display:flex; gap:12px; width:100%;">
+          <div style="flex:1; display:flex; justify-content:center;">
+            <div style="width:2px; height:32px; background:#334155; position:relative;">
+              <div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%);
+                   border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #334155;"></div>
+            </div>
+          </div>
+          <div style="flex:1;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Human Approval -->
+    <div style="display:flex; width:100%; gap:16px;">
+      <div style="flex:1;"></div>
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:0;">
+        <div style="display:flex; gap:12px; width:100%;">
+
+          <div style="flex:1;">
+            <div class="card human">
+              <div class="card-inner">
+                <div class="icon">👤</div>
+                <div class="card-text">
+                  <div class="badge">Human Approval</div>
+                  <h2>Approve or reject in Slack</h2>
+                  <p>A reviewer gets an Approve / Reject message in Slack with a link to the PR. One click is all it takes. Nothing merges without a human sign-off.</p>
+                  <div class="tags">
+                    <span class="tag">Slack buttons</span>
+                    <span class="tag">Links to PR</span>
+                    <span class="tag">Human always in control</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:1;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Final fork: approve/reject -->
+    <div style="display:flex; width:100%; gap:16px;">
+      <div style="flex:1;"></div>
+      <div style="flex:1;">
+        <div style="display:flex; gap:12px; width:100%; align-items:flex-start; padding-top:8px;">
+
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; padding-top:12px;">
+            <span class="branch-label branch-yes">Approved</span>
+            <div class="fork-line"></div>
+            <div class="card outcome-good" style="width:100%">
+              <div class="card-inner">
+                <div class="icon">✅</div>
+                <div class="card-text">
+                  <div class="badge">Done</div>
+                  <h2>PR merged</h2>
+                  <p>The fix lands in the codebase and the incident is closed. Crash to merged fix in under 10 minutes.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; padding-top:12px;">
+            <span class="branch-label branch-no">Rejected</span>
+            <div class="fork-line"></div>
+            <div class="card outcome-bad" style="width:100%">
+              <div class="card-inner">
+                <div class="icon">🚫</div>
+                <div class="card-text">
+                  <div class="badge">Declined</div>
+                  <h2>PR stays open</h2>
+                  <p>The PR is not merged. A developer takes over with the full context Helix gathered as a starting point.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /flow -->
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div> AI agent step</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div> Human decision point</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div> Escalation / needs human</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div> Automated branch</div>
+    <span style="margin-left:auto; font-size:0.75rem; color:#334155;">helix · autonomous incident response</span>
+  </div>
+
+</body>
+</html>
