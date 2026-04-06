@@ -396,7 +396,13 @@ def get_email_config() -> EmailConfig:
     smtp_host_env = email.get("smtp_host_env", "SMTP_HOST")
     smtp_user_env = email.get("smtp_user_env", "SMTP_USER")
     smtp_password_env = email.get("smtp_password_env", "SMTP_PASSWORD")
-    smtp_port = int(os.environ.get("SMTP_PORT", str(email.get("smtp_port", 587))))
+    _smtp_port_raw = os.environ.get("SMTP_PORT", str(email.get("smtp_port", 587)))
+    # Strip inline comments (e.g. "587 # STARTTLS") and fall back to 587 on bad values.
+    _smtp_port_raw = _smtp_port_raw.split("#")[0].strip()
+    try:
+        smtp_port = int(_smtp_port_raw)
+    except ValueError:
+        smtp_port = 587
 
     return EmailConfig(
         from_addr=os.environ.get(from_env) or None,
