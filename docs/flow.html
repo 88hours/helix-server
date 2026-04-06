@@ -15,155 +15,157 @@
       padding: 48px 24px 80px;
     }
 
-    h1 {
-      text-align: center;
-      font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      margin-bottom: 6px;
-      color: #fff;
-    }
+    /* ── Header ── */
+    .header { text-align: center; margin-bottom: 52px; }
+    .header h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.5px; color: #fff; margin-bottom: 8px; }
+    .header p  { color: #64748b; font-size: 0.95rem; }
 
-    .subtitle {
-      text-align: center;
-      color: #64748b;
-      font-size: 1rem;
-      margin-bottom: 56px;
-    }
-
-    /* ── Layout ── */
-    .flow {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-      max-width: 720px;
+    /* ── Comparison grid ── */
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      max-width: 1100px;
       margin: 0 auto;
+      align-items: start;
     }
+
+    @media (max-width: 760px) {
+      .comparison { grid-template-columns: 1fr; }
+    }
+
+    /* ── Column headers ── */
+    .col-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      margin-bottom: 18px;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
+
+    .col-header.manual {
+      background: #1e1a14;
+      border: 1px solid #44330a;
+      color: #d97706;
+    }
+
+    .col-header.helix {
+      background: #0d1f3c;
+      border: 1px solid #1e3a5f;
+      color: #60a5fa;
+    }
+
+    .col-header .col-time {
+      margin-left: auto;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 99px;
+    }
+
+    .col-header.manual .col-time { background: #44330a; color: #fbbf24; }
+    .col-header.helix  .col-time { background: #14532d; color: #4ade80; }
+
+    /* ── Flow steps ── */
+    .flow { display: flex; flex-direction: column; align-items: center; gap: 0; }
 
     /* ── Cards ── */
     .card {
       width: 100%;
-      border-radius: 16px;
-      padding: 24px 28px;
-      position: relative;
-      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 18px 20px;
+      border: 1px solid rgba(255,255,255,0.06);
     }
 
     .card-inner {
       display: flex;
       align-items: flex-start;
-      gap: 18px;
+      gap: 14px;
     }
 
     .icon {
-      font-size: 2rem;
+      font-size: 1.6rem;
       line-height: 1;
       flex-shrink: 0;
-      margin-top: 2px;
+      margin-top: 1px;
     }
 
     .card-text h2 {
-      font-size: 1.05rem;
+      font-size: 0.92rem;
       font-weight: 600;
-      margin-bottom: 4px;
       color: #fff;
+      margin-bottom: 3px;
     }
 
     .card-text p {
-      font-size: 0.88rem;
+      font-size: 0.8rem;
       color: #94a3b8;
-      line-height: 1.55;
+      line-height: 1.5;
     }
 
     .badge {
       display: inline-block;
-      font-size: 0.7rem;
-      font-weight: 600;
-      letter-spacing: 0.6px;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.7px;
       text-transform: uppercase;
-      padding: 2px 8px;
+      padding: 2px 7px;
       border-radius: 99px;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
-    /* Colour themes */
-    .trigger   { background: #1a1f2e; border-color: #334155; }
-    .trigger .badge   { background: #334155; color: #94a3b8; }
+    /* Manual card colours */
+    .m-default  { background: #1a1710; border-color: #2d2a1e; }
+    .m-default .badge { background: #2d2a1e; color: #78716c; }
 
-    .agent-blue  { background: #0d1f3c; border-color: #1e3a5f; }
-    .agent-blue .badge  { background: #1e3a5f; color: #60a5fa; }
+    .m-wait     { background: #2a1a0a; border-color: #78350f; }
+    .m-wait .badge { background: #78350f; color: #fb923c; }
 
-    .agent-violet { background: #1a0d3c; border-color: #3b1f7a; }
-    .agent-violet .badge { background: #3b1f7a; color: #a78bfa; }
+    .m-human    { background: #1e1a2a; border-color: #4c1d95; }
+    .m-human .badge { background: #4c1d95; color: #c4b5fd; }
 
-    .agent-teal  { background: #0d2e2e; border-color: #134e4a; }
-    .agent-teal .badge  { background: #134e4a; color: #2dd4bf; }
+    .m-done     { background: #0d2a2a; border-color: #134e4a; }
+    .m-done .badge { background: #134e4a; color: #2dd4bf; }
 
-    .agent-amber { background: #2e1d0d; border-color: #78350f; }
-    .agent-amber .badge { background: #78350f; color: #fbbf24; }
+    /* Helix card colours */
+    .h-trigger  { background: #1a1f2e; border-color: #334155; }
+    .h-trigger .badge { background: #334155; color: #94a3b8; }
 
-    .human  { background: #1a2e0d; border-color: #14532d; }
-    .human .badge  { background: #14532d; color: #4ade80; }
+    .h-agent-blue   { background: #0d1f3c; border-color: #1e3a5f; }
+    .h-agent-blue .badge { background: #1e3a5f; color: #60a5fa; }
 
-    .outcome-good { background: #0d2e1a; border-color: #166534; }
-    .outcome-bad  { background: #2e0d0d; border-color: #7f1d1d; }
+    .h-agent-violet { background: #1a0d3c; border-color: #3b1f7a; }
+    .h-agent-violet .badge { background: #3b1f7a; color: #a78bfa; }
 
-    /* ── Connectors ── */
+    .h-agent-teal   { background: #0d2e2e; border-color: #134e4a; }
+    .h-agent-teal .badge { background: #134e4a; color: #2dd4bf; }
+
+    .h-agent-amber  { background: #2e1d0d; border-color: #78350f; }
+    .h-agent-amber .badge { background: #78350f; color: #fbbf24; }
+
+    .h-human    { background: #1a2e0d; border-color: #14532d; }
+    .h-human .badge { background: #14532d; color: #4ade80; }
+
+    .h-done     { background: #0d2e1a; border-color: #166534; }
+    .h-done .badge { background: #166534; color: #4ade80; }
+
+    .h-fail     { background: #2e0d0d; border-color: #7f1d1d; }
+    .h-fail .badge { background: #7f1d1d; color: #f87171; }
+
+    /* ── Connector ── */
     .connector {
       width: 2px;
-      height: 32px;
-      background: linear-gradient(to bottom, #334155, #334155);
+      height: 26px;
+      background: #2d3748;
       margin: 0 auto;
       position: relative;
+      flex-shrink: 0;
     }
-
     .connector::after {
-      content: '';
-      position: absolute;
-      bottom: -6px;
-      left: 50%;
-      transform: translateX(-50%);
-      border-left: 6px solid transparent;
-      border-right: 6px solid transparent;
-      border-top: 8px solid #334155;
-    }
-
-    /* ── Fork (two branches) ── */
-    .fork-label {
-      text-align: center;
-      font-size: 0.72rem;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      color: #475569;
-      margin: 4px 0;
-    }
-
-    .fork {
-      display: flex;
-      gap: 16px;
-      width: 100%;
-      align-items: flex-start;
-    }
-
-    .fork-branch {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-    }
-
-    .fork-branch .card { width: 100%; }
-
-    .fork-line {
-      width: 2px;
-      height: 24px;
-      background: #334155;
-      position: relative;
-    }
-    .fork-line::after {
       content: '';
       position: absolute;
       bottom: -6px;
@@ -171,316 +173,659 @@
       transform: translateX(-50%);
       border-left: 5px solid transparent;
       border-right: 5px solid transparent;
-      border-top: 7px solid #334155;
+      border-top: 7px solid #2d3748;
+    }
+
+    /* manual = amber tint */
+    .connector.m { background: #44330a; }
+    .connector.m::after { border-top-color: #44330a; }
+
+    /* helix = blue tint */
+    .connector.h { background: #1e3a5f; }
+    .connector.h::after { border-top-color: #1e3a5f; }
+
+    /* ── Delay badge ── */
+    .delay {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 9px;
+      border-radius: 99px;
+      background: #78350f;
+      color: #fb923c;
+      margin: 0 auto 2px;
+      display: inline-block;
+    }
+
+    .auto {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 9px;
+      border-radius: 99px;
+      background: #14532d;
+      color: #4ade80;
+      margin: 0 auto 2px;
+      display: inline-block;
+    }
+
+    .connector-label {
+      text-align: center;
+      margin: 3px 0;
+    }
+
+    /* ── Fork (two mini branches inside helix col) ── */
+    .mini-fork {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      padding-top: 6px;
+    }
+
+    .mini-fork-branch {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .fork-line {
+      width: 2px;
+      height: 20px;
+      background: #1e3a5f;
+      position: relative;
+    }
+    .fork-line::after {
+      content: '';
+      position: absolute;
+      bottom: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 6px solid #1e3a5f;
     }
 
     .branch-label {
-      font-size: 0.7rem;
+      font-size: 0.62rem;
       font-weight: 700;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
       text-transform: uppercase;
-      padding: 3px 10px;
+      padding: 2px 8px;
       border-radius: 99px;
       margin-bottom: 2px;
     }
-    .branch-yes { background: #14532d; color: #4ade80; }
-    .branch-no  { background: #7f1d1d; color: #f87171; }
-    .branch-dup { background: #1e3a5f; color: #60a5fa; }
+    .bl-yes { background: #14532d; color: #4ade80; }
+    .bl-no  { background: #7f1d1d; color: #f87171; }
 
-    /* ── Detail tags ── */
+    /* ── Tags ── */
     .tags {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
+      gap: 5px;
+      margin-top: 8px;
     }
-
     .tag {
-      font-size: 0.72rem;
-      padding: 2px 8px;
-      border-radius: 6px;
+      font-size: 0.65rem;
+      padding: 1px 6px;
+      border-radius: 5px;
       background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.07);
       color: #64748b;
     }
 
-    /* ── Legend ── */
-    .legend {
-      max-width: 720px;
-      margin: 56px auto 0;
+    /* ── Bottom stat bar ── */
+    .stat-bar {
+      max-width: 1100px;
+      margin: 44px auto 0;
       border-top: 1px solid #1e293b;
       padding-top: 28px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px 28px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
     }
 
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.8rem;
+    .stat {
+      text-align: center;
+      padding: 20px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: #141820;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.78rem;
       color: #64748b;
     }
 
-    .legend-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
+    .stat-good .stat-value { color: #4ade80; }
+    .stat-bad  .stat-value { color: #f87171; }
+    .stat-neutral .stat-value { color: #60a5fa; }
+
+    /* ── User impact callouts ── */
+    .user-impact {
+      width: 100%;
+      background: #1f0a0a;
+      border: 1px solid #7f1d1d;
+      border-left: 4px solid #ef4444;
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
     }
 
-    hr.section { border: none; border-top: 1px solid #1e293b; margin: 28px 0; }
+    .user-impact .ui-icon {
+      font-size: 1.1rem;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .user-impact .ui-text {
+      flex: 1;
+    }
+
+    .user-impact .ui-label {
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #ef4444;
+      margin-bottom: 3px;
+    }
+
+    .user-impact .ui-headline {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #fca5a5;
+      margin-bottom: 2px;
+    }
+
+    .user-impact .ui-body {
+      font-size: 0.75rem;
+      color: #7f1d1d;
+      color: #f87171;
+      opacity: 0.8;
+      line-height: 1.45;
+    }
+
+    .user-impact .ui-timer {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: #7f1d1d;
+      color: #fca5a5;
+      white-space: nowrap;
+      align-self: flex-start;
+      margin-top: 1px;
+    }
+
+    /* connector for user-impact (red tint) */
+    .connector.u { background: #7f1d1d; }
+    .connector.u::after { border-top-color: #7f1d1d; }
   </style>
 </head>
 <body>
 
-  <h1>Helix</h1>
-  <p class="subtitle">From production crash to merged fix — automatically</p>
+  <div class="header">
+    <h1>Crash to fix — two ways</h1>
+    <p>The same production bug, handled manually vs with Helix</p>
+  </div>
 
-  <div class="flow">
+  <div class="comparison">
 
-    <!-- 1. Trigger -->
-    <div class="card trigger">
-      <div class="card-inner">
-        <div class="icon">🚨</div>
-        <div class="card-text">
-          <div class="badge">Trigger</div>
-          <h2>A crash happens in production</h2>
-          <p>Sentry detects an error (e.g. a 500, an unhandled exception) and sends Helix a notification within seconds.</p>
-        </div>
+    <!-- ═══════════════════════════════════ LEFT: MANUAL ═══════════════════════════════════ -->
+    <div>
+      <div class="col-header manual">
+        <span>😓</span> Without Helix
+        <span class="col-time">2 – 5 days</span>
       </div>
-    </div>
 
-    <div class="connector"></div>
+      <div class="flow">
 
-    <!-- 2. Crash Handler -->
-    <div class="card agent-blue">
-      <div class="card-inner">
-        <div class="icon">🔍</div>
-        <div class="card-text">
-          <div class="badge">Agent 1 — Crash Handler</div>
-          <h2>Understand the crash</h2>
-          <p>AI reads the raw error, stack trace, and context, then produces a structured summary: what broke, where, how severe, and what it was doing at the time.</p>
-          <div class="tags">
-            <span class="tag">AI-powered</span>
-            <span class="tag">Severity rating</span>
-            <span class="tag">Plain-English summary</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="connector"></div>
-
-    <!-- 3. QA Agent -->
-    <div class="card agent-violet">
-      <div class="card-inner">
-        <div class="icon">🧪</div>
-        <div class="card-text">
-          <div class="badge">Agent 2 — QA Agent</div>
-          <h2>Open a ticket &amp; write a failing test</h2>
-          <p>Creates a GitHub issue, reads the relevant source code, then writes a test that <em>proves</em> the bug exists. The test is designed to pass once the fix is applied — not before.</p>
-          <div class="tags">
-            <span class="tag">GitHub issue created</span>
-            <span class="tag">Reads source code</span>
-            <span class="tag">Writes failing test</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Fork: duplicate check -->
-    <div style="width:100%; padding: 20px 0 8px; display:flex; align-items:flex-start; gap:16px;">
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
-        <span class="branch-label branch-dup">Seen before?</span>
-        <div class="fork-line"></div>
-        <div class="card trigger" style="width:100%">
+        <div class="card m-default">
           <div class="card-inner">
-            <div class="icon">🔔</div>
+            <div class="icon">🚨</div>
             <div class="card-text">
-              <div class="badge">Duplicate</div>
-              <h2>Notify team — skip re-run</h2>
-              <p>The same bug has already been seen. Helix pings Slack to remind the team there's a fix PR waiting for review instead of starting over.</p>
+              <div class="badge">Trigger</div>
+              <h2>Crash happens in production</h2>
+              <p>Users start hitting errors. Sentry fires an alert.</p>
             </div>
           </div>
         </div>
-      </div>
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
-        <span class="branch-label branch-yes">New bug?</span>
-        <div class="fork-line"></div>
-        <div class="card agent-teal" style="width:100%">
+
+        <div class="connector u"></div>
+
+        <div class="user-impact">
+          <div class="ui-icon">👥</div>
+          <div class="ui-text">
+            <div class="ui-label">User impact — right now</div>
+            <div class="ui-headline">Users are hitting error pages</div>
+            <div class="ui-body">Every request to the affected endpoint is failing. Support tickets are already coming in.</div>
+          </div>
+          <div class="ui-timer">T + 0 min</div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-wait">
           <div class="card-inner">
-            <div class="icon">🛠️</div>
+            <div class="icon">📟</div>
             <div class="card-text">
-              <div class="badge">Agent 3 — Dev Agent</div>
-              <h2>Write &amp; verify the fix</h2>
-              <p>AI writes the minimum code change to make the test pass, then runs the entire test suite to confirm nothing else broke. Posts the fix idea to the GitHub issue first so there's always a human-readable audit trail.</p>
+              <div class="badge">Wait</div>
+              <h2>On-call engineer gets paged</h2>
+              <p>PagerDuty or email wakes someone up — possibly out of hours. They need to drop what they're doing.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-human">
+          <div class="card-inner">
+            <div class="icon">🔎</div>
+            <div class="card-text">
+              <div class="badge">Manual</div>
+              <h2>Engineer reads logs &amp; investigates</h2>
+              <p>They dig through Sentry, correlate logs, and try to reproduce the issue locally. Context gathering alone can take 30–60 minutes.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-human">
+          <div class="card-inner">
+            <div class="icon">📝</div>
+            <div class="card-text">
+              <div class="badge">Manual</div>
+              <h2>Manager creates a ticket</h2>
+              <p>Someone writes up a Jira issue: description, severity, affected component, reproduction steps, priority.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector u"></div>
+
+        <div class="user-impact">
+          <div class="ui-icon">😤</div>
+          <div class="ui-text">
+            <div class="ui-label">User impact — ~1 hour in</div>
+            <div class="ui-headline">Users still broken. Frustration building.</div>
+            <div class="ui-body">The investigation is ongoing. Users are refreshing, getting errors, and contacting support. Some are giving up.</div>
+          </div>
+          <div class="ui-timer">T + 1 hr</div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-wait">
+          <div class="card-inner">
+            <div class="icon">📅</div>
+            <div class="card-text">
+              <div class="badge">Delay</div>
+              <h2>Manager checks resource availability</h2>
+              <p>Who's free? Who knows this part of the codebase? Is there a sprint slot? A P1 might jump the queue — a P2 goes to the backlog.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-human">
+          <div class="card-inner">
+            <div class="icon">👤</div>
+            <div class="card-text">
+              <div class="badge">Manual</div>
+              <h2>Ticket assigned to a developer</h2>
+              <p>The developer is notified. They need to context-switch, read the ticket, and get up to speed on the affected area.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector u"></div>
+
+        <div class="user-impact">
+          <div class="ui-icon">📉</div>
+          <div class="ui-text">
+            <div class="ui-label">User impact — end of day 1</div>
+            <div class="ui-headline">A full business day gone. Bug still live.</div>
+            <div class="ui-body">Users who hit the error this morning still can't complete the action. Word is spreading. Some have filed chargebacks or written reviews.</div>
+          </div>
+          <div class="ui-timer">T + 8 hrs</div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-wait">
+          <div class="card-inner">
+            <div class="icon">⏳</div>
+            <div class="card-text">
+              <div class="badge">Delay</div>
+              <h2>Waits in the queue</h2>
+              <p>Unless it's a P0, work probably starts the next day — or next sprint. Meanwhile the bug keeps hitting users.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-human">
+          <div class="card-inner">
+            <div class="icon">💻</div>
+            <div class="card-text">
+              <div class="badge">Manual</div>
+              <h2>Developer reproduces &amp; writes the fix</h2>
+              <p>They reproduce locally, understand the root cause, write the code change, and write a test to cover it.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-human">
+          <div class="card-inner">
+            <div class="icon">📬</div>
+            <div class="card-text">
+              <div class="badge">Manual</div>
+              <h2>Developer opens a PR</h2>
+              <p>Pull request created, description written, reviewers requested.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector u"></div>
+
+        <div class="user-impact">
+          <div class="ui-icon">🔥</div>
+          <div class="ui-text">
+            <div class="ui-label">User impact — day 2+</div>
+            <div class="ui-headline">The fix is written. Users are still waiting.</div>
+            <div class="ui-body">The code is done — but it hasn't shipped. Every hour waiting for review is another hour of users hitting a broken experience.</div>
+          </div>
+          <div class="ui-timer">T + 2 days</div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-wait">
+          <div class="card-inner">
+            <div class="icon">🗓️</div>
+            <div class="card-text">
+              <div class="badge">Delay</div>
+              <h2>Waiting for a code review</h2>
+              <p>Reviewer needs to find time. Back-and-forth comments. Often takes a day or more.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector u"></div>
+
+        <div class="user-impact">
+          <div class="ui-icon">💸</div>
+          <div class="ui-text">
+            <div class="ui-label">User impact — cumulative</div>
+            <div class="ui-headline">2–5 days of a broken product</div>
+            <div class="ui-body">Hundreds or thousands of failed sessions. Lost revenue. Support overhead. Damaged trust. Some users won't come back.</div>
+          </div>
+          <div class="ui-timer">T + 2–5 days</div>
+        </div>
+
+        <div class="connector m"></div>
+
+        <div class="card m-done">
+          <div class="card-inner">
+            <div class="icon">✅</div>
+            <div class="card-text">
+              <div class="badge">Done</div>
+              <h2>PR approved &amp; merged</h2>
+              <p>Fix lands. Deploy scheduled. Bug resolved — 2 to 5 days after it was first reported.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════ RIGHT: HELIX ═══════════════════════════════════ -->
+    <div>
+      <div class="col-header helix">
+        <span>⚡</span> With Helix
+        <span class="col-time">&lt; 10 minutes</span>
+      </div>
+
+      <div class="flow">
+
+        <div class="card h-trigger">
+          <div class="card-inner">
+            <div class="icon">🚨</div>
+            <div class="card-text">
+              <div class="badge">Trigger</div>
+              <h2>Crash happens in production</h2>
+              <p>Users start hitting errors. Sentry fires an alert — Helix picks it up instantly.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="connector h"></div>
+
+        <div class="user-impact" style="border-color: #166534; border-left-color: #4ade80; background: #052e16;">
+          <div class="ui-icon">⚡</div>
+          <div class="ui-text">
+            <div class="ui-label" style="color:#4ade80;">Helix responds immediately</div>
+            <div class="ui-headline" style="color:#86efac;">No human needs to be woken up</div>
+            <div class="ui-body" style="color:#4ade80; opacity:0.85;">Helix starts working the moment Sentry fires — day or night, no on-call lag.</div>
+          </div>
+          <div class="ui-timer" style="background:#14532d; color:#86efac;">T + 0 sec</div>
+        </div>
+
+        <div class="connector h"></div>
+        <div class="connector-label"><span class="auto">Automatic</span></div>
+        <div class="connector h"></div>
+
+        <div class="card h-agent-blue">
+          <div class="card-inner">
+            <div class="icon">🔍</div>
+            <div class="card-text">
+              <div class="badge">Agent 1 — Crash Handler</div>
+              <h2>AI understands the crash</h2>
+              <p>Reads the error, stack trace, and context. Produces a structured summary — severity, what broke, where, and why — in seconds.</p>
               <div class="tags">
-                <span class="tag">Fix posted to issue</span>
-                <span class="tag">TDD loop</span>
-                <span class="tag">Up to 3 attempts</span>
-                <span class="tag">Full test suite</span>
+                <span class="tag">Severity rated</span>
+                <span class="tag">Plain-English summary</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Fork: fix outcome -->
-    <div style="width:100%; padding: 8px 0; display:flex; align-items:flex-start; gap:16px; margin-left: calc(50% + 8px); width: calc(50% - 8px);">
-    </div>
+        <div class="connector h"></div>
+        <div class="connector-label"><span class="auto">Automatic</span></div>
+        <div class="connector h"></div>
 
-    <!-- Full-width fork for fix result -->
-    <div style="width:100%; display:flex; gap:16px; padding: 0 0 0 calc(50% + 8px);">
-    </div>
-
-    <!-- Inline fork under new-bug branch only -->
-    <div style="display:flex; width:100%; gap:16px;">
-
-      <!-- Left half: spacer -->
-      <div style="flex:1;"></div>
-
-      <!-- Right half: fork into pass/fail -->
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:0;">
-
-        <div style="width:2px; height:20px; background:#334155; position:relative;">
-          <div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%);
-               border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #334155;"></div>
+        <div class="card h-agent-violet">
+          <div class="card-inner">
+            <div class="icon">🧪</div>
+            <div class="card-text">
+              <div class="badge">Agent 2 — QA Agent</div>
+              <h2>Ticket opened &amp; failing test written</h2>
+              <p>Creates a GitHub issue, reads the relevant source code, and writes a test that proves the bug exists. Also checks if this bug has been seen before.</p>
+              <div class="tags">
+                <span class="tag">GitHub issue auto-created</span>
+                <span class="tag">Reads codebase</span>
+                <span class="tag">Failing test written</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div style="display:flex; gap:12px; width:100%; align-items:flex-start; padding-top:8px;">
+        <div class="connector h"></div>
+        <div class="connector-label"><span class="auto">Automatic</span></div>
+        <div class="connector h"></div>
 
-          <!-- Pass -->
-          <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
-            <span class="branch-label branch-yes">Tests pass</span>
+        <div class="card h-agent-teal">
+          <div class="card-inner">
+            <div class="icon">🛠️</div>
+            <div class="card-text">
+              <div class="badge">Agent 3 — Dev Agent</div>
+              <h2>Fix written &amp; verified</h2>
+              <p>AI writes the minimum code change to make the test pass, then runs the full test suite. If it doesn't work, it tries a different approach — up to 3 times.</p>
+              <div class="tags">
+                <span class="tag">TDD</span>
+                <span class="tag">Full test suite</span>
+                <span class="tag">Up to 3 attempts</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fork: pass or fail -->
+        <div class="connector h"></div>
+        <div class="mini-fork">
+
+          <div class="mini-fork-branch">
+            <span class="branch-label bl-yes">Tests pass</span>
             <div class="fork-line"></div>
-            <div class="card agent-amber" style="width:100%">
+            <div class="card h-agent-amber" style="width:100%">
               <div class="card-inner">
                 <div class="icon">📬</div>
                 <div class="card-text">
                   <div class="badge">Pull Request</div>
                   <h2>PR opened on GitHub</h2>
-                  <p>A pull request is created with the fix, the new test, and a plain-English description of what changed and why.</p>
+                  <p>Created automatically with the fix, the new test, and a plain-English description.</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Fail -->
-          <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
-            <span class="branch-label branch-no">3 attempts fail</span>
-            <div class="fork-line"></div>
-            <div class="card outcome-bad" style="width:100%">
+          <div class="mini-fork-branch">
+            <span class="branch-label bl-no">3 attempts fail</span>
+            <div class="fork-line" style="background:#7f1d1d"></div>
+            <div class="card h-fail" style="width:100%">
               <div class="card-inner">
                 <div class="icon">🆘</div>
                 <div class="card-text">
                   <div class="badge">Escalation</div>
-                  <h2>Human escalation via Slack</h2>
-                  <p>Helix sends a full context dump — crash, test, and all 3 failed attempts — so a developer can pick up exactly where it left off.</p>
+                  <h2>Human alerted with full context</h2>
+                  <p>Slack message with the crash, test, and all 3 failed attempts. A developer can pick up immediately.</p>
                 </div>
               </div>
             </div>
           </div>
 
         </div>
-      </div>
-    </div>
 
-    <!-- Connector to human approval (only from pass path) -->
-    <div style="display:flex; width:100%; gap:16px;">
-      <div style="flex:1;"></div>
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
-        <div style="display:flex; gap:12px; width:100%;">
+        <!-- Continue from pass branch only -->
+        <div style="display:flex; width:100%; gap:10px;">
           <div style="flex:1; display:flex; justify-content:center;">
-            <div style="width:2px; height:32px; background:#334155; position:relative;">
-              <div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%);
-                   border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #334155;"></div>
+            <div style="display:flex; flex-direction:column; align-items:center;">
+              <div class="connector h" style="margin:0;"></div>
+              <div class="connector-label" style="padding:3px 0;"><span class="auto">Slack message</span></div>
+              <div class="connector h" style="margin:0;"></div>
             </div>
           </div>
           <div style="flex:1;"></div>
         </div>
-      </div>
-    </div>
 
-    <!-- 5. Human Approval -->
-    <div style="display:flex; width:100%; gap:16px;">
-      <div style="flex:1;"></div>
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:0;">
-        <div style="display:flex; gap:12px; width:100%;">
-
+        <div style="display:flex; width:100%; gap:10px;">
           <div style="flex:1;">
-            <div class="card human">
+            <div class="card h-human">
               <div class="card-inner">
                 <div class="icon">👤</div>
                 <div class="card-text">
                   <div class="badge">Human Approval</div>
-                  <h2>Approve or reject in Slack</h2>
-                  <p>A reviewer gets an Approve / Reject message in Slack with a link to the PR. One click is all it takes. Nothing merges without a human sign-off.</p>
+                  <h2>One-click approve or reject</h2>
+                  <p>Reviewer gets Approve / Reject buttons in Slack with a direct link to the PR. Nothing merges without a human sign-off.</p>
                   <div class="tags">
                     <span class="tag">Slack buttons</span>
-                    <span class="tag">Links to PR</span>
                     <span class="tag">Human always in control</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-
           <div style="flex:1;"></div>
         </div>
-      </div>
-    </div>
 
-    <!-- Final fork: approve/reject -->
-    <div style="display:flex; width:100%; gap:16px;">
-      <div style="flex:1;"></div>
-      <div style="flex:1;">
-        <div style="display:flex; gap:12px; width:100%; align-items:flex-start; padding-top:8px;">
+        <!-- Final fork -->
+        <div style="display:flex; width:100%; gap:10px;">
+          <div style="flex:1; display:flex; flex-direction:column; gap:0;">
+            <div style="display:flex; gap:10px; padding-top:0;">
 
-          <div style="flex:1; display:flex; flex-direction:column; align-items:center; padding-top:12px;">
-            <span class="branch-label branch-yes">Approved</span>
-            <div class="fork-line"></div>
-            <div class="card outcome-good" style="width:100%">
-              <div class="card-inner">
-                <div class="icon">✅</div>
-                <div class="card-text">
-                  <div class="badge">Done</div>
-                  <h2>PR merged</h2>
-                  <p>The fix lands in the codebase and the incident is closed. Crash to merged fix in under 10 minutes.</p>
+              <div class="mini-fork-branch" style="padding-top:8px;">
+                <span class="branch-label bl-yes">Approved</span>
+                <div class="fork-line"></div>
+                <div class="card h-done" style="width:100%">
+                  <div class="card-inner">
+                    <div class="icon">✅</div>
+                    <div class="card-text">
+                      <div class="badge">Done</div>
+                      <h2>PR merged. Bug fixed.</h2>
+                      <p>Crash to merged fix in under 10 minutes. Team notified.</p>
+                    </div>
+                  </div>
+                </div>
+                <div style="width:2px; height:16px; background:#166534; margin:0 auto; position:relative;">
+                  <div style="position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid #166534;"></div>
+                </div>
+                <div class="user-impact" style="border-color: #166534; border-left-color: #4ade80; background: #052e16; width:100%; margin-top:5px;">
+                  <div class="ui-icon">🎉</div>
+                  <div class="ui-text">
+                    <div class="ui-label" style="color:#4ade80;">User impact</div>
+                    <div class="ui-headline" style="color:#86efac;">Users unblocked in &lt; 10 minutes</div>
+                    <div class="ui-body" style="color:#4ade80; opacity:0.85;">Most users never even noticed. The window of broken experience is measured in minutes, not days.</div>
+                  </div>
+                  <div class="ui-timer" style="background:#14532d; color:#86efac;">T + 10 min</div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div style="flex:1; display:flex; flex-direction:column; align-items:center; padding-top:12px;">
-            <span class="branch-label branch-no">Rejected</span>
-            <div class="fork-line"></div>
-            <div class="card outcome-bad" style="width:100%">
-              <div class="card-inner">
-                <div class="icon">🚫</div>
-                <div class="card-text">
-                  <div class="badge">Declined</div>
-                  <h2>PR stays open</h2>
-                  <p>The PR is not merged. A developer takes over with the full context Helix gathered as a starting point.</p>
+              <div class="mini-fork-branch" style="padding-top:8px;">
+                <span class="branch-label bl-no">Rejected</span>
+                <div class="fork-line" style="background:#7f1d1d"></div>
+                <div class="card h-fail" style="width:100%">
+                  <div class="card-inner">
+                    <div class="icon">🚫</div>
+                    <div class="card-text">
+                      <div class="badge">Declined</div>
+                      <h2>PR stays open</h2>
+                      <p>Developer takes over with all context Helix gathered as a starting point.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
+
             </div>
           </div>
-
+          <div style="flex:1;"></div>
         </div>
+
       </div>
     </div>
 
-  </div><!-- /flow -->
+  </div><!-- /comparison -->
 
-  <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div> AI agent step</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div> Human decision point</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div> Escalation / needs human</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div> Automated branch</div>
-    <span style="margin-left:auto; font-size:0.75rem; color:#334155;">helix · autonomous incident response</span>
+  <!-- ── Stat bar ── -->
+  <div class="stat-bar">
+    <div class="stat stat-bad">
+      <div class="stat-value">2–5 days</div>
+      <div class="stat-label">Average time to fix — manual process</div>
+    </div>
+    <div class="stat stat-good">
+      <div class="stat-value">&lt; 10 min</div>
+      <div class="stat-label">Average time to fix — with Helix</div>
+    </div>
+    <div class="stat stat-neutral">
+      <div class="stat-value">1 click</div>
+      <div class="stat-label">Human effort required with Helix</div>
+    </div>
   </div>
 
 </body>
