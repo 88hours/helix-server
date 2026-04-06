@@ -29,6 +29,8 @@ agents/
     prompts.py         System + user prompt templates
     main.py            POST /webhook/sentry, POST /webhook/rollbar, POST /slack/actions
                        GET /api/incidents, GET /api/incidents/{id}, GET /api/stream/{id} (SSE)
+                       GET/POST/DELETE /api/repos — per-user repo configuration
+                       GET /api/me — caller identity from JWT
                        GET /app/* (serves the React dashboard)
     railway.json       Railway service config for this agent
   qa/                  Subscribes to crash_analysed
@@ -48,11 +50,12 @@ agents/
 core/
   config.py            Typed config loaders for all agents and integrations
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
-  state.py             Redis read/write helpers, keyed by incident_id
-  models.py            Pydantic models shared across all agents
+  state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo configs)
+  models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig)
   llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI
   permissions.py       Per-agent tool access control — declare and enforce at runtime
-  ui_events.py         Dashboard event publishing — streams live agent progress via Redis Pub/Sub
+  ui_events.py         Dashboard event publishing — agent progress + tool call events via Redis Pub/Sub
+  auth.py              Auth0 JWT validation (RS256 via JWKS) — optional, falls back to demo user
   utils.py             extract_json() — parses structured JSON from LLM output
 integrations/
   sentry.py            HMAC-SHA256 signature verification + Sentry webhook payload parsing
@@ -63,16 +66,23 @@ integrations/
   email.py             SendGrid API (preferred) or SMTP fallback
 dashboard/             React + TypeScript + Tailwind — streaming incident dashboard
   src/
-    App.tsx            Root app with React Router (base: /app/)
-    api.ts             fetch wrappers and EventSource subscription
+    App.tsx            Root app with React Router (base: /app/) — Incidents + Repos nav
+    api.ts             fetch wrappers, EventSource subscription, Auth0 token injection
+    main.tsx           Entry point — wraps app in Auth0Provider when VITE_AUTH0_DOMAIN is set
     pages/
-      IncidentList.tsx Polls /api/incidents — table of all incidents, newest first
-      IncidentDetail.tsx Opens SSE stream — pipeline progress, live agent log, crash/QA/PR details
+      IncidentList.tsx   Polls /api/incidents — table of all incidents, newest first
+      IncidentDetail.tsx Opens SSE stream — pipeline progress, tool calls, live log, crash/QA/PR details
+      Repos.tsx          Repo configuration — add / remove repos per user
     components/
-      PipelineProgress.tsx  4-step pipeline tracker with checkmarks
-      StreamPanel.tsx        Auto-scrolling live agent activity log
-      StatusBadge.tsx        Pill badge for pipeline status
-      SeverityBadge.tsx      Pill badge for crash severity
+      PipelineProgress.tsx    4-step pipeline tracker with checkmarks
+      StreamPanel.tsx          Auto-scrolling live agent activity log
+      ToolTimeline.tsx         Live tool call log — LLM, GitHub, Git, Claude Code calls with status
+      StatusBadge.tsx          Pill badge for pipeline status
+      SeverityBadge.tsx        Pill badge for crash severity
+      AuthGuard.tsx            Redirects unauthenticated users to Auth0 login
+      NavUserChip.tsx          Avatar + name + sign-out button in nav bar
+      TokenProviderBridge.tsx  Registers Auth0 token-getter with the API client
+  .env.example         Frontend env var template (VITE_AUTH0_DOMAIN, VITE_AUTH0_CLIENT_ID, etc.)
   vite.config.ts       Base /app/, proxies /api → localhost:8000 in dev
 config.yaml            Source of truth for all non-secret config (models, Redis, permissions)
 index.html             Landing page
@@ -137,8 +147,10 @@ Required variables:
 | `EMAIL_FROM` | Sender address, e.g. `helix@acme.com` (optional — logs warning if absent) |
 | `EMAIL_TO` | Comma-separated recipients, e.g. `oncall@acme.com` (optional) |
 | `HELIX_DEMO` | Set to `true` to skip all webhook signature/token verification (useful for local testing) |
+| `AUTH0_DOMAIN` | Auth0 tenant domain, e.g. `your-tenant.auth0.com` (optional — leave unset for demo mode) |
+| `AUTH0_AUDIENCE` | Auth0 API identifier, e.g. `https://api.helix.yourapp.com` (required when `AUTH0_DOMAIN` is set) |
 
-Slack and email are optional — missing configuration is logged as a warning and the pipeline continues. See `.env.example` for the full list including optional variables.
+Slack, email, and Auth0 are optional — missing configuration is logged as a warning and the pipeline/dashboard continues. See `.env.example` for the full list.
 
 ## Running
 
@@ -287,6 +299,26 @@ pnpm dev   # http://localhost:5173/app
 ```
 
 Vite proxies `/api` → `http://localhost:8000` during dev, so the FastAPI backend must be running.
+
+**Auth0 setup (optional — skip for demo mode)**
+
+Without `AUTH0_DOMAIN` set, the dashboard is accessible without login. To enable GitHub login via Auth0:
+
+1. Create an Auth0 tenant and add a **Single Page Application** (note the Client ID)
+2. Create an **API** (the Identifier becomes `AUTH0_AUDIENCE`)
+3. Enable the **GitHub** social connection: Auth0 → Authentication → Social → GitHub
+4. Add `http://localhost:8000/app` to Allowed Callback URLs, Logout URLs, and Web Origins
+5. Set in your `.env`:
+   ```
+   AUTH0_DOMAIN=your-tenant.auth0.com
+   AUTH0_AUDIENCE=https://api.helix.yourapp.com
+   ```
+6. Create `dashboard/.env.local` (see `dashboard/.env.example`):
+   ```
+   VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+   VITE_AUTH0_CLIENT_ID=your-spa-client-id
+   VITE_AUTH0_AUDIENCE=https://api.helix.yourapp.com
+   ```
 
 ---
 
@@ -486,11 +518,12 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Multi-language support — Python, JavaScript/TypeScript, Ruby, Java/Kotlin, Go
 - [x] One-click Railway deploy
 
-### Phase 2 — Full-Stack Agent Experience (in progress)
-- [x] Scoped tool access — per-agent permission declarations enforced at runtime
-- [x] Streaming dashboard — React frontend with live agent activity via SSE
-- [ ] OAuth2 / OIDC authentication — role-based access (developer, reviewer, manager)
-- [ ] Tool visualisation — live agent workflow graph in the dashboard
+### Phase 2 — Full-Stack Agent Experience (complete)
+- [x] Scoped tool access — per-agent permission declarations enforced at runtime (`core/permissions.py`)
+- [x] Streaming dashboard — React + Vite frontend with live agent activity via SSE (`dashboard/`)
+- [x] Tool visualisation — live tool call timeline in the dashboard (LLM, GitHub, Git, Claude Code)
+- [x] Auth0 + GitHub login — JWT validation via JWKS, optional (demo mode if `AUTH0_DOMAIN` unset)
+- [x] Repo configuration — users add/manage repos via `/app/repos`; stored per user in Redis
 
 ### Phase 3 — Observability and Platform Maturity
 - [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend

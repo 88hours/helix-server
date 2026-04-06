@@ -175,6 +175,84 @@ Switch backends with `HELIX_EVENT_BACKEND=eventbridge`. EventBridge uses the sam
 
 ---
 
+## Dashboard
+
+The React dashboard is served by the Crash Handler at `/app` and streams live agent activity via SSE.
+
+### Incident list (`/app/incidents`)
+- Polls `GET /api/incidents` every 10 seconds
+- Table view: incident ID, status badge, severity badge, error type, affected component, timestamp
+- Click any row to open the incident detail page
+
+### Incident detail (`/app/incidents/:id`)
+- Opens an SSE connection to `GET /api/stream/:id` on mount
+- **Pipeline tracker** — 4-step horizontal progress bar (Crash Analysed → Test Generated → PR Created → Merged)
+- **Tool call timeline** — structured list of every external tool call made by agents: LLM completions, GitHub API calls (create issue, add comment, create PR), git clone, Claude Code TDD iterations; each row shows tool icon, agent chip, action, result detail, success/failure status, and timestamp
+- **Agent activity log** — auto-scrolling dark-themed log of all agent start/step/done messages in real time
+- **Crash report** — error type, component, endpoint, language, source, stack trace (expandable)
+- **QA result** — test file, test name, format, full test content (expandable); link to GitHub Issue
+- **PR result** — PR link, branch name, fix summary, files changed, iterations taken
+
+### Repo configuration (`/app/repos`)
+- Lists all repos the authenticated user has configured
+- Add repo form: repository (`owner/name`), base branch, language
+- Remove button per repo
+- Calls `GET/POST/DELETE /api/repos` — changes are saved per user in Redis
+
+### Live streaming architecture
+- On connect, the SSE endpoint sends a `snapshot` event with current incident state so the UI renders immediately
+- Subsequent `progress` events carry `UIProgressEvent` payloads (agent steps) and `ToolCallEvent` payloads (tool calls)
+- Each agent publishes to `helix:ui:{incident_id}` via Redis Pub/Sub; the SSE endpoint uses a dedicated Redis client per connection
+- Events are ephemeral — if the browser is not connected when an event fires, that event is lost; the snapshot on reconnect recovers the persistent state
+
+---
+
+## Authentication
+
+### Auth0 + GitHub login
+- Auth is **optional** — if `AUTH0_DOMAIN` is not set, all API routes and the dashboard are accessible without login (demo / local-dev mode)
+- When enabled, the dashboard requires an Auth0 JWT in `Authorization: Bearer` on all `/api/*` requests
+- The SSE stream endpoint accepts a `?access_token=` query parameter as a fallback (EventSource cannot send headers)
+- Tokens are validated using RS256 via JWKS fetched from `https://{domain}/.well-known/jwks.json` — no client secret required on the backend
+- Auth0 handles GitHub OAuth so users log in with their GitHub account; no separate GitHub OAuth flow is needed
+
+### Roles (current)
+Single-user per deployment. Multi-tenant role-based access (developer, reviewer, manager) is planned for Phase 3.
+
+### Frontend
+- `Auth0Provider` wraps the app in `main.tsx` only when `VITE_AUTH0_DOMAIN` is set
+- `AuthGuard` component redirects unauthenticated users to the Auth0 login page
+- `TokenProviderBridge` registers the Auth0 token-getter with the API client so all `fetch` calls include the Bearer token automatically
+- `NavUserChip` shows the user's GitHub avatar, name, and a sign-out button in the nav bar
+
+---
+
+## Repo Configuration
+
+Users configure which GitHub repositories Helix monitors via the dashboard Repos page or the API directly.
+
+### Data model (`RepoConfig`)
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `repo` | `string` | — | Repository in `owner/name` format, e.g. `acme/backend` |
+| `base_branch` | `string` | `main` | Branch PRs are opened against |
+| `language` | `string` | `python` | Primary language — used to select the test framework |
+| `added_at` | `datetime` | now | When the repo was added |
+
+### Storage
+- Stored per Auth0 user in Redis at `helix:user:{sub}:repos` (no TTL — permanent user data)
+- Multiple repos per user; order is preserved (insertion order)
+
+### API
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/repos` | List calling user's repos |
+| `POST` | `/api/repos` | Add a repo (`repo`, `base_branch`, `language` in JSON body) |
+| `DELETE` | `/api/repos/{owner}/{name}` | Remove a repo |
+| `GET` | `/api/me` | Return caller's identity (`sub`, `name`, `email`, `picture`) from JWT |
+
+---
+
 ## State Management
 
 All incident state lives in Redis, namespaced by `incident_id` with a 7-day TTL:
@@ -186,6 +264,12 @@ All incident state lives in Redis, namespaced by `incident_id` with a 7-day TTL:
 | `helix:incident:{id}:pr` | Serialised `PRResult` (PR URL, branch, fix summary) |
 | `helix:incident:{id}:status` | Current pipeline status string |
 | `helix:incident:{id}:iterations` | Number of Dev Agent fix attempts so far |
+
+User configuration (no TTL — permanent):
+
+| Key | Contents |
+|---|---|
+| `helix:user:{sub}:repos` | JSON list of `RepoConfig` for the Auth0 user |
 
 ---
 
@@ -257,5 +341,4 @@ Out of scope for the current release:
 - Infrastructure failures (network, database connectivity, memory pressure)
 - Performance optimisation or refactoring
 - Mobile crash reports
-- Multi-tenant support
-- Human approval workflow (Slack approve/reject buttons)
+- Multi-tenant support (single-user per deployment; multi-tenant planned for Phase 3)
