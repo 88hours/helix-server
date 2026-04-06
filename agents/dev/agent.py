@@ -31,12 +31,14 @@ from core.config import get_github_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, PRResult, QAResult
+from core.permissions import AgentPermissions, load_permissions, require
 from core.state import (
     increment_iterations,
     read_iterations,
     write_pr_result,
     write_status,
 )
+from core.ui_events import publish_tool_event, publish_ui_event
 from integrations import github
 
 logger = logging.getLogger(__name__)
@@ -78,12 +80,15 @@ async def handle(
     Raises:
         RuntimeError: All iterations exhausted; escalation sent to Slack/email.
     """
+    permissions = load_permissions("dev")
     gh_config = get_github_config()
     incident_id = crash_report.incident_id
 
     logger.info("dev agent started", extra={"incident_id": incident_id})
+    await publish_ui_event(redis_client, incident_id, "agent_start", "dev", "Dev Agent started — fetching source files…")
 
     # Step 1 — Fetch source files from GitHub API.
+    require(permissions, "github", "fetch_source_files")
     source_files = await _fetch_source_files(
         repo=gh_config.target_repo,
         paths=qa_result.relevant_files,
@@ -92,6 +97,9 @@ async def handle(
         "source files fetched",
         extra={"incident_id": incident_id, "files": list(source_files.keys())},
     )
+    await publish_tool_event(redis_client, incident_id, "dev", "github", "fetch_files", "success", f"{len(source_files)} files")
+
+    await publish_ui_event(redis_client, incident_id, "agent_step", "dev", f"Fetched {len(source_files)} source file(s) — generating fix suggestion…")
 
     # Step 2 — LLM generates a fix suggestion.
     suggestion_prompt = prompts.build_suggestion(
@@ -105,6 +113,7 @@ async def handle(
     )
     logger.info("dev agent calling llm for fix suggestion", extra={"incident_id": incident_id})
     fix_suggestion = await complete(agent="dev", prompt=suggestion_prompt)
+    await publish_tool_event(redis_client, incident_id, "dev", "llm", "complete", "success", "fix suggestion")
     logger.debug(
         "llm fix suggestion received",
         extra={"incident_id": incident_id, "response_length": len(fix_suggestion)},
@@ -122,18 +131,24 @@ async def handle(
         "posting fix suggestion to github issue",
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
     )
+    require(permissions, "github", "add_issue_comment")
     await github.add_issue_comment(
         repo=gh_config.target_repo,
         issue_number=qa_result.ticket_id,
         comment=issue_comment,
     )
+    await publish_tool_event(redis_client, incident_id, "dev", "github", "add_comment", "success", f"#{qa_result.ticket_id} fix suggestion")
     logger.info(
         "fix suggestion posted to github issue",
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
     )
 
+    await publish_ui_event(redis_client, incident_id, "agent_step", "dev", "Fix suggestion posted to GitHub issue — starting TDD loop…")
+
     # Step 4 — Publish fix_suggested; Notifier Agent handles Slack/email.
+    require(permissions, "redis", "write_status")
     await write_status(redis_client, incident_id, "fix_suggested")
+    require(permissions, "events", "publish:fix_suggested")
     await publish(
         redis_client,
         "fix_suggested",
@@ -151,6 +166,7 @@ async def handle(
         crash_report=crash_report,
         fix_suggestion=fix_suggestion,
         redis_client=redis_client,
+        permissions=permissions,
     )
 
 
@@ -163,6 +179,7 @@ async def _tdd_loop(
     crash_report: CrashReport,
     fix_suggestion: str,
     redis_client: redis.Redis,
+    permissions: AgentPermissions,
 ) -> PRResult:
     """
     Clone the repo, write the failing test, and iterate with claude-code until
@@ -173,6 +190,7 @@ async def _tdd_loop(
         crash_report:   CrashReport for the incident.
         fix_suggestion: Fix suggestion text from the LLM (already posted to GitHub).
         redis_client:   Async Redis client.
+        permissions:    Dev Agent's loaded permissions — enforced before each operation.
 
     Returns:
         PRResult with the created pull request details.
@@ -183,10 +201,11 @@ async def _tdd_loop(
     gh_config = get_github_config()
     incident_id = crash_report.incident_id
 
+    require(permissions, "redis", "read_iterations")
     current_iterations = await read_iterations(redis_client, incident_id)
     if current_iterations >= MAX_ITERATIONS:
-        await _post_failure_comment(qa_result, gh_config.target_repo, [])
-        await _escalate(crash_report, [], redis_client)
+        await _post_failure_comment(qa_result, gh_config.target_repo, [], permissions)
+        await _escalate(crash_report, [], redis_client, permissions)
         raise RuntimeError(
             f"Dev Agent for incident {incident_id} has exhausted all {MAX_ITERATIONS} iterations."
         )
@@ -195,12 +214,17 @@ async def _tdd_loop(
     prior_attempts: list[str] = []
     try:
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
+        require(permissions, "github", "clone_repo")
         await github.clone_repo(clone_url, repo_dir)
+        await publish_tool_event(redis_client, incident_id, "dev", "git", "clone", "success", gh_config.target_repo)
 
+        require(permissions, "redis", "increment_iterations")
         iteration = await increment_iterations(redis_client, incident_id)
         branch_name = f"helix/fix/{incident_id[:8]}-{iteration}"
+        require(permissions, "github", "checkout_branch")
         await github.checkout_branch(repo_dir, branch_name)
 
+        require(permissions, "github", "write_file")
         await github.write_file(
             repo_dir,
             qa_result.test_case.file_path,
@@ -208,6 +232,10 @@ async def _tdd_loop(
         )
 
         while iteration <= MAX_ITERATIONS:
+            await publish_ui_event(
+                redis_client, incident_id, "agent_step", "dev",
+                f"TDD iteration {iteration}/{MAX_ITERATIONS} — running Claude Code…",
+            )
             prompt = prompts.build_tdd(
                 incident_id=incident_id,
                 error_type=crash_report.error_type,
@@ -231,6 +259,8 @@ async def _tdd_loop(
                 "claude-code response",
                 extra={"incident_id": incident_id, "iteration": iteration, "response": response},
             )
+            tdd_status = "success" if _tests_passed(response) else "failed"
+            await publish_tool_event(redis_client, incident_id, "dev", "claude_code", "tdd_iterate", tdd_status, f"iteration {iteration}/{MAX_ITERATIONS}")
 
             if _tests_passed(response):
                 fix_summary = _extract_explanation(response)
@@ -241,13 +271,16 @@ async def _tdd_loop(
                     f"{crash_report.affected_component} (helix/{incident_id[:8]})\n\n"
                     f"{fix_summary}"
                 )
+                require(permissions, "github", "commit_and_push")
                 await github.commit_and_push(repo_dir, branch_name, commit_message)
+                await publish_tool_event(redis_client, incident_id, "dev", "github", "commit_push", "success", branch_name)
 
                 pr_title = (
                     f"[Helix] Fix {crash_report.error_type} in "
                     f"{crash_report.affected_component}"
                 )
                 pr_body = _build_pr_body(crash_report, qa_result, fix_summary, iteration)
+                require(permissions, "github", "create_pull_request")
                 pr_number, pr_url = await github.create_pull_request(
                     repo=gh_config.target_repo,
                     title=pr_title,
@@ -255,6 +288,7 @@ async def _tdd_loop(
                     head=branch_name,
                     base=gh_config.base_branch,
                 )
+                await publish_tool_event(redis_client, incident_id, "dev", "github", "create_pr", "success", f"#{pr_number}")
 
                 pr_result = PRResult(
                     incident_id=incident_id,
@@ -266,14 +300,23 @@ async def _tdd_loop(
                     fix_summary=fix_summary,
                 )
 
+                require(permissions, "redis", "write_pr_result")
                 await write_pr_result(redis_client, pr_result)
+                require(permissions, "redis", "write_status")
                 await write_status(redis_client, incident_id, "pr_created")
+                await publish_ui_event(
+                    redis_client, incident_id, "agent_step", "dev",
+                    f"Tests passed on iteration {iteration} — PR #{pr_number} created",
+                )
+                await publish_ui_event(redis_client, incident_id, "status_changed", "dev", "pr_created")
+                require(permissions, "events", "publish:pr_created")
                 await publish(
                     redis_client,
                     "pr_created",
                     incident_id,
                     pr_result.model_dump(mode="json"),
                 )
+                await publish_ui_event(redis_client, incident_id, "agent_done", "dev", f"Fix complete — awaiting human approval for PR #{pr_number}")
 
                 logger.info(
                     "dev agent complete",
@@ -288,6 +331,10 @@ async def _tdd_loop(
             # Tests failed — record attempt and retry if budget remains.
             explanation = _extract_explanation(response)
             prior_attempts.append(explanation)
+            await publish_ui_event(
+                redis_client, incident_id, "agent_step", "dev",
+                f"Iteration {iteration} failed — {'retrying' if iteration < MAX_ITERATIONS else 'escalating'}",
+            )
             logger.warning(
                 "dev agent tdd iteration failed",
                 extra={"incident_id": incident_id, "iteration": iteration},
@@ -296,16 +343,19 @@ async def _tdd_loop(
             if iteration >= MAX_ITERATIONS:
                 break
 
+            require(permissions, "redis", "increment_iterations")
             iteration = await increment_iterations(redis_client, incident_id)
             branch_name = f"helix/fix/{incident_id[:8]}-{iteration}"
+            require(permissions, "github", "checkout_branch")
             await github.checkout_branch(repo_dir, branch_name)
 
     finally:
         shutil.rmtree(repo_dir, ignore_errors=True)
 
     # All iterations exhausted.
-    await _post_failure_comment(qa_result, gh_config.target_repo, prior_attempts)
-    await _escalate(crash_report, prior_attempts, redis_client)
+    await publish_ui_event(redis_client, incident_id, "agent_done", "dev", f"All {MAX_ITERATIONS} iterations exhausted — escalating to human")
+    await _post_failure_comment(qa_result, gh_config.target_repo, prior_attempts, permissions)
+    await _escalate(crash_report, prior_attempts, redis_client, permissions)
     raise RuntimeError(
         f"Dev Agent for incident {incident_id} exhausted all {MAX_ITERATIONS} iterations."
     )
@@ -377,8 +427,17 @@ async def _post_failure_comment(
     qa_result: QAResult,
     repo: str,
     prior_attempts: list[str],
+    permissions: AgentPermissions,
 ) -> None:
-    """Post a failure summary to the GitHub Issue when all fix attempts are exhausted."""
+    """
+    Post a failure summary to the GitHub Issue when all fix attempts are exhausted.
+
+    Args:
+        qa_result:      QAResult containing the failing test case reference.
+        repo:           GitHub repository in "owner/name" format.
+        prior_attempts: Per-attempt explanation strings from the TDD loop.
+        permissions:    Dev Agent's loaded permissions.
+    """
     if prior_attempts:
         attempts_str = "\n\n".join(
             f"**Attempt {i + 1}:**\n{attempt}"
@@ -398,6 +457,7 @@ async def _post_failure_comment(
         extra={"issue_number": qa_result.ticket_id},
     )
     try:
+        require(permissions, "github", "add_issue_comment")
         await github.add_issue_comment(
             repo=repo,
             issue_number=qa_result.ticket_id,
@@ -414,8 +474,17 @@ async def _escalate(
     crash_report: CrashReport,
     prior_attempts: list[str],
     redis_client: redis.Redis,
+    permissions: AgentPermissions,
 ) -> None:
-    """Publish fix_failed event so the Notifier Agent escalates via Slack and email."""
+    """
+    Publish fix_failed event so the Notifier Agent escalates via Slack and email.
+
+    Args:
+        crash_report:   CrashReport for the incident.
+        prior_attempts: Per-attempt explanation strings from the TDD loop.
+        redis_client:   Async Redis client.
+        permissions:    Dev Agent's loaded permissions.
+    """
     context = "\n\n---\n\n".join(
         f"Attempt {i + 1}:\n{attempt}"
         for i, attempt in enumerate(prior_attempts)
@@ -428,7 +497,9 @@ async def _escalate(
         extra={"incident_id": crash_report.incident_id, "attempts": len(prior_attempts)},
     )
 
+    require(permissions, "redis", "write_status")
     await write_status(redis_client, crash_report.incident_id, "fix_failed")
+    require(permissions, "events", "publish:fix_failed")
     await publish(
         redis_client,
         "fix_failed",

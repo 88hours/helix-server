@@ -21,6 +21,7 @@ import logging
 import redis.asyncio as redis
 
 from core.config import get_email_config, get_slack_config
+from core.permissions import load_permissions, require
 from core.state import read_crash_report, read_pr_result
 from integrations import email, slack
 
@@ -47,10 +48,12 @@ async def handle(
     """
     logger.info("notifier agent started", extra={"incident_id": incident_id})
 
+    permissions = load_permissions("notifier")
     slack_config = get_slack_config()
     email_config = get_email_config()
 
     logger.debug("reading crash report from redis", extra={"incident_id": incident_id})
+    require(permissions, "redis", "read_crash_report")
     crash_report = await read_crash_report(redis_client, incident_id)
     if crash_report is None:
         logger.warning(
@@ -71,6 +74,7 @@ async def handle(
         f"*Component:* {affected_component}\n"
         f"*Review the fix:* {issue_url}"
     )
+    require(permissions, "slack", "post_message")
     await slack.post_message(
         text=slack_text,
         channel=slack_config.approval_channel,
@@ -78,6 +82,7 @@ async def handle(
     )
     logger.debug("slack notification sent", extra={"incident_id": incident_id})
 
+    require(permissions, "email", "send_fix_suggested")
     await email.send_fix_suggested(
         incident_id=incident_id,
         error_type=error_type,
@@ -119,9 +124,11 @@ async def handle_escalation(
     """
     logger.info("notifier agent escalating", extra={"incident_id": incident_id})
 
+    permissions = load_permissions("notifier")
     slack_config = get_slack_config()
     email_config = get_email_config()
 
+    require(permissions, "slack", "post_escalation")
     await slack.post_escalation(
         incident_id=incident_id,
         crash_summary=crash_summary,
@@ -132,6 +139,7 @@ async def handle_escalation(
     )
     logger.debug("slack escalation sent", extra={"incident_id": incident_id})
 
+    require(permissions, "email", "send_escalation")
     await email.send_escalation(
         incident_id=incident_id,
         crash_summary=crash_summary,
@@ -172,6 +180,7 @@ async def handle_pr_created(
     """
     logger.info("notifier handling pr_created", extra={"incident_id": incident_id})
 
+    permissions = load_permissions("notifier")
     slack_config = get_slack_config()
     if not slack_config.token or not slack_config.approval_channel:
         logger.warning(
@@ -180,6 +189,7 @@ async def handle_pr_created(
         )
         return
 
+    require(permissions, "redis", "read_pr_result")
     pr_result = await read_pr_result(redis_client, incident_id)
     if pr_result is None:
         logger.error(
@@ -188,6 +198,7 @@ async def handle_pr_created(
         )
         return
 
+    require(permissions, "slack", "post_approval_request")
     await slack.post_approval_request(
         incident_id=incident_id,
         pr_url=pr_result.pr_url,
@@ -227,6 +238,7 @@ async def handle_duplicate(
     """
     logger.info("notifier handling duplicate_detected", extra={"incident_id": incident_id})
 
+    permissions = load_permissions("notifier")
     slack_config = get_slack_config()
     if not slack_config.token or not slack_config.approval_channel:
         logger.warning(
@@ -241,6 +253,7 @@ async def handle_duplicate(
         f"*Existing issue:* {issue_url}\n"
         f"This bug has been seen before. If a fix PR is already open, please review and approve it."
     )
+    require(permissions, "slack", "post_message")
     await slack.post_message(
         text=text,
         channel=slack_config.approval_channel,

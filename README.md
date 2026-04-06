@@ -9,12 +9,14 @@ Helix is an autonomous incident response platform. It takes a production crash f
 
 ```
 Sentry / Rollbar crash → Crash Handler → QA Agent → Dev Agent → PR + Notifications
+                                                                        ↓
+                                                              Human Approval (Slack)
 ```
 
 1. **Crash Handler** — receives Sentry or Rollbar webhooks, classifies severity, and produces a structured crash report
 2. **QA Agent** — deduplicates against open GitHub Issues, generates a TDD test that asserts the correct behaviour (not that the crash occurs), validates the test and retries if needed. Supports Python, JavaScript/TypeScript, Ruby, and Java/Kotlin.
 3. **Dev Agent** — generates a fix suggestion and posts it to the GitHub Issue, then runs a full TDD loop: clones the repo, runs the failing test, writes the minimum fix, verifies the full suite; retries up to 3 times before escalating
-4. **Notifier Agent** — handles all outbound Slack and email notifications: fix suggestions, PR links, and escalation alerts when the Dev Agent exhausts retries
+4. **Notifier Agent** — handles all outbound Slack and email notifications: fix suggestions, PR links, Slack Approve/Reject buttons for human approval, and escalation alerts when the Dev Agent exhausts retries
 
 Agents communicate via Redis Streams (or AWS EventBridge). Shared state lives in Redis, keyed by `incident_id`.
 
@@ -22,10 +24,14 @@ Agents communicate via Redis Streams (or AWS EventBridge). Shared state lives in
 
 ```
 agents/
-  crash_handler/       FastAPI webhook server — receives Sentry/Rollbar events, publishes crash_analysed
+  crash_handler/       FastAPI webhook server — receives Sentry/Rollbar events, hosts the dashboard API
     agent.py           Core logic: LLM analysis → CrashReport
     prompts.py         System + user prompt templates
-    main.py            Entry point: POST /webhook/sentry, POST /webhook/rollbar, GET /healthz
+    main.py            POST /webhook/sentry, POST /webhook/rollbar, POST /slack/actions
+                       GET /api/incidents, GET /api/incidents/{id}, GET /api/stream/{id} (SSE)
+                       GET/POST/DELETE /api/repos — per-user repo configuration
+                       GET /api/me — caller identity from JWT
+                       GET /app/* (serves the React dashboard)
     railway.json       Railway service config for this agent
   qa/                  Subscribes to crash_analysed
     agent.py           GitHub Issues deduplication, repo clone, LLM test generation + validation
@@ -38,24 +44,47 @@ agents/
     main.py            Entry point: subscriber loop
     railway.json       Railway service config for this agent
   notifier/            Subscribes to fix_suggested and fix_failed
-    agent.py           Slack + email for fix suggestions and escalations
+    agent.py           Slack + email for fix suggestions, PR approvals, and escalations
     main.py            Entry point: two concurrent subscriber loops
     railway.json       Railway service config for this agent
 core/
   config.py            Typed config loaders for all agents and integrations
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
-  state.py             Redis read/write helpers, keyed by incident_id
-  models.py            Pydantic models shared across all agents
+  state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo configs)
+  models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig)
   llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI
+  permissions.py       Per-agent tool access control — declare and enforce at runtime
+  ui_events.py         Dashboard event publishing — agent progress + tool call events via Redis Pub/Sub
+  auth.py              Auth0 JWT validation (RS256 via JWKS) — optional, falls back to demo user
   utils.py             extract_json() — parses structured JSON from LLM output
 integrations/
   sentry.py            HMAC-SHA256 signature verification + Sentry webhook payload parsing
   rollbar.py           Access token verification + Rollbar webhook payload parsing
   github.py            Git CLI wrappers (clone, branch, commit, push) + GitHub REST API
   jira.py              JIRA REST API v3 — create and update issues
-  slack.py             Slack Web API — notifications and escalation alerts
+  slack.py             Slack Web API — notifications, approval buttons, and escalation alerts
   email.py             SendGrid API (preferred) or SMTP fallback
-config.yaml            Source of truth for all non-secret config (models, Redis, integrations)
+dashboard/             React + TypeScript + Tailwind — streaming incident dashboard
+  src/
+    App.tsx            Root app with React Router (base: /app/) — Incidents + Repos nav
+    api.ts             fetch wrappers, EventSource subscription, Auth0 token injection
+    main.tsx           Entry point — wraps app in Auth0Provider when VITE_AUTH0_DOMAIN is set
+    pages/
+      IncidentList.tsx   Polls /api/incidents — table of all incidents, newest first
+      IncidentDetail.tsx Opens SSE stream — pipeline progress, tool calls, live log, crash/QA/PR details
+      Repos.tsx          Repo configuration — add / remove repos per user
+    components/
+      PipelineProgress.tsx    4-step pipeline tracker with checkmarks
+      StreamPanel.tsx          Auto-scrolling live agent activity log
+      ToolTimeline.tsx         Live tool call log — LLM, GitHub, Git, Claude Code calls with status
+      StatusBadge.tsx          Pill badge for pipeline status
+      SeverityBadge.tsx        Pill badge for crash severity
+      AuthGuard.tsx            Redirects unauthenticated users to Auth0 login
+      NavUserChip.tsx          Avatar + name + sign-out button in nav bar
+      TokenProviderBridge.tsx  Registers Auth0 token-getter with the API client
+  .env.example         Frontend env var template (VITE_AUTH0_DOMAIN, VITE_AUTH0_CLIENT_ID, etc.)
+  vite.config.ts       Base /app/, proxies /api → localhost:8000 in dev
+config.yaml            Source of truth for all non-secret config (models, Redis, permissions)
 index.html             Landing page
 pyproject.toml         Python package definition and dependencies
 uv.lock                Pinned dependency lockfile
@@ -70,13 +99,14 @@ docs/
 ## Requirements
 
 - Python 3.12+
-- [uv](https://docs.astral.sh/uv/) — package manager
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+- [pnpm](https://pnpm.io) — Node.js package manager (dashboard only)
 - Redis (local or cloud — see Docker section)
 - Claude Code CLI — required for the Dev Agent (`claude-code` provider)
 
 ## Setup
 
-**1. Install dependencies**
+**1. Install Python dependencies**
 
 ```bash
 uv sync --extra dev
@@ -117,8 +147,10 @@ Required variables:
 | `EMAIL_FROM` | Sender address, e.g. `helix@acme.com` (optional — logs warning if absent) |
 | `EMAIL_TO` | Comma-separated recipients, e.g. `oncall@acme.com` (optional) |
 | `HELIX_DEMO` | Set to `true` to skip all webhook signature/token verification (useful for local testing) |
+| `AUTH0_DOMAIN` | Auth0 tenant domain, e.g. `your-tenant.auth0.com` (optional — leave unset for demo mode) |
+| `AUTH0_AUDIENCE` | Auth0 API identifier, e.g. `https://api.helix.yourapp.com` (required when `AUTH0_DOMAIN` is set) |
 
-Slack and email are optional — missing configuration is logged as a warning and the pipeline continues. See `.env.example` for the full list including optional variables.
+Slack, email, and Auth0 are optional — missing configuration is logged as a warning and the pipeline/dashboard continues. See `.env.example` for the full list.
 
 ## Running
 
@@ -227,7 +259,7 @@ ngrok's web interface at `http://127.0.0.1:4040` shows every request and respons
 Each agent runs as its own process. Start them all:
 
 ```bash
-# Crash Handler — webhook server (receives Sentry and Rollbar events)
+# Crash Handler — webhook server + dashboard API (receives Sentry and Rollbar events)
 uv run uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
 
 # QA Agent — subscribes to crash_analysed
@@ -241,6 +273,56 @@ uv run --env-file .env python -m agents.notifier.main
 ```
 
 Point your Sentry webhook at `http://<host>:8000/webhook/sentry` or Rollbar at `http://<host>:8000/webhook/rollbar`.
+
+---
+
+### Dashboard
+
+The React dashboard streams live agent activity and shows all incidents at `http://localhost:8000/app`.
+
+**Build for production** (required before the dashboard loads from FastAPI):
+
+```bash
+cd dashboard
+pnpm install
+pnpm build
+```
+
+The built files are written to `dashboard/dist/` and served automatically by the crash handler at `/app`.
+
+**Local development** (Vite dev server with hot reload):
+
+```bash
+cd dashboard
+pnpm install
+pnpm dev   # http://localhost:5173/app
+```
+
+Vite proxies `/api` → `http://localhost:8000` during dev, so the FastAPI backend must be running.
+
+**Auth0 setup (optional — skip for demo mode)**
+
+Without `AUTH0_DOMAIN` set, the dashboard is accessible without login. To enable GitHub login via Auth0:
+
+1. Create an Auth0 tenant and add a **Single Page Application** (note the Client ID)
+2. Create an **API** — the Identifier becomes `AUTH0_AUDIENCE` (e.g. `https://helix.api`); enable **User Access** for your SPA
+3. Enable the **GitHub** social connection: Auth0 → Authentication → Social → GitHub
+4. In your Auth0 Application Settings:
+   - **Allowed Callback URLs:** `https://<your-app>.up.railway.app/callback, http://localhost:5173/app/`
+   - **Allowed Logout URLs:** `https://<your-app>.up.railway.app, http://localhost:5173/app/`
+   - **Allowed Web Origins / CORS:** `https://<your-app>.up.railway.app, http://localhost:5173`
+5. Optionally paste `dashboard/login.html` into Auth0 → Branding → Universal Login → Custom Login Page for a Helix-branded login screen
+6. Set in your `.env`:
+   ```
+   AUTH0_DOMAIN=your-tenant.auth0.com
+   AUTH0_AUDIENCE=https://helix.api
+   ```
+7. Create `dashboard/.env.local`:
+   ```
+   VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+   VITE_AUTH0_CLIENT_ID=your-spa-client-id
+   VITE_AUTH0_AUDIENCE=https://helix.api
+   ```
 
 ---
 
@@ -262,7 +344,7 @@ curl -X POST http://localhost:8000/webhook/sentry \
   -d @test_payloads/sentry_event.json
 ```
 
-A successful request returns `202 Accepted` with an `incident_id`.
+A successful request returns `202 Accepted` with an `incident_id`. Open `http://localhost:8000/app` to watch the pipeline run live.
 
 **Verify the result in Redis**
 
@@ -289,6 +371,19 @@ uv run pytest
 
 All models are configurable in `config.yaml` or via `HELIX_<AGENT>_PROVIDER` / `HELIX_<AGENT>_MODEL` env vars.
 
+## Agent permissions
+
+Each agent declares exactly which tools it is allowed to call. Permissions are enforced at runtime via `core/permissions.py` — a `PermissionDenied` exception is raised before any unauthorised operation executes.
+
+| Agent | Can do | Cannot do |
+|---|---|---|
+| Crash Handler | Write Redis, publish `crash_analysed` | GitHub, Slack |
+| QA Agent | Read GitHub, write Redis, publish `test_case_generated` | Create PRs, push code |
+| Dev Agent | Clone repo, push code, create PRs, write Redis | Slack, approve own PRs |
+| Notifier | Post to Slack, send email | Write Redis, touch GitHub |
+
+Permissions are declared in `config.yaml` under the `permissions:` key for each agent.
+
 ## Event channels
 
 | Channel | Published by | Consumed by |
@@ -300,6 +395,8 @@ All models are configurable in `config.yaml` or via `HELIX_<AGENT>_PROVIDER` / `
 | `helix:events:fix_failed` | Dev Agent (on exhaustion) | Notifier Agent |
 
 EventBridge uses the same names as `detail-type` on the `helix-mvp` bus. Switch backends with `HELIX_EVENT_BACKEND=eventbridge`.
+
+The dashboard subscribes to a separate per-incident channel (`helix:ui:{incident_id}`) for fine-grained live progress events. These are ephemeral — Pub/Sub only, not persisted.
 
 ## Event backend
 
@@ -406,7 +503,7 @@ Helix now uses Redis Streams (`XADD`/`XREAD`) by default. Messages persist until
 | Concurrent repo fixes | Per-repo Redis lock (`SET NX EX`) | Low |
 | No Dev Agent timeout | Wall-clock budget at worker level | Low |
 | ~~Message loss on restart~~ | ~~Redis Streams instead of Pub/Sub~~ | Done — Redis Streams is the default |
-| Single-tenant config | Postgres org/repo tables | High — requires Phase 3 work |
+| Single-tenant config | Postgres org/repo tables | High — requires future work |
 
 None of these require changes to agent logic. The event-driven architecture is the right foundation — these are distribution and configuration concerns layered on top of it.
 
@@ -414,24 +511,26 @@ None of these require changes to agent logic. The event-driven architecture is t
 
 ## Roadmap
 
-### Phase 2 — Make it deployable
-- [x] Add one-click Railway deploy button — railway.json + deploy badge in README
-- [x] Add Sentry webhook support alongside Rollbar
-- [x] Switch event bus from Redis Pub/Sub to Redis Streams (configurable)
-- [x] Add demo mode (`HELIX_DEMO`) to skip webhook signature verification for local testing
-- [x] Multi-language support in QA and Dev agents (Python, JavaScript/TypeScript, Ruby, Java/Kotlin)
-- [ ] Add Human Approval workflow — Slack Approve/Reject buttons, merge PR on approval
+### Phase 1 — MVP (complete)
+- [x] Crash Handler — Sentry + Rollbar webhook ingestion, LLM crash classification
+- [x] QA Agent — GitHub Issues deduplication, repo clone, TDD test generation + validation
+- [x] Dev Agent — LLM fix suggestion, TDD loop, PR creation, retry + escalation
+- [x] Notifier Agent — Slack + email for fix suggestions and escalations
+- [x] Human Approval workflow — Slack Approve/Reject buttons, merge PR on approval
+- [x] Redis Streams event bus (configurable; AWS EventBridge also supported)
+- [x] Demo mode — skip signature verification for local testing
+- [x] Multi-language support — Python, JavaScript/TypeScript, Ruby, Java/Kotlin, Go
+- [x] One-click Railway deploy
 
-### Phase 3 — Make it a SaaS
-- [ ] Add Postgres — store per-org config, replace static config.yaml for multi-tenant data
-- [ ] Add Auth0/Clerk authentication — login/signup, org model, all resources scoped by org_id
-- [ ] Add GitHub OAuth — repo connection via OAuth App instead of manual token setup
-- [ ] Add Slack OAuth app install — "Add to Slack" flow, store bot token per org
-- [ ] Add BYO Anthropic key — required on Free tier, optional override on paid tiers
-- [ ] Add Stripe billing — Free / Pro ($49/mo) / Team ($199/mo), metered by incidents resolved
-- [ ] Build onboarding wizard — connect GitHub → connect Slack → paste Rollbar webhook URL → test fire
-- [ ] Build incident dashboard — live incident feed, agent activity log, repo settings, usage meter
+### Phase 2 — Full-Stack Agent Experience (complete)
+- [x] Scoped tool access — per-agent permission declarations enforced at runtime (`core/permissions.py`)
+- [x] Streaming dashboard — React + Vite frontend with live agent activity via SSE (`dashboard/`)
+- [x] Tool visualisation — live tool call timeline in the dashboard (LLM, GitHub, Git, Claude Code)
+- [x] Auth0 + GitHub login — JWT validation via JWKS, optional (demo mode if `AUTH0_DOMAIN` unset)
+- [x] Repo configuration — users add/manage repos via `/app/repos`; stored per user in Redis
 
-### Phase 4 — Launch
-- [ ] Build landing page — value prop, how-it-works diagram, demo video, deploy button
-- [ ] Record demo video — crash → test case → PR → merged (2 min)
+### Phase 3 — Observability and Platform Maturity
+- [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend
+- [ ] LangSmith evals — record every LLM call with prompt, response, and token usage; eval suite on every deploy
+- [ ] Multi-agent orchestration — A2A communication patterns, dynamic sub-agent spawning
+- [ ] Rollback agent — monitors error rate post-deploy, triggers automatic rollback if thresholds exceeded

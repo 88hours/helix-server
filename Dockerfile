@@ -1,3 +1,21 @@
+# ---------------------------------------------------------------------------
+# Stage 1: build the React dashboard
+# ---------------------------------------------------------------------------
+FROM node:20-slim AS dashboard-build
+
+# Install pnpm
+RUN npm install -g pnpm
+
+WORKDIR /dashboard
+COPY dashboard/package.json dashboard/pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile
+
+COPY dashboard/ ./
+RUN pnpm build
+
+# ---------------------------------------------------------------------------
+# Stage 2: Python runtime
+# ---------------------------------------------------------------------------
 FROM python:3.12-slim
 
 # ---------------------------------------------------------------------------
@@ -41,6 +59,11 @@ RUN pip install --no-cache-dir -e "."
 
 # Copy the rest of the source and hand ownership to the app user
 COPY . .
+
+# Bring in the compiled dashboard from the build stage.
+# Overwrites any local dashboard/dist that may have been copied above.
+COPY --from=dashboard-build /dashboard/dist ./dashboard/dist
+
 RUN chown -R helix:helix /app && chmod +x /app/entrypoint.sh
 
 USER helix

@@ -23,9 +23,13 @@ dependencies = [
     # Async SMTP — email notifications
     "aiosmtplib>=3.0",
 
-    # Crash Handler webhook server
+    # Crash Handler webhook server + dashboard SSE
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "sse-starlette>=2.1",        # Server-Sent Events for the streaming dashboard
+
+    # Auth0 JWT validation (RS256 via JWKS)
+    "PyJWT[crypto]>=2.10",
 
     # Error tracking
     "rollbar>=0.16.0",
