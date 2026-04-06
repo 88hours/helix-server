@@ -11,6 +11,9 @@ Entry points:
   handle_pr_created()  — called on pr_created events; posts a Slack approval
                          request with Approve / Reject buttons. No-op when
                          Slack is not configured.
+  handle_duplicate()   — called on duplicate_detected events; notifies the
+                         team that the same bug has recurred and prompts them
+                         to review any pending fix PR.
 """
 
 import logging
@@ -197,4 +200,54 @@ async def handle_pr_created(
     logger.info(
         "approval request sent",
         extra={"incident_id": incident_id, "pr_number": pr_result.pr_number},
+    )
+
+
+async def handle_duplicate(
+    incident_id: str,
+    issue_url: str,
+    error_type: str,
+    error_message: str,
+    redis_client: redis.Redis,
+) -> None:
+    """
+    Notify the team when a crash recurs for a bug that already has an open issue.
+
+    Sends a Slack message linking to the existing GitHub Issue and prompting
+    the reviewer to approve any pending fix PR. The Dev Agent is not re-run.
+
+    No-op if Slack is not configured.
+
+    Args:
+        incident_id:   Helix incident ID for the new occurrence.
+        issue_url:     URL of the existing GitHub Issue.
+        error_type:    Error class, e.g. "KeyError".
+        error_message: Short error message.
+        redis_client:  Async Redis client (unused; kept for consistency).
+    """
+    logger.info("notifier handling duplicate_detected", extra={"incident_id": incident_id})
+
+    slack_config = get_slack_config()
+    if not slack_config.token or not slack_config.approval_channel:
+        logger.warning(
+            "duplicate notification skipped — Slack not configured",
+            extra={"incident_id": incident_id},
+        )
+        return
+
+    text = (
+        f":warning: *Recurring crash* — incident `{incident_id}`\n"
+        f"*Error:* `{error_type}: {error_message}`\n"
+        f"*Existing issue:* {issue_url}\n"
+        f"This bug has been seen before. If a fix PR is already open, please review and approve it."
+    )
+    await slack.post_message(
+        text=text,
+        channel=slack_config.approval_channel,
+        token=slack_config.token,
+    )
+
+    logger.info(
+        "duplicate notification sent",
+        extra={"incident_id": incident_id, "issue_url": issue_url},
     )
