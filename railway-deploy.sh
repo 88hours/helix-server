@@ -18,10 +18,6 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-IMAGE="${HELIX_IMAGE:-}"
-TAG="${HELIX_IMAGE_TAG:-latest}"
-SERVICE="${HELIX_SERVICE:-helix}"
-
 # ---------------------------------------------------------------------------
 # Parse arguments
 # ---------------------------------------------------------------------------
@@ -44,6 +40,30 @@ while [[ $# -gt 0 ]]; do
     *) echo "error: unexpected argument '$1'" >&2; exit 1 ;;
   esac
 done
+
+# Load .env file into the local shell environment so variables like HELIX_IMAGE
+# are available for the preflight check below, before they are synced to Railway.
+if [[ -n "$ENV_FILE" ]]; then
+  [[ ! -f "$ENV_FILE" ]] && { echo "error: file not found: $ENV_FILE" >&2; exit 1; }
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    line="${line#export }"
+    [[ "$line" != *=* ]] && continue
+    key="${line%%=*}"
+    key="${key#"${key%%[![:space:]]*}"}"  # trim leading whitespace
+    key="${key%"${key##*[![:space:]]}"}"  # trim trailing whitespace
+    val="${line#*=}"
+    [[ "$val" =~ ^\"(.*)\"$ ]] && val="${BASH_REMATCH[1]}"
+    [[ "$val" =~ ^\'(.*)\'$ ]] && val="${BASH_REMATCH[1]}"
+    val="${val%%#*}"                      # strip inline comments
+    val="${val%"${val##*[![:space:]]}"}"  # trim trailing whitespace
+    [[ -n "$val" ]] && export "$key=$val"
+  done < "$ENV_FILE"
+fi
+
+IMAGE="${HELIX_IMAGE:-}"
+TAG="${HELIX_IMAGE_TAG:-latest}"
+SERVICE="${HELIX_SERVICE:-helix}"
 
 # ---------------------------------------------------------------------------
 # Preflight
@@ -110,9 +130,13 @@ if [[ -n "$ENV_FILE" ]]; then
     line="${line#export }"
     [[ "$line" != *=* ]] && continue
     key="${line%%=*}"
+    key="${key#"${key%%[![:space:]]*}"}"  # trim leading whitespace
+    key="${key%"${key##*[![:space:]]}"}"  # trim trailing whitespace
     val="${line#*=}"
     [[ "$val" =~ ^\"(.*)\"$ ]] && val="${BASH_REMATCH[1]}"
     [[ "$val" =~ ^\'(.*)\'$ ]] && val="${BASH_REMATCH[1]}"
+    val="${val%%#*}"                      # strip inline comments
+    val="${val%"${val##*[![:space:]]}"}"  # trim trailing whitespace
     [[ -z "$val" ]] && continue
     pairs+=("${key}=${val}")
   done < "$ENV_FILE"

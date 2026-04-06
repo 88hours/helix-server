@@ -1,10 +1,9 @@
 """
 Crash Handler Agent — FastAPI entry point.
 
-Exposes a single POST /webhook/rollbar endpoint that:
-  1. Verifies the Rollbar access token (data.access_token in the payload).
-  2. Parses the raw payload into a RollbarEvent.
-  3. Hands off to the Crash Handler Agent logic (agent.py).
+Exposes two webhook endpoints:
+  - POST /webhook/rollbar — verifies the Rollbar access token, parses the payload, delegates to agent.py.
+  - POST /webhook/sentry  — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
 
 Run with:
     uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
@@ -36,9 +35,15 @@ async def lifespan(app: FastAPI):
     """Create the Redis client on startup and close it on shutdown."""
     redis_url = get_redis_url()
     logger.info("=== Crash Handler starting ===")
+    logger.info("demo mode: %s", os.environ.get("HELIX_DEMO", "not set"))
     logger.info("crash handler connecting to redis", extra={"redis_url": redis_url})
     app.state.redis = aioredis.from_url(redis_url, decode_responses=False)
-    logger.info("crash handler started — redis connected, listening on :8000/webhook/rollbar")
+    domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("PUBLIC_DOMAIN") or "localhost:8000"
+    logger.info(
+        "crash handler started — redis connected, listening on %s/webhook/rollbar and %s/webhook/sentry",
+        domain,
+        domain,
+    )
     yield
     await app.state.redis.aclose()
     logger.info("crash handler shut down")
@@ -126,13 +131,35 @@ async def sentry_webhook(request: Request):
     body = await request.body()
     signature = request.headers.get("sentry-hook-signature", "")
 
+    logger.debug(
+        "sentry webhook received — headers: %s",
+        dict(request.headers),
+    )
+    logger.info(
+        "sentry webhook received — signature=%r demo=%s body_preview=%r",
+        signature,
+        is_demo_mode(),
+        body[:200],
+    )
+
     if is_demo_mode():
         logger.warning("demo mode enabled — skipping sentry signature verification")
     else:
         sentry_cfg = get_sentry_config()
         if sentry_cfg.webhook_secret:
             if not sentry_integration.verify_signature(body, signature, sentry_cfg.webhook_secret):
-                logger.warning("sentry webhook signature verification failed")
+                import hashlib
+                import hmac as _hmac
+                expected = _hmac.new(
+                    sentry_cfg.webhook_secret.encode("utf-8"), body, hashlib.sha256
+                ).hexdigest()
+                logger.warning(
+                    "sentry webhook signature verification failed — "
+                    "received=%r expected=%r body_len=%d",
+                    signature,
+                    expected,
+                    len(body),
+                )
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid webhook signature",

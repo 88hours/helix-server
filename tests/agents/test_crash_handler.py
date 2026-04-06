@@ -291,6 +291,32 @@ def test_webhook_invalid_json_returns_400():
     assert resp.status_code == 400
 
 
+def test_sentry_webhook_demo_mode_skips_verification():
+    """In demo mode, Sentry signature verification must not run even when
+    SENTRY_WEBHOOK_SECRET is set and the signature header is wrong."""
+    payload = {"action": "ping"}
+    body = json.dumps(payload).encode()
+
+    sample_yaml = {**SAMPLE_YAML, "demo": True, "sentry": {"webhook_secret_env": "SENTRY_WEBHOOK_SECRET"}}
+
+    with patch("core.config._load_yaml", return_value=sample_yaml), \
+         patch.dict("os.environ", {"SENTRY_WEBHOOK_SECRET": "real-secret", "HELIX_DEMO": "true"}):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/webhook/sentry",
+                content=body,
+                headers={
+                    "content-type": "application/json",
+                    "sentry-hook-signature": "invalid-signature",
+                },
+            )
+
+    # ping must be acknowledged; if verification ran it would be 401
+    assert resp.status_code == 202
+    assert resp.json() == {"status": "ok"}
+
+
 def test_webhook_valid_request_returns_202():
     body = json.dumps(RAW_ROLLBAR_PAYLOAD).encode()
 

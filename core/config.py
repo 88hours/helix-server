@@ -195,16 +195,16 @@ def is_demo_mode() -> bool:
     pipeline can be exercised without real credentials.
 
     Resolution order:
-      1. HELIX_DEMO environment variable ("true" / "1" → True)
-      2. demo key in config.yaml (default: false)
+      1. HELIX_DEMO environment variable ("false" / "0" → False, "true" / "1" → True)
+      2. demo key in config.yaml (default: true)
     """
     raw = _load_yaml()
-    yaml_value = raw.get("demo", False)
-    env_value = os.environ.get("HELIX_DEMO", "").lower()
-    if env_value in ("true", "1"):
-        return True
+    yaml_value = raw.get("demo", True)
+    env_value = os.environ.get("HELIX_DEMO", "").split("#")[0].strip().lower()
     if env_value in ("false", "0"):
         return False
+    if env_value in ("true", "1"):
+        return True
     return bool(yaml_value)
 
 
