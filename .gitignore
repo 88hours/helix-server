@@ -57,3 +57,7 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# Dashboard — build output and dependencies (built in Docker, not committed)
+dashboard/dist/
+dashboard/node_modules/
