@@ -1,12 +1,17 @@
 # ---------------------------------------------------------------------------
 # Helix — full local stack
 #
-# Local Redis (default):
-#   docker compose --profile local up --build
+# Start everything (Redis included):
+#   docker compose up --build
 #
 # External Redis (Redis Cloud, AWS ElastiCache, etc.):
-#   Set REDIS_URL in .env, then:
-#   docker compose up --build
+#   Set REDIS_URL in .env to a non-localhost URL. The local Redis container
+#   will still start but agents will connect to your external instance.
+#
+# REDIS_URL in .env:
+#   redis://localhost:6379  — agents are automatically redirected to the
+#                             local Redis container (entrypoint.sh handles this)
+#   redis://<cloud-host>    — agents connect directly to the cloud instance
 #
 # Individual service logs:
 #   docker compose logs -f crash_handler
@@ -15,11 +20,10 @@
 services:
 
   # -------------------------------------------------------------------------
-  # Infrastructure — only started with: --profile local
+  # Infrastructure — always started
   # -------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    profiles: [local]
     restart: unless-stopped
     ports:
       - "6379:6379"

@@ -1,6 +1,24 @@
 #!/bin/sh
-# Read START_COMMAND from environment and exec it.
-# If unset, run all agents in one container (the "all" service mode).
+# Entrypoint for all Helix agent containers.
+#
+# Priority order for the command to run:
+#   1. Arguments passed directly (docker-compose `command:`) — exec "$@"
+#   2. START_COMMAND environment variable                    — exec sh -c "$START_COMMAND"
+#   3. Neither set — run all four agents in one container    (Railway single-service mode)
+
+# If REDIS_URL points to localhost or 127.0.0.1, redirect to the Docker
+# redis service. Inside a container, localhost refers to the container
+# itself — not the Redis container on the Docker network.
+if echo "${REDIS_URL:-}" | grep -qE "(localhost|127\.0\.0\.1)"; then
+  export REDIS_URL="redis://redis:6379"
+  echo "[helix] REDIS_URL pointed to localhost — redirected to redis://redis:6379"
+fi
+
+# docker-compose `command:` passes its value as arguments to this script.
+if [ $# -gt 0 ]; then
+  echo "[helix] start: $*"
+  exec "$@"
+fi
 
 if [ -n "${START_COMMAND:-}" ]; then
   echo "[helix] start: ${START_COMMAND}"

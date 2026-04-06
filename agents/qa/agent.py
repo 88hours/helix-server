@@ -70,6 +70,34 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         report, gh_config.target_repo
     )
 
+    # If this is a duplicate issue, skip the full pipeline and notify via Slack.
+    # The Dev Agent should not re-run for a bug it has already attempted to fix.
+    if ticket_action == TicketAction.updated:
+        logger.info(
+            "duplicate issue detected — skipping test generation and dev agent",
+            extra={"incident_id": report.incident_id, "issue_url": ticket_url},
+        )
+        await write_status(redis_client, report.incident_id, "duplicate_detected")
+        await publish(
+            redis_client,
+            "duplicate_detected",
+            report.incident_id,
+            {
+                "issue_url": ticket_url,
+                "issue_number": ticket_id,
+                "error_type": report.error_type,
+                "error_message": report.error_message,
+            },
+        )
+        return QAResult(
+            incident_id=report.incident_id,
+            ticket_id=ticket_id,
+            ticket_url=ticket_url,
+            ticket_action=ticket_action,
+            test_case=TestCase(file_path="", test_name="", content="", format=language_to_test_format(report.language)),
+            relevant_files=[],
+        )
+
     # Step 2 — Clone repo and read relevant source files.
     repo_dir = tempfile.mkdtemp(prefix="helix-qa-")
     try:
@@ -205,7 +233,7 @@ async def _create_or_update_issue(
         await github.add_issue_comment(
             repo=repo,
             issue_number=issue_number,
-            comment=f"Helix re-detected this crash (incident `{report.incident_id}`). Generating a new test case.",
+            comment=f"⚠️ Helix re-detected this crash (incident `{report.incident_id}`). A Slack notification has been sent — if a fix PR is already open, please review and approve it.",
         )
         return issue_number, issue_url, TicketAction.updated
 

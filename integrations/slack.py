@@ -4,14 +4,17 @@ Slack integration for the Helix agent pipeline.
 Provides async helpers for posting messages and interactive approval requests
 to Slack using the Web API (chat.postMessage).
 
-Also provides verify_signature() for validating inbound Slack interaction payloads.
+Also provides verify_signature() for validating inbound Slack interaction payloads
+sent when a user clicks an Approve / Reject button.
 
 Required environment variables:
     SLACK_BOT_TOKEN        — Bot token with chat:write scope (xoxb-...)
     SLACK_SIGNING_SECRET   — Signing secret for verifying interaction payloads
     SLACK_APPROVAL_CHANNEL — Channel ID or name for human approval messages
 
-The approval message uses Slack Block Kit with Approve / Reject buttons.
+All outbound functions are no-ops (with a logged warning) when the required
+environment variables are absent, so the pipeline degrades gracefully when
+Slack is not configured.
 """
 
 import hashlib
@@ -217,3 +220,83 @@ async def post_escalation(
 
     await _post({"channel": resolved_channel, "blocks": blocks}, resolved_token)
     logger.info("escalation posted", extra={"incident_id": incident_id, "attempts": attempts})
+
+
+async def post_approval_request(
+    incident_id: str,
+    pr_url: str,
+    pr_number: int,
+    fix_summary: str,
+    channel: Optional[str] = None,
+    token: Optional[str] = None,
+) -> None:
+    """
+    Post a PR approval request to Slack with Approve / Reject buttons.
+
+    The button action payloads carry the incident_id back to the
+    POST /slack/actions endpoint on the crash handler so it can look up
+    the PRResult and merge or reject accordingly.
+
+    Logs a warning and returns without raising if SLACK_BOT_TOKEN or
+    SLACK_APPROVAL_CHANNEL is not configured.
+
+    Args:
+        incident_id: Helix incident ID — embedded in button values.
+        pr_url:      URL of the GitHub PR to review.
+        pr_number:   GitHub PR number.
+        fix_summary: Plain-English description of the fix from the Dev Agent.
+        channel:     Channel ID or name. Defaults to SLACK_APPROVAL_CHANNEL.
+        token:       Slack bot token. Defaults to SLACK_BOT_TOKEN.
+    """
+    resolved_token = token or os.environ.get("SLACK_BOT_TOKEN")
+    if not resolved_token:
+        logger.warning("approval request skipped — SLACK_BOT_TOKEN not configured")
+        return
+
+    resolved_channel = channel or os.environ.get("SLACK_APPROVAL_CHANNEL")
+    if not resolved_channel:
+        logger.warning("approval request skipped — SLACK_APPROVAL_CHANNEL not configured")
+        return
+
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": ":white_check_mark: Helix — PR ready for review"},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Incident:*\n`{incident_id}`"},
+                {"type": "mrkdwn", "text": f"*Pull request:*\n<{pr_url}|PR #{pr_number}>"},
+            ],
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Fix summary:*\n{fix_summary}"},
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Approve & Merge"},
+                    "style": "primary",
+                    "action_id": "approve_pr",
+                    "value": incident_id,
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Reject"},
+                    "style": "danger",
+                    "action_id": "reject_pr",
+                    "value": incident_id,
+                },
+            ],
+        },
+    ]
+
+    await _post({"channel": resolved_channel, "blocks": blocks}, resolved_token)
+    logger.info(
+        "approval request posted",
+        extra={"incident_id": incident_id, "pr_number": pr_number},
+    )

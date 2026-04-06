@@ -47,6 +47,8 @@ SAMPLE_YAML = {
 def env_vars(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setenv("SLACK_APPROVAL_CHANNEL", "C123")
 
 
 @pytest.fixture
@@ -415,3 +417,77 @@ async def test_handle_retries_when_test_fails_validation(crash_report, mock_redi
 
     assert complete_mock.await_count == 2
     assert result.test_case.test_name == "test_checkout_returns_error"
+
+
+# ---------------------------------------------------------------------------
+# Duplicate detection — early return
+# ---------------------------------------------------------------------------
+
+async def test_handle_duplicate_skips_pipeline(crash_report, mock_redis):
+    """When an existing issue is found, handle() must return early without
+    cloning the repo, generating a test case, or publishing test_case_generated."""
+    clone_mock = AsyncMock()
+    complete_mock = AsyncMock()
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("integrations.github.find_existing_issue", new=AsyncMock(return_value=("42", "https://github.com/acme/repo/issues/42"))), \
+         patch("integrations.github.add_issue_comment", new=AsyncMock()), \
+         patch("integrations.github.clone_repo", clone_mock), \
+         patch("agents.qa.agent.complete", complete_mock):
+        from agents.qa.agent import handle
+        result = await handle(crash_report, mock_redis)
+
+    # Repo must NOT be cloned and LLM must NOT be called
+    clone_mock.assert_not_awaited()
+    complete_mock.assert_not_awaited()
+
+    # Result must carry the duplicate ticket info
+    assert result.ticket_id == "42"
+    assert result.ticket_action == TicketAction.updated
+
+    # duplicate_detected event must be published (xadd call)
+    stream_names = [call.args[0] for call in mock_redis.xadd.call_args_list]
+    assert any("duplicate_detected" in s for s in stream_names)
+
+    # test_case_generated must NOT be published
+    assert not any("test_case_generated" in s for s in stream_names)
+
+
+async def test_handle_duplicate_notification_sent(crash_report, mock_redis):
+    """handle_duplicate() sends a Slack message when Slack is configured."""
+    post_message_mock = AsyncMock()
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.notifier.agent.slack.post_message", post_message_mock):
+        from agents.notifier.agent import handle_duplicate
+        await handle_duplicate(
+            incident_id="inc-001",
+            issue_url="https://github.com/acme/repo/issues/42",
+            error_type="KeyError",
+            error_message="'item_id'",
+            redis_client=mock_redis,
+        )
+
+    post_message_mock.assert_awaited_once()
+    text = post_message_mock.call_args.kwargs["text"]
+    assert "recurring" in text.lower() or "recur" in text.lower()
+    assert "https://github.com/acme/repo/issues/42" in text
+
+
+async def test_handle_duplicate_no_op_when_slack_not_configured(crash_report, mock_redis, monkeypatch):
+    """handle_duplicate() is silent when Slack is not configured."""
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    post_message_mock = AsyncMock()
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.notifier.agent.slack.post_message", post_message_mock):
+        from agents.notifier.agent import handle_duplicate
+        await handle_duplicate(
+            incident_id="inc-001",
+            issue_url="https://github.com/acme/repo/issues/42",
+            error_type="KeyError",
+            error_message="'item_id'",
+            redis_client=mock_redis,
+        )
+
+    post_message_mock.assert_not_awaited()

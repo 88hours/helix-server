@@ -1,9 +1,12 @@
 """
 Crash Handler Agent — FastAPI entry point.
 
-Exposes two webhook endpoints:
-  - POST /webhook/rollbar — verifies the Rollbar access token, parses the payload, delegates to agent.py.
-  - POST /webhook/sentry  — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
+Exposes three endpoints:
+  - POST /webhook/rollbar  — verifies the Rollbar access token, parses the payload, delegates to agent.py.
+  - POST /webhook/sentry   — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
+  - POST /slack/actions    — receives Slack button interactions (Approve / Reject PR).
+                             Verifies the Slack signing secret, then merges or rejects the PR.
+                             Only active when SLACK_SIGNING_SECRET is configured.
 
 Run with:
     uvicorn agents.crash_handler.main:app --host 0.0.0.0 --port 8000
@@ -12,15 +15,19 @@ Run with:
 import json
 import logging
 import os
+import urllib.parse
 
 import redis.asyncio as aioredis
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, status
 
 from agents.crash_handler.agent import handle
-from core.config import get_redis_url, get_rollbar_config, get_sentry_config, is_demo_mode
+from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
+from core.state import read_pr_result, write_status
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
+from integrations import slack as slack_integration
+from integrations.github import merge_pull_request
 
 logger = logging.getLogger(__name__)
 
@@ -193,3 +200,106 @@ async def sentry_webhook(request: Request):
         extra={"incident_id": report.incident_id, "severity": report.severity.value},
     )
     return {"incident_id": report.incident_id, "status": "accepted"}
+
+
+@app.post("/slack/actions", status_code=status.HTTP_200_OK)
+async def slack_actions(request: Request):
+    """
+    Receive a Slack interactive component payload (button click).
+
+    Handles Approve / Reject button clicks from the PR approval message
+    posted by the Notifier Agent.
+
+    On Approve: merges the PR via GitHub API and sets status to pr_merged.
+    On Reject:  sets status to approval_rejected and posts a confirmation
+                message back to Slack.
+
+    Returns a plain-text response that Slack displays in place of the
+    original message.
+
+    Requires SLACK_SIGNING_SECRET to be configured — returns 403 if absent
+    or if the signature is invalid.
+    """
+    body = await request.body()
+
+    slack_config = get_slack_config()
+    if not slack_config.signing_secret:
+        logger.warning("slack actions endpoint called but SLACK_SIGNING_SECRET is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Slack signing secret not configured",
+        )
+
+    timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    signature = request.headers.get("X-Slack-Signature", "")
+
+    if not slack_integration.verify_signature(body, timestamp, signature, slack_config.signing_secret):
+        logger.warning("slack actions signature verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Slack signature",
+        )
+
+    # Slack sends interactions as URL-encoded form data with a "payload" field.
+    try:
+        form = urllib.parse.parse_qs(body.decode("utf-8"))
+        payload = json.loads(form["payload"][0])
+    except (KeyError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not parse Slack payload: {exc}",
+        )
+
+    actions = payload.get("actions", [])
+    if not actions:
+        return {"text": "No action found in payload."}
+
+    action = actions[0]
+    action_id = action.get("action_id", "")
+    incident_id = action.get("value", "")
+
+    logger.info(
+        "slack action received",
+        extra={"action_id": action_id, "incident_id": incident_id},
+    )
+
+    if action_id == "approve_pr":
+        pr_result = await read_pr_result(request.app.state.redis, incident_id)
+        if pr_result is None:
+            logger.error(
+                "pr_result not found for approval",
+                extra={"incident_id": incident_id},
+            )
+            return {"text": f"Could not find PR for incident `{incident_id}`. It may have expired."}
+
+        try:
+            github_config = get_github_config()
+            await merge_pull_request(
+                repo=github_config.target_repo,
+                pr_number=pr_result.pr_number,
+            )
+        except Exception as exc:
+            logger.error(
+                "pr merge failed",
+                extra={"incident_id": incident_id, "pr_number": pr_result.pr_number, "error": str(exc)},
+                exc_info=True,
+            )
+            return {"text": f":x: Merge failed for PR #{pr_result.pr_number}: {exc}"}
+
+        await write_status(request.app.state.redis, incident_id, "pr_merged")
+        logger.info(
+            "pr approved and merged",
+            extra={"incident_id": incident_id, "pr_number": pr_result.pr_number},
+        )
+        return {"text": f":white_check_mark: PR #{pr_result.pr_number} merged. Incident `{incident_id}` resolved."}
+
+    if action_id == "reject_pr":
+        await write_status(request.app.state.redis, incident_id, "approval_rejected")
+        logger.info(
+            "pr rejected by reviewer",
+            extra={"incident_id": incident_id},
+        )
+        return {"text": f":x: PR rejected for incident `{incident_id}`. The branch remains open for manual review."}
+
+    logger.warning("unknown slack action_id", extra={"action_id": action_id, "incident_id": incident_id})
+    return {"text": f"Unknown action: {action_id}"}

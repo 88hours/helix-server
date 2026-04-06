@@ -109,3 +109,56 @@ async def test_post_escalation():
         attempts=3,
         context="Tried A, B, and C.",
     )
+
+
+# ---------------------------------------------------------------------------
+# post_approval_request
+# ---------------------------------------------------------------------------
+
+@respx.mock
+async def test_post_approval_request():
+    route = respx.post("https://slack.com/api/chat.postMessage").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    await slack.post_approval_request(
+        incident_id="inc-001",
+        pr_url="https://github.com/acme/repo/pull/42",
+        pr_number=42,
+        fix_summary="Fixed the KeyError in checkout.",
+    )
+    assert route.called
+    payload = json.loads(route.calls[0].request.content)
+    # Must have Block Kit blocks including the action buttons
+    block_types = [b["type"] for b in payload["blocks"]]
+    assert "actions" in block_types
+    # Buttons must carry the incident_id as value
+    actions_block = next(b for b in payload["blocks"] if b["type"] == "actions")
+    values = {el["action_id"]: el["value"] for el in actions_block["elements"]}
+    assert values["approve_pr"] == "inc-001"
+    assert values["reject_pr"] == "inc-001"
+
+
+async def test_post_approval_request_missing_token_skips(monkeypatch, caplog):
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="integrations.slack"):
+        await slack.post_approval_request(
+            incident_id="inc-001",
+            pr_url="https://github.com/acme/repo/pull/42",
+            pr_number=42,
+            fix_summary="Fixed it.",
+        )
+    assert "SLACK_BOT_TOKEN" in caplog.text
+
+
+async def test_post_approval_request_missing_channel_skips(monkeypatch, caplog):
+    monkeypatch.delenv("SLACK_APPROVAL_CHANNEL", raising=False)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="integrations.slack"):
+        await slack.post_approval_request(
+            incident_id="inc-001",
+            pr_url="https://github.com/acme/repo/pull/42",
+            pr_number=42,
+            fix_summary="Fixed it.",
+        )
+    assert "SLACK_APPROVAL_CHANNEL" in caplog.text
