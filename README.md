@@ -522,12 +522,17 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Multi-language support — Python, JavaScript/TypeScript, Ruby, Java/Kotlin, Go
 - [x] One-click Railway deploy
 
-### Phase 2 — Full-Stack Agent Experience (complete)
+### Phase 2 — Full-Stack Agent Experience (in progress)
 - [x] Scoped tool access — per-agent permission declarations enforced at runtime (`core/permissions.py`)
 - [x] Streaming dashboard — React + Vite frontend with live agent activity via SSE (`dashboard/`)
 - [x] Tool visualisation — live tool call timeline in the dashboard (LLM, GitHub, Git, Claude Code)
 - [x] Auth0 + GitHub login — JWT validation via JWKS, optional (demo mode if `AUTH0_DOMAIN` unset)
 - [x] Repo configuration — users add/manage repos via `/app/repos`; stored per user in Redis
+- [ ] UI configuration not wired to `config.yaml` — agent models, providers, and settings must still be configured manually in `.env`
+- [ ] Live website (`index.html`) not served from Docker container — static landing page needs to be included in the image
+- [ ] Onboarding flow incomplete — repo selection and Sentry/Rollbar secret entry not yet connected end-to-end
+- [ ] Sentry and Rollbar webhook signature verification not working
+- [ ] Demo mode is on by default (`HELIX_DEMO=true`) — must be explicitly disabled for production use
 
 ### Phase 3 — Observability and Platform Maturity
 - [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend
