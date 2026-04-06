@@ -121,9 +121,6 @@ A real-time web interface showing live agent activity. As each agent works, its 
 #### Tool visualisation
 A live graph in the dashboard showing the agent workflow: which tools are being called, in what order, and with what outcomes.
 
-#### MCP server integration
-Each Helix agent exposes its tools as Model Context Protocol servers. Any Claude-powered IDE, chat interface, or AI workflow can call Helix tools directly. This integration leverages MCPForge for server generation.
-
 #### OAuth2 and OIDC authentication
 Scoped access controls per role. Developers can trigger agents and view reports. Senior engineers and product owners can approve PRs. Managers have read-only dashboard access. JWT-based session management with token refresh and expiry.
 
@@ -180,9 +177,6 @@ If the Dev Agent fails after three iterations, it escalates to a human developer
 ### Why use cheaper models for routine tasks?
 The Crash Handler and QA agents perform largely pattern-matching and structured analysis. Claude Haiku is sufficient and significantly cheaper. The Dev Agent requires deeper reasoning and uses Claude Sonnet. This cost optimisation keeps Helix economically viable at scale.
 
-### Why MCP integration in Phase 2?
-MCP integration makes Helix accessible from any Claude-powered tool without rebuilding integrations. It transforms Helix from a standalone system into a composable building block that fits into any AI workflow.
-
 ---
 
 ## Success Metrics
@@ -196,7 +190,6 @@ MCP integration makes Helix accessible from any Claude-powered tool without rebu
 
 ### Phase 2
 - Dashboard active usage by at least 80% of the engineering team within one month of launch
-- MCP tool calls from external AI assistants measured and growing week on week
 - Zero unauthorised tool access incidents after OAuth2 rollout
 
 ### Phase 3
@@ -230,4 +223,3 @@ See `CLAUDE.md` for development instructions for Claude Code sessions.
 | Frontend (Phase 2) | React with streaming |
 | Auth (Phase 2) | OAuth2, OIDC, JWT |
 | Observability (Phase 3) | OpenTelemetry, LangSmith |
-| MCP integration (Phase 2) | MCPForge |
