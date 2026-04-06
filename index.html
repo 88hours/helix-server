@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Helix — Autonomous Incident Response</title>
-  <meta name="description" content="Helix takes a production crash from Rollbar all the way to a ready-to-merge pull request in under 10 minutes — no human involvement required until the PR review." />
+  <meta name="description" content="Helix takes a production crash from Sentry or Rollbar all the way to a ready-to-merge pull request in under 10 minutes — with human approval via Slack before anything merges." />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -30,16 +30,6 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
-    }
-    .pipeline-line::after {
-      content: '';
-      position: absolute;
-      left: 50%;
-      top: 100%;
-      width: 2px;
-      height: 2rem;
-      background: linear-gradient(to bottom, #6366f1, transparent);
-      transform: translateX(-50%);
     }
     .card-glow:hover {
       box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3), 0 8px 32px rgba(99, 102, 241, 0.12);
@@ -78,7 +68,7 @@
     <div class="max-w-4xl mx-auto">
       <div class="inline-flex items-center gap-2 text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-full mb-8">
         <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
-        v1.0.0 — open source
+        v1.1.0 — open source
       </div>
 
       <h1 class="text-5xl sm:text-6xl font-extrabold leading-tight mb-6 tracking-tight">
@@ -87,7 +77,7 @@
       </h1>
 
       <p class="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-        Helix is an autonomous incident response platform. It takes a crash from Rollbar, writes a failing test, fixes the bug, and opens a pull request — no human involvement until review.
+        Helix is an autonomous incident response platform. It takes a crash from Sentry or Rollbar, writes a failing test, fixes the bug, opens a pull request, and waits for your Slack approval before merging.
       </p>
 
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -116,13 +106,14 @@
     <div class="max-w-5xl mx-auto">
       <div class="text-center mb-16">
         <h2 class="text-3xl font-bold mb-4">How it works</h2>
-        <p class="text-gray-400 text-lg">Four agents. Zero manual steps. One pull request.</p>
+        <p class="text-gray-400 text-lg">Four agents. One human approval. Zero manual steps.</p>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <!-- Agent cards — 2x2 grid, all equal height -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
 
         <!-- Step 1 -->
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200 relative">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
           <div class="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center mb-4">
             <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -130,17 +121,7 @@
           </div>
           <div class="text-xs text-indigo-400 font-mono font-medium mb-2">01</div>
           <h3 class="font-semibold mb-2">Crash Handler</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">Receives the Rollbar webhook, classifies severity, detects language, and produces a structured crash report.</p>
-        </div>
-
-        <!-- Arrow -->
-        <div class="hidden md:flex items-center justify-center">
-          <div class="flex items-center gap-1 text-gray-700">
-            <div class="h-px w-8 bg-gradient-to-r from-transparent to-indigo-500/50"></div>
-            <svg class="w-4 h-4 text-indigo-500/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-            </svg>
-          </div>
+          <p class="text-sm text-gray-400 leading-relaxed">Receives Sentry or Rollbar webhooks, classifies severity, detects the application language, and produces a structured crash report.</p>
         </div>
 
         <!-- Step 2 -->
@@ -152,34 +133,19 @@
           </div>
           <div class="text-xs text-purple-400 font-mono font-medium mb-2">02</div>
           <h3 class="font-semibold mb-2">QA Agent</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">Opens a GitHub Issue, clones the repo, and generates a failing test that asserts correct behaviour — not that the crash occurs.</p>
+          <p class="text-sm text-gray-400 leading-relaxed">Deduplicates against open GitHub Issues. If it's a known bug, skips the pipeline and notifies Slack. Otherwise, clones the repo and generates a failing test that asserts correct behaviour — not that the crash occurs.</p>
         </div>
 
-        <!-- Arrow -->
-        <div class="hidden md:flex items-center justify-center col-start-4 row-start-1" style="display:none"></div>
-
-      </div>
-
-      <!-- Row 2 -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-
-        <div class="hidden md:block"></div>
-
-        <!-- Arrow down -->
-        <div class="hidden md:flex items-center justify-center">
-          <div class="flex flex-col items-center gap-1 text-gray-700">
-            <div class="w-px h-8 bg-gradient-to-b from-indigo-500/50 to-transparent"></div>
-          </div>
-        </div>
-
-        <!-- Arrow -->
-        <div class="hidden md:flex items-center justify-center">
-          <div class="flex items-center gap-1">
-            <div class="h-px w-8 bg-gradient-to-r from-transparent to-pink-500/50"></div>
-            <svg class="w-4 h-4 text-pink-500/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        <!-- Step 3 -->
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
             </svg>
           </div>
+          <div class="text-xs text-emerald-400 font-mono font-medium mb-2">03</div>
+          <h3 class="font-semibold mb-2">Dev Agent</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Posts a fix suggestion to the GitHub Issue, then runs a full TDD loop: clones the repo, runs the failing test, writes the minimum fix, and verifies the full suite. Retries up to 3 times. On success, opens a pull request.</p>
         </div>
 
         <!-- Step 4 -->
@@ -191,29 +157,27 @@
           </div>
           <div class="text-xs text-pink-400 font-mono font-medium mb-2">04</div>
           <h3 class="font-semibold mb-2">Notifier Agent</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">Sends Slack and email notifications with the fix suggestion and PR link. Escalates with full context if the Dev Agent exhausts retries.</p>
+          <p class="text-sm text-gray-400 leading-relaxed">When a PR is ready, posts an Approve / Reject message to Slack. Sends escalation alerts with full context if the Dev Agent exhausts all retries. All notifications are optional — the pipeline continues without Slack or email configured.</p>
         </div>
 
       </div>
 
-      <!-- Row 3 -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-
-        <div class="hidden md:block"></div>
-
-        <!-- Step 3 -->
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200 md:col-span-2">
-          <div class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4">
-            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+      <!-- Human approval step — full width, visually distinct -->
+      <div class="card-glow bg-gray-900/60 border border-indigo-500/20 rounded-xl p-6 transition-all duration-200">
+        <div class="flex items-start gap-4">
+          <div class="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           </div>
-          <div class="text-xs text-emerald-400 font-mono font-medium mb-2">03</div>
-          <h3 class="font-semibold mb-2">Dev Agent</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">Posts a fix suggestion to the GitHub Issue, then runs a full TDD loop: clones the repo, runs the failing test, writes the minimum fix, verifies the full suite. Retries up to 3 times. On success, opens a pull request.</p>
+          <div>
+            <div class="text-xs text-indigo-400 font-mono font-medium mb-1">05 — Human approval</div>
+            <h3 class="font-semibold mb-1">You approve or reject in Slack</h3>
+            <p class="text-sm text-gray-400 leading-relaxed">Click <span class="text-green-400 font-medium">Approve & Merge</span> to merge the PR automatically, or <span class="text-red-400 font-medium">Reject</span> to leave it open for manual review. Nothing reaches production without your sign-off.</p>
+          </div>
         </div>
-
       </div>
+
     </div>
   </section>
 
@@ -246,15 +210,33 @@
         </div>
 
         <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">✅</div>
+          <h3 class="font-semibold mb-2">Human approval gate</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Every fix requires a human to approve via Slack before the PR is merged. Approve & Merge or Reject — nothing reaches production automatically.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🎫</div>
+          <h3 class="font-semibold mb-2">Smart deduplication</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">The QA Agent checks open GitHub Issues before running the pipeline. If the bug is known, it skips straight to a Slack notification and prompts you to approve any pending PR.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">📡</div>
+          <h3 class="font-semibold mb-2">Sentry + Rollbar</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Receives webhooks from both Sentry and Rollbar. Signature-verified on every request. Demo mode skips verification for local testing.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🔔</div>
           <h3 class="font-semibold mb-2">Optional notifications</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Slack and email (SendGrid or SMTP) are fully optional. Missing config is logged as a warning — the pipeline never stops for a missing token.</p>
         </div>
 
         <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
-          <div class="text-2xl mb-3">🎫</div>
-          <h3 class="font-semibold mb-2">Deduplication</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">The QA Agent searches open GitHub Issues before creating a new one. Repeated crashes append to the existing ticket, not create duplicates.</p>
+          <div class="text-2xl mb-3">💾</div>
+          <h3 class="font-semibold mb-2">Redis Streams</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Events are persisted in Redis Streams — messages survive agent restarts and are never silently lost. Falls back to Pub/Sub for legacy setups.</p>
         </div>
 
         <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
@@ -271,7 +253,7 @@
   <section class="py-24 px-6 border-t border-gray-800/60">
     <div class="max-w-3xl mx-auto text-center">
       <h2 class="text-3xl font-bold mb-4">Language support</h2>
-      <p class="text-gray-400 mb-12">Detected automatically from the Rollbar payload.</p>
+      <p class="text-gray-400 mb-12">Detected automatically from the Sentry or Rollbar payload.</p>
 
       <div class="code-block rounded-xl overflow-hidden text-left">
         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
@@ -351,10 +333,10 @@ cd helix && uv sync --extra dev
 
 <span class="text-gray-500"># 2. Configure</span>
 cp .env.example .env
-<span class="text-gray-500"># fill in ANTHROPIC_API_KEY, GITHUB_TOKEN, ROLLBAR_ACCESS_TOKEN</span>
+<span class="text-gray-500"># fill in ANTHROPIC_API_KEY, GITHUB_TOKEN, SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN</span>
 
-<span class="text-gray-500"># 3. Run</span>
-docker compose --profile local up --build</pre>
+<span class="text-gray-500"># 3. Run (Redis starts automatically)</span>
+docker compose up --build</pre>
         </div>
 
         <div class="flex items-center gap-4">
@@ -373,8 +355,8 @@ docker compose --profile local up --build</pre>
         </div>
 
         <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-5 text-sm text-gray-400 leading-relaxed">
-          <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · ROLLBAR_ACCESS_TOKEN · REDIS_URL<br/>
-          <span class="text-gray-600 font-medium">Optional:</span> SLACK_BOT_TOKEN · SENDGRID_API_KEY · SMTP_HOST
+          <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN · REDIS_URL<br/>
+          <span class="text-gray-600 font-medium">Optional:</span> SLACK_BOT_TOKEN · SLACK_SIGNING_SECRET · SLACK_APPROVAL_CHANNEL · SENDGRID_API_KEY · SMTP_HOST
         </div>
 
       </div>
@@ -387,7 +369,7 @@ docker compose --profile local up --build</pre>
       <div class="flex items-center gap-6 text-sm text-gray-500">
         <span class="font-semibold text-gray-400">Helix</span>
         <a href="https://github.com/88hours/helix/blob/main/LICENSE" target="_blank" class="hover:text-gray-300 transition-colors">MIT License</a>
-        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v1.0.0</a>
+        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v1.1.0</a>
         <a href="https://github.com/88hours/helix/blob/main/docs/features.md" target="_blank" class="hover:text-gray-300 transition-colors">Docs</a>
       </div>
       <a href="https://github.com/88hours/helix" target="_blank"

@@ -192,7 +192,7 @@ ngrok http 8000
 ngrok output will look like this:
 
 ```
-Account        Nomi (Plan: Free)
+Account        88Hours (Plan: Free)
 Version        3.37.3
 Region         Australia (au)
 Latency        20ms
