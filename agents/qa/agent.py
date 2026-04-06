@@ -28,7 +28,7 @@ from core.llm import complete
 from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction, language_to_test_format
 from core.permissions import AgentPermissions, load_permissions, require
 from core.state import write_qa_result, write_status
-from core.ui_events import publish_ui_event
+from core.ui_events import publish_tool_event, publish_ui_event
 from core.utils import extract_json
 from integrations import github
 
@@ -71,7 +71,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
 
     # Step 1 — GitHub Issue.
     ticket_id, ticket_url, ticket_action = await _create_or_update_issue(
-        report, gh_config.target_repo, permissions
+        report, gh_config.target_repo, permissions, redis_client
     )
 
     await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", f"GitHub issue #{ticket_id} {'updated (duplicate)' if ticket_action == TicketAction.updated else 'created'}")
@@ -113,6 +113,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
         require(permissions, "github", "clone_repo")
         await github.clone_repo(clone_url, repo_dir)
+        await publish_tool_event(redis_client, report.incident_id, "qa", "git", "clone", "success", gh_config.target_repo)
         source_files = _read_relevant_files(repo_dir, report.stack_trace, report.language)
         await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", f"Read {len(source_files)} relevant source file(s)")
 
@@ -144,6 +145,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
                 prompt=prompt,
                 system=prompts.SYSTEM,
             )
+            await publish_tool_event(redis_client, report.incident_id, "qa", "llm", "complete", "success", f"attempt {attempt}")
             data = extract_json(raw_response)
             problem = _check_test(data.get("content", ""), report.error_type, report.language)
             if not problem:
@@ -196,6 +198,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         issue_number=ticket_id,
         comment=test_comment,
     )
+    await publish_tool_event(redis_client, report.incident_id, "qa", "github", "add_comment", "success", f"#{ticket_id} test case")
     logger.debug("test case posted to github issue", extra={"incident_id": report.incident_id})
 
     await publish_ui_event(
@@ -235,6 +238,7 @@ async def _create_or_update_issue(
     report: CrashReport,
     repo: str,
     permissions: AgentPermissions,
+    redis_client: redis.Redis,
 ) -> tuple[str, str, TicketAction]:
     """
     Find an existing GitHub Issue for this bug or create a new one.
@@ -259,6 +263,7 @@ async def _create_or_update_issue(
 
     require(permissions, "github", "find_existing_issue")
     existing = await github.find_existing_issue(repo=repo, title=title)
+    await publish_tool_event(redis_client, report.incident_id, "qa", "github", "find_issue", "success", "duplicate" if existing else "no match")
 
     if existing:
         issue_number, issue_url = existing
@@ -268,6 +273,7 @@ async def _create_or_update_issue(
             issue_number=issue_number,
             comment=f"⚠️ Helix re-detected this crash (incident `{report.incident_id}`). A Slack notification has been sent — if a fix PR is already open, please review and approve it.",
         )
+        await publish_tool_event(redis_client, report.incident_id, "qa", "github", "add_comment", "success", f"#{issue_number}")
         return issue_number, issue_url, TicketAction.updated
 
     require(permissions, "github", "create_issue")
@@ -277,6 +283,7 @@ async def _create_or_update_issue(
         body=body,
         labels=["bug", "helix"],
     )
+    await publish_tool_event(redis_client, report.incident_id, "qa", "github", "create_issue", "success", f"#{issue_number}")
     return issue_number, issue_url, TicketAction.created
 
 

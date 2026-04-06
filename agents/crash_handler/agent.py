@@ -19,7 +19,7 @@ from core.llm import complete
 from core.models import CrashReport, RollbarEvent, Severity
 from core.permissions import load_permissions, require
 from core.state import write_crash_report, write_status
-from core.ui_events import publish_ui_event
+from core.ui_events import publish_tool_event, publish_ui_event
 from core.utils import extract_json
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
         prompt=prompt,
         system=prompts.SYSTEM,
     )
+    await publish_tool_event(redis_client, incident_id, "crash_handler", "llm", "complete", "success")
 
     data = extract_json(raw_response)
 

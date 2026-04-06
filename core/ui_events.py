@@ -11,12 +11,27 @@ dashboard recovers by reading the persistent incident state from Redis when it
 
 Channel:  helix:ui:{incident_id}
 
-Event schema (JSON-serialised):
+Event schemas (JSON-serialised):
 
+Agent progress event:
     {
         "type":        "agent_start" | "agent_step" | "agent_done" | "status_changed",
         "agent":       "crash_handler" | "qa" | "dev" | "notifier",
         "message":     "Human-readable progress message",
+        "incident_id": "uuid",
+        "timestamp":   "ISO-8601 UTC",
+    }
+
+Tool call event:
+    {
+        "type":        "tool_call",
+        "agent":       "crash_handler" | "qa" | "dev" | "notifier",
+        "tool":        "llm" | "github" | "git" | "claude_code",
+        "action":      "complete" | "create_issue" | "find_issue" | "add_comment"
+                       | "clone" | "fetch_files" | "tdd_iterate"
+                       | "commit_push" | "create_pr",
+        "status":      "success" | "failed",
+        "detail":      "Optional human-readable result detail",
         "incident_id": "uuid",
         "timestamp":   "ISO-8601 UTC",
     }
@@ -85,6 +100,62 @@ async def publish_ui_event(
         # Never let a UI event failure crash the agent.
         logger.warning(
             "ui event publish failed — continuing",
+            extra={"incident_id": incident_id, "error": str(exc)},
+        )
+
+
+async def publish_tool_event(
+    client: redis.Redis,
+    incident_id: str,
+    agent: str,
+    tool: str,
+    action: str,
+    status: str,
+    detail: str = "",
+) -> None:
+    """
+    Publish a tool call event for the dashboard tool timeline.
+
+    Emitted by agents after each external tool call (LLM, GitHub, git, Claude
+    Code CLI) to feed the live tool visualisation in the dashboard.
+    Fire-and-forget — a failure here must never block the agent pipeline.
+
+    Args:
+        client:      Async Redis client.
+        incident_id: The incident this event belongs to.
+        agent:       Agent name, e.g. "crash_handler", "qa", "dev".
+        tool:        Tool category: "llm", "github", "git", "claude_code".
+        action:      Specific action, e.g. "complete", "create_issue", "clone".
+        status:      "success" or "failed".
+        detail:      Optional result detail shown in the timeline (e.g. "#42", "3 files").
+    """
+    channel = _channel(incident_id)
+    payload = json.dumps(
+        {
+            "type": "tool_call",
+            "agent": agent,
+            "tool": tool,
+            "action": action,
+            "status": status,
+            "detail": detail,
+            "incident_id": incident_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    try:
+        await client.publish(channel, payload)
+        logger.debug(
+            "tool event published",
+            extra={
+                "incident_id": incident_id,
+                "tool": tool,
+                "action": action,
+                "status": status,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "ui tool event publish failed — continuing",
             extra={"incident_id": incident_id, "error": str(exc)},
         )
 

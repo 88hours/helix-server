@@ -3,17 +3,20 @@ Crash Handler Agent — FastAPI entry point.
 
 Exposes three webhook endpoints plus the streaming dashboard API:
 
-  Webhooks:
+  Webhooks (no auth — verified via payload signature / access token):
     POST /webhook/rollbar  — verifies the Rollbar access token, parses the payload, delegates to agent.py.
     POST /webhook/sentry   — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
     POST /slack/actions    — receives Slack button interactions (Approve / Reject PR).
                              Verifies the Slack signing secret, then merges or rejects the PR.
                              Only active when SLACK_SIGNING_SECRET is configured.
 
-  Dashboard API:
-    GET /api/incidents              — list all known incidents (reads Redis state).
-    GET /api/incidents/{id}         — full state for one incident (crash report, QA result, PR).
-    GET /api/stream/{id}            — Server-Sent Events stream of live agent progress.
+  Dashboard API (requires Auth0 JWT when AUTH0_DOMAIN is set):
+    GET  /api/incidents              — list all known incidents (reads Redis state).
+    GET  /api/incidents/{id}         — full state for one incident (crash report, QA result, PR).
+    GET  /api/stream/{id}            — Server-Sent Events stream of live agent progress.
+    GET  /api/repos                  — list the calling user's configured repos.
+    POST /api/repos                  — add a repo to the calling user's config.
+    DELETE /api/repos/{owner}/{name} — remove a repo from the calling user's config.
 
   Dashboard SPA:
     GET /app  and  GET /app/*       — serve the built React frontend from dashboard/dist/.
@@ -30,13 +33,16 @@ from pathlib import Path
 
 import redis.asyncio as aioredis
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from agents.crash_handler.agent import handle
+from core.auth import get_current_user
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
-from core.state import read_crash_report, read_pr_result, read_qa_result, read_status, write_status
+from core.models import RepoConfig
+from core.state import read_crash_report, read_pr_result, read_qa_result, read_status, read_user_repos, write_status, write_user_repos
 from core.ui_events import subscribe_ui_events
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
@@ -327,7 +333,7 @@ async def slack_actions(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/incidents", tags=["dashboard"])
-async def list_incidents(request: Request):
+async def list_incidents(request: Request, _user: dict = Depends(get_current_user)):
     """
     List all known incidents.
 
@@ -367,7 +373,7 @@ async def list_incidents(request: Request):
 
 
 @app.get("/api/incidents/{incident_id}", tags=["dashboard"])
-async def get_incident(incident_id: str, request: Request):
+async def get_incident(incident_id: str, request: Request, _user: dict = Depends(get_current_user)):
     """
     Return the full state for a single incident.
 
@@ -397,7 +403,7 @@ async def get_incident(incident_id: str, request: Request):
 
 
 @app.get("/api/stream/{incident_id}", tags=["dashboard"])
-async def stream_incident(incident_id: str, request: Request):
+async def stream_incident(incident_id: str, request: Request, _user: dict = Depends(get_current_user)):
     """
     Server-Sent Events stream of live agent progress for an incident.
 
@@ -444,6 +450,86 @@ async def stream_incident(incident_id: str, request: Request):
             await pubsub_client.aclose()
 
     return EventSourceResponse(event_generator())
+
+
+# ---------------------------------------------------------------------------
+# Repo configuration API
+# ---------------------------------------------------------------------------
+
+class AddRepoBody(BaseModel):
+    """Request body for POST /api/repos."""
+    repo: str           # "owner/name"
+    base_branch: str = "main"
+    language: str = "python"
+
+
+@app.get("/api/repos", tags=["repos"])
+async def list_repos(request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    List all repos the calling user has configured.
+
+    Returns repos in the order they were added.
+    """
+    repos = await read_user_repos(request.app.state.redis, current_user["sub"])
+    return {"repos": [r.model_dump(mode="json") for r in repos]}
+
+
+@app.post("/api/repos", tags=["repos"], status_code=201)
+async def add_repo(body: AddRepoBody, request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    Add a repo to the calling user's Helix configuration.
+
+    Returns 409 if the repo is already configured.
+    The repo string must be in "owner/name" format, e.g. "acme/backend".
+    """
+    if "/" not in body.repo or body.repo.count("/") != 1:
+        raise HTTPException(status_code=400, detail="repo must be in 'owner/name' format")
+
+    user_id = current_user["sub"]
+    repos = await read_user_repos(request.app.state.redis, user_id)
+
+    if any(r.repo == body.repo for r in repos):
+        raise HTTPException(status_code=409, detail=f"'{body.repo}' is already configured")
+
+    new_repo = RepoConfig(repo=body.repo, base_branch=body.base_branch, language=body.language)
+    repos.append(new_repo)
+    await write_user_repos(request.app.state.redis, user_id, repos)
+    return new_repo.model_dump(mode="json")
+
+
+@app.delete("/api/repos/{owner}/{name}", tags=["repos"])
+async def remove_repo(owner: str, name: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    Remove a repo from the calling user's Helix configuration.
+
+    Returns 404 if the repo is not configured.
+    """
+    repo_slug = f"{owner}/{name}"
+    user_id = current_user["sub"]
+    repos = await read_user_repos(request.app.state.redis, user_id)
+    updated = [r for r in repos if r.repo != repo_slug]
+
+    if len(updated) == len(repos):
+        raise HTTPException(status_code=404, detail=f"'{repo_slug}' is not configured")
+
+    await write_user_repos(request.app.state.redis, user_id, updated)
+    return {"removed": repo_slug}
+
+
+@app.get("/api/me", tags=["auth"])
+async def get_me(current_user: dict = Depends(get_current_user)):
+    """
+    Return the calling user's identity from their Auth0 JWT.
+
+    Used by the frontend to display the logged-in user's name and avatar.
+    Returns a synthetic demo user when auth is disabled.
+    """
+    return {
+        "sub": current_user.get("sub"),
+        "name": current_user.get("name"),
+        "email": current_user.get("email"),
+        "picture": current_user.get("picture"),
+    }
 
 
 # ---------------------------------------------------------------------------

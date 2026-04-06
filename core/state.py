@@ -1,7 +1,7 @@
 """
 Redis state helpers for the Helix agent pipeline.
 
-Each incident's state is stored in Redis under keys namespaced by incident_id:
+Incident state keys (7-day TTL, namespaced by incident_id):
 
     helix:incident:{id}:crash_report   — CrashReport (JSON)
     helix:incident:{id}:test_case      — QAResult (JSON)
@@ -9,8 +9,12 @@ Each incident's state is stored in Redis under keys namespaced by incident_id:
     helix:incident:{id}:status         — current pipeline stage (string)
     helix:incident:{id}:iterations     — Dev Agent retry count (integer)
 
-All keys are set with a 7-day TTL. Agents never access Redis keys directly —
-they call the typed read/write functions here.
+User state keys (no TTL — permanent user configuration):
+
+    helix:user:{sub}:repos             — JSON list of RepoConfig
+
+Agents never access Redis keys directly — they call the typed read/write
+functions here.
 
 Usage:
     import redis.asyncio as redis
@@ -21,12 +25,13 @@ Usage:
     report = await read_crash_report(client, incident_id)
 """
 
+import json
 import logging
 from typing import Optional
 
 import redis.asyncio as redis
 
-from core.models import CrashReport, PRResult, QAResult
+from core.models import CrashReport, PRResult, QAResult, RepoConfig
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +84,14 @@ async def read_crash_report(client: redis.Redis, incident_id: str) -> Optional[C
     if raw is None:
         logger.warning("crash_report not found", extra={"incident_id": incident_id, "key": key})
         return None
-    return CrashReport.model_validate_json(raw)
+    try:
+        return CrashReport.model_validate_json(raw)
+    except Exception:
+        logger.warning(
+            "crash_report schema mismatch — skipping stale entry",
+            extra={"incident_id": incident_id},
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -240,3 +252,55 @@ async def read_iterations(client: redis.Redis, incident_id: str) -> int:
     if raw is None:
         return 0
     return int(raw)
+
+
+# ---------------------------------------------------------------------------
+# User repo configuration
+# ---------------------------------------------------------------------------
+
+def _user_repos_key(user_id: str) -> str:
+    """Build the Redis key for a user's repo configuration list."""
+    return f"helix:user:{user_id}:repos"
+
+
+async def read_user_repos(client: redis.Redis, user_id: str) -> list[RepoConfig]:
+    """
+    Read all repo configs for a user.
+
+    Stored at: helix:user:{user_id}:repos (no TTL — permanent user data).
+
+    Args:
+        client:  Async Redis client.
+        user_id: Auth0 subject claim, e.g. "github|12345678".
+
+    Returns:
+        List of RepoConfig, empty if the user has not configured any repos.
+    """
+    key = _user_repos_key(user_id)
+    raw = await client.get(key)
+    if raw is None:
+        return []
+    try:
+        data = json.loads(raw)
+        return [RepoConfig.model_validate(r) for r in data]
+    except Exception:
+        logger.warning("user repos schema mismatch — returning empty list", extra={"user_id": user_id})
+        return []
+
+
+async def write_user_repos(client: redis.Redis, user_id: str, repos: list[RepoConfig]) -> None:
+    """
+    Persist the full list of repo configs for a user.
+
+    Overwrites the existing list atomically.  Callers are responsible for
+    reading, modifying, and writing back the list (read-modify-write pattern).
+
+    Args:
+        client:  Async Redis client.
+        user_id: Auth0 subject claim, e.g. "github|12345678".
+        repos:   Full list of RepoConfig to persist.
+    """
+    key = _user_repos_key(user_id)
+    payload = json.dumps([r.model_dump(mode="json") for r in repos])
+    await client.set(key, payload)
+    logger.info("user repos written", extra={"user_id": user_id, "count": len(repos)})

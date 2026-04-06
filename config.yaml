@@ -265,6 +265,32 @@ email:
   to_env: EMAIL_TO                  # comma-separated recipients, e.g. oncall@acme.com
 
 # ---------------------------------------------------------------------------
+# Auth0 (dashboard authentication)
+# ---------------------------------------------------------------------------
+#
+# When AUTH0_DOMAIN is set, the dashboard API (/api/*) requires a valid Auth0
+# JWT in the Authorization: Bearer header.  Auth0 handles GitHub OAuth so
+# users log in with their GitHub account.
+#
+# Leave AUTH0_DOMAIN unset to disable auth entirely (demo / local-dev mode).
+#
+# Steps to configure:
+#   1. Create an Auth0 tenant at https://auth0.com
+#   2. Create a Single Page Application (SPA) — note the Client ID
+#   3. Create an API — note the Identifier (this becomes AUTH0_AUDIENCE)
+#   4. Enable GitHub social connection in Auth0 → Authentication → Social
+#   5. Add http://localhost:5173/app to Allowed Callback/Logout/Web Origins
+#      (and your production URL when deployed)
+#
+# Override env vars:
+#   AUTH0_DOMAIN    — e.g. your-tenant.auth0.com
+#   AUTH0_AUDIENCE  — e.g. https://api.helix.yourapp.com
+
+auth0:
+  domain_env: AUTH0_DOMAIN
+  audience_env: AUTH0_AUDIENCE
+
+# ---------------------------------------------------------------------------
 # Pipeline behaviour
 # ---------------------------------------------------------------------------
 #

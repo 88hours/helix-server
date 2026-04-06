@@ -38,7 +38,7 @@ from core.state import (
     write_pr_result,
     write_status,
 )
-from core.ui_events import publish_ui_event
+from core.ui_events import publish_tool_event, publish_ui_event
 from integrations import github
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,7 @@ async def handle(
         "source files fetched",
         extra={"incident_id": incident_id, "files": list(source_files.keys())},
     )
+    await publish_tool_event(redis_client, incident_id, "dev", "github", "fetch_files", "success", f"{len(source_files)} files")
 
     await publish_ui_event(redis_client, incident_id, "agent_step", "dev", f"Fetched {len(source_files)} source file(s) — generating fix suggestion…")
 
@@ -112,6 +113,7 @@ async def handle(
     )
     logger.info("dev agent calling llm for fix suggestion", extra={"incident_id": incident_id})
     fix_suggestion = await complete(agent="dev", prompt=suggestion_prompt)
+    await publish_tool_event(redis_client, incident_id, "dev", "llm", "complete", "success", "fix suggestion")
     logger.debug(
         "llm fix suggestion received",
         extra={"incident_id": incident_id, "response_length": len(fix_suggestion)},
@@ -135,6 +137,7 @@ async def handle(
         issue_number=qa_result.ticket_id,
         comment=issue_comment,
     )
+    await publish_tool_event(redis_client, incident_id, "dev", "github", "add_comment", "success", f"#{qa_result.ticket_id} fix suggestion")
     logger.info(
         "fix suggestion posted to github issue",
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
@@ -213,6 +216,7 @@ async def _tdd_loop(
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
         require(permissions, "github", "clone_repo")
         await github.clone_repo(clone_url, repo_dir)
+        await publish_tool_event(redis_client, incident_id, "dev", "git", "clone", "success", gh_config.target_repo)
 
         require(permissions, "redis", "increment_iterations")
         iteration = await increment_iterations(redis_client, incident_id)
@@ -255,6 +259,8 @@ async def _tdd_loop(
                 "claude-code response",
                 extra={"incident_id": incident_id, "iteration": iteration, "response": response},
             )
+            tdd_status = "success" if _tests_passed(response) else "failed"
+            await publish_tool_event(redis_client, incident_id, "dev", "claude_code", "tdd_iterate", tdd_status, f"iteration {iteration}/{MAX_ITERATIONS}")
 
             if _tests_passed(response):
                 fix_summary = _extract_explanation(response)
@@ -267,6 +273,7 @@ async def _tdd_loop(
                 )
                 require(permissions, "github", "commit_and_push")
                 await github.commit_and_push(repo_dir, branch_name, commit_message)
+                await publish_tool_event(redis_client, incident_id, "dev", "github", "commit_push", "success", branch_name)
 
                 pr_title = (
                     f"[Helix] Fix {crash_report.error_type} in "
@@ -281,6 +288,7 @@ async def _tdd_loop(
                     head=branch_name,
                     base=gh_config.base_branch,
                 )
+                await publish_tool_event(redis_client, incident_id, "dev", "github", "create_pr", "success", f"#{pr_number}")
 
                 pr_result = PRResult(
                     incident_id=incident_id,

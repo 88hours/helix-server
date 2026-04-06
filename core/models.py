@@ -68,6 +68,24 @@ class TicketAction(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# User repo configuration
+# ---------------------------------------------------------------------------
+
+class RepoConfig(BaseModel):
+    """
+    A GitHub repository the user has configured Helix to monitor and fix.
+
+    Stored in Redis per Auth0 user under helix:user:{sub}:repos.
+    The pipeline uses these configs to know which repos to clone, comment on,
+    and open PRs against.
+    """
+    repo: str               # "owner/name", e.g. "acme/backend"
+    base_branch: str = "main"   # branch PRs are opened against
+    language: str = "python"    # primary language — influences test framework selection
+    added_at: datetime = Field(default_factory=_now)
+
+
+# ---------------------------------------------------------------------------
 # Rollbar inbound payload
 # ---------------------------------------------------------------------------
 

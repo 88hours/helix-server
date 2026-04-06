@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { UIProgressEvent } from '../api'
+import { AgentProgressEvent, UIProgressEvent } from '../api'
 
 const AGENT_COLOURS: Record<string, string> = {
   crash_handler: 'text-blue-600',
@@ -58,10 +58,10 @@ export function StreamPanel({ events, isConnected }: StreamPanelProps) {
 
       {/* Log */}
       <div className="px-4 py-3 h-72 overflow-y-auto space-y-1 font-mono text-sm">
-        {events.length === 0 ? (
+        {events.filter((e): e is AgentProgressEvent => e.type !== 'tool_call').length === 0 ? (
           <p className="text-gray-600 italic">Waiting for agent activity…</p>
         ) : (
-          events.map((ev, i) => (
+          events.filter((e): e is AgentProgressEvent => e.type !== 'tool_call').map((ev, i) => (
             <div key={i} className="flex items-start gap-3">
               <span className="text-gray-600 text-xs flex-shrink-0 mt-0.5 w-20 tabular-nums">
                 {formatTime(ev.timestamp)}

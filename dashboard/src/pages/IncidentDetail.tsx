@@ -21,6 +21,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { SeverityBadge } from '../components/SeverityBadge'
 import { PipelineProgress } from '../components/PipelineProgress'
 import { StreamPanel } from '../components/StreamPanel'
+import { ToolTimeline } from '../components/ToolTimeline'
 
 function formatTimestamp(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -82,7 +83,9 @@ export function IncidentDetail() {
     setError(null)
     setIsConnected(false)
 
-    const cleanup = subscribeToIncident(
+    let cleanupFn: (() => void) | null = null
+
+    subscribeToIncident(
       incidentId,
       (snapshot) => {
         if (!snapshot.status) {
@@ -99,9 +102,13 @@ export function IncidentDetail() {
           setDetail((prev) => prev ? { ...prev, status: event.message } : prev)
         }
       },
-    )
+    ).then((cleanup) => {
+      cleanupFn = cleanup
+    })
 
-    return cleanup
+    return () => {
+      cleanupFn?.()
+    }
   }, [incidentId])
 
   if (error) {
@@ -153,6 +160,9 @@ export function IncidentDetail() {
       <Section title="Pipeline">
         <PipelineProgress status={detail.status} />
       </Section>
+
+      {/* Tool call timeline */}
+      <ToolTimeline events={events} />
 
       {/* Live stream */}
       <StreamPanel events={events} isConnected={isConnected} />
