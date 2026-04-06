@@ -17,7 +17,7 @@ export function NavUserChip() {
       )}
       <span className="text-sm text-gray-500 hidden sm:block">{user?.name}</span>
       <button
-        onClick={() => logout({ logoutParams: { returnTo: window.location.origin + '/app' } })}
+        onClick={() => logout({ logoutParams: { returnTo: window.location.origin + '/app/' } })}
         className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
       >
         Sign out

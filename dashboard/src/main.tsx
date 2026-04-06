@@ -24,7 +24,7 @@ createRoot(document.getElementById('root')!).render(
       domain={domain!}
       clientId={clientId!}
       authorizationParams={{
-        redirect_uri: window.location.origin + '/app',
+        redirect_uri: window.location.origin + '/app/',
         audience: audience,
         scope: 'openid profile email',
       }}

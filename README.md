@@ -305,19 +305,23 @@ Vite proxies `/api` → `http://localhost:8000` during dev, so the FastAPI backe
 Without `AUTH0_DOMAIN` set, the dashboard is accessible without login. To enable GitHub login via Auth0:
 
 1. Create an Auth0 tenant and add a **Single Page Application** (note the Client ID)
-2. Create an **API** (the Identifier becomes `AUTH0_AUDIENCE`)
+2. Create an **API** — the Identifier becomes `AUTH0_AUDIENCE` (e.g. `https://helix.api`); enable **User Access** for your SPA
 3. Enable the **GitHub** social connection: Auth0 → Authentication → Social → GitHub
-4. Add `http://localhost:8000/app` to Allowed Callback URLs, Logout URLs, and Web Origins
-5. Set in your `.env`:
+4. In your Auth0 Application Settings:
+   - **Allowed Callback URLs:** `https://<your-app>.up.railway.app/callback, http://localhost:5173/app/`
+   - **Allowed Logout URLs:** `https://<your-app>.up.railway.app, http://localhost:5173/app/`
+   - **Allowed Web Origins / CORS:** `https://<your-app>.up.railway.app, http://localhost:5173`
+5. Optionally paste `dashboard/login.html` into Auth0 → Branding → Universal Login → Custom Login Page for a Helix-branded login screen
+6. Set in your `.env`:
    ```
    AUTH0_DOMAIN=your-tenant.auth0.com
-   AUTH0_AUDIENCE=https://api.helix.yourapp.com
+   AUTH0_AUDIENCE=https://helix.api
    ```
-6. Create `dashboard/.env.local` (see `dashboard/.env.example`):
+7. Create `dashboard/.env.local`:
    ```
    VITE_AUTH0_DOMAIN=your-tenant.auth0.com
    VITE_AUTH0_CLIENT_ID=your-spa-client-id
-   VITE_AUTH0_AUDIENCE=https://api.helix.yourapp.com
+   VITE_AUTH0_AUDIENCE=https://helix.api
    ```
 
 ---

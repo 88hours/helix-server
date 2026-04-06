@@ -156,7 +156,7 @@ Auth is **optional**. The entire auth layer activates only when `VITE_AUTH0_DOMA
 ### Flow
 1. `main.tsx` checks `VITE_AUTH0_DOMAIN` — if set, wraps the app in `Auth0Provider`
 2. `AuthGuard` calls `loginWithRedirect()` if the user is not authenticated
-3. After login (GitHub OAuth via Auth0), the user is redirected back to `/app`
+3. After login (GitHub OAuth via Auth0), the user is redirected back to `/app/`
 4. `TokenProviderBridge` registers `getAccessTokenSilently` with the API client
 5. All subsequent API calls automatically include `Authorization: Bearer <token>`
 6. The SSE stream uses `?access_token=<token>` query param (EventSource can't send headers)
@@ -179,7 +179,7 @@ VITE_AUTH0_CLIENT_ID=your-spa-client-id
 VITE_AUTH0_AUDIENCE=https://api.helix.yourapp.com
 ```
 
-See `dashboard/.env.example` for the full template.
+A custom Auth0 login page matching Helix's dark theme is at `dashboard/login.html` — paste its contents into Auth0 → Branding → Universal Login → Custom Login Page.
 
 ---
 

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helix — Sign In</title>
+  <script src="https://cdn.auth0.com/js/lock/14.2.3/lock.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: #0a0a0f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99,102,241,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99,102,241,.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .card {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 400px;
+      padding: 48px 40px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 20px;
+      backdrop-filter: blur(12px);
+      text-align: center;
+    }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 14px;
+      margin-bottom: 20px;
+    }
+
+    .logo svg { width: 26px; height: 26px; fill: #fff; }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #f1f1f5;
+      letter-spacing: -0.3px;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: rgba(255,255,255,.4);
+      margin-bottom: 36px;
+      line-height: 1.5;
+    }
+
+    .github-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 13px 20px;
+      background: #f1f1f5;
+      color: #0a0a0f;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+    }
+
+    .github-btn:hover { background: #fff; transform: translateY(-1px); }
+    .github-btn:active { transform: translateY(0); }
+    .github-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+    .divider {
+      margin: 28px 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: rgba(255,255,255,.2);
+      font-size: 12px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(255,255,255,.08);
+    }
+
+    .footer { margin-top: 32px; font-size: 12px; color: rgba(255,255,255,.2); }
+
+    #lock-container { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M13 2L4.5 13.5H11L10 22L19.5 10.5H13Z"/>
+      </svg>
+    </div>
+    <h1>Welcome to Helix</h1>
+    <p class="subtitle">Autonomous incident response.<br/>Sign in to access your dashboard.</p>
+
+    <button class="github-btn" id="github-btn">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
+      </svg>
+      Continue with GitHub
+    </button>
+
+    <div class="divider">secured by Auth0</div>
+
+    <p class="footer">Only authorized team members can access Helix.</p>
+  </div>
+
+  <div id="lock-container"></div>
+
+  <script>
+    var config = JSON.parse(decodeURIComponent(escape(window.atob('@@config@@'))));
+
+    var lock = new Auth0Lock(config.clientID, config.auth0Domain, {
+      container: 'lock-container',
+      auth: {
+        redirectUrl: config.callbackURL,
+        responseType: 'code',
+        audience: config.internalOptions && config.internalOptions.audience,
+        params: {
+          scope: 'openid profile email',
+          state: config.internalOptions && config.internalOptions.state,
+          nonce: config.internalOptions && config.internalOptions.nonce,
+          code_challenge: config.internalOptions && config.internalOptions.code_challenge,
+          code_challenge_method: config.internalOptions && config.internalOptions.code_challenge_method,
+        },
+      },
+      allowedConnections: ['github'],
+      allowShowPassword: false,
+      theme: { primaryColor: '#6366f1' },
+    });
+
+    document.getElementById('github-btn').addEventListener('click', function() {
+      lock.show();
+      var interval = setInterval(function() {
+        var btn = document.querySelector('.auth0-lock-social-button');
+        if (btn) {
+          btn.click();
+          clearInterval(interval);
+        }
+      }, 50);
+    });
+  </script>
+</body>
+</html>
