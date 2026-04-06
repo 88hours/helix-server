@@ -26,6 +26,7 @@ from core.config import get_github_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction, language_to_test_format
+from core.permissions import AgentPermissions, load_permissions, require
 from core.state import write_qa_result, write_status
 from core.utils import extract_json
 from integrations import github
@@ -63,11 +64,12 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     """
     logger.info("qa agent started", extra={"incident_id": report.incident_id})
 
+    permissions = load_permissions("qa")
     gh_config = get_github_config()
 
     # Step 1 — GitHub Issue.
     ticket_id, ticket_url, ticket_action = await _create_or_update_issue(
-        report, gh_config.target_repo
+        report, gh_config.target_repo, permissions
     )
 
     # If this is a duplicate issue, skip the full pipeline and notify via Slack.
@@ -77,7 +79,9 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
             "duplicate issue detected — skipping test generation and dev agent",
             extra={"incident_id": report.incident_id, "issue_url": ticket_url},
         )
+        require(permissions, "redis", "write_status")
         await write_status(redis_client, report.incident_id, "duplicate_detected")
+        require(permissions, "events", "publish:duplicate_detected")
         await publish(
             redis_client,
             "duplicate_detected",
@@ -102,6 +106,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     repo_dir = tempfile.mkdtemp(prefix="helix-qa-")
     try:
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
+        require(permissions, "github", "clone_repo")
         await github.clone_repo(clone_url, repo_dir)
         source_files = _read_relevant_files(repo_dir, report.stack_trace, report.language)
 
@@ -175,6 +180,7 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
         "posting test case to github issue",
         extra={"incident_id": report.incident_id, "issue_number": ticket_id},
     )
+    require(permissions, "github", "add_issue_comment")
     await github.add_issue_comment(
         repo=gh_config.target_repo,
         issue_number=ticket_id,
@@ -182,8 +188,11 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     )
     logger.debug("test case posted to github issue", extra={"incident_id": report.incident_id})
 
+    require(permissions, "redis", "write_qa_result")
     await write_qa_result(redis_client, result)
+    require(permissions, "redis", "write_status")
     await write_status(redis_client, report.incident_id, "test_case_generated")
+    require(permissions, "events", "publish:test_case_generated")
     await publish(
         redis_client,
         "test_case_generated",
@@ -209,9 +218,15 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
 async def _create_or_update_issue(
     report: CrashReport,
     repo: str,
+    permissions: AgentPermissions,
 ) -> tuple[str, str, TicketAction]:
     """
     Find an existing GitHub Issue for this bug or create a new one.
+
+    Args:
+        report:      CrashReport from the Crash Handler Agent.
+        repo:        GitHub repository in "owner/name" format.
+        permissions: QA Agent's loaded permissions — enforced before each GitHub call.
 
     Returns:
         (issue_number, issue_url, ticket_action)
@@ -226,10 +241,12 @@ async def _create_or_update_issue(
         f"**Stack trace:**\n```\n{report.stack_trace}\n```"
     )
 
+    require(permissions, "github", "find_existing_issue")
     existing = await github.find_existing_issue(repo=repo, title=title)
 
     if existing:
         issue_number, issue_url = existing
+        require(permissions, "github", "add_issue_comment")
         await github.add_issue_comment(
             repo=repo,
             issue_number=issue_number,
@@ -237,6 +254,7 @@ async def _create_or_update_issue(
         )
         return issue_number, issue_url, TicketAction.updated
 
+    require(permissions, "github", "create_issue")
     issue_number, issue_url = await github.create_issue(
         repo=repo,
         title=title,

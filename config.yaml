@@ -37,14 +37,80 @@ agents:
   crash_handler:
     provider: anthropic
     model: claude-haiku-4-5-20251001
+    # Tool permissions — only these operations are allowed at runtime.
+    # An empty list means the agent has no access to that tool.
+    permissions:
+      github: []
+      slack: []
+      email: []
+      redis:
+        - write_crash_report
+        - write_status
+      events:
+        - publish:crash_analysed
 
   qa:
     provider: anthropic
     model: claude-haiku-4-5-20251001
+    permissions:
+      github:
+        - clone_repo
+        - find_existing_issue
+        - create_issue
+        - add_issue_comment
+      slack: []
+      email: []
+      redis:
+        - write_qa_result
+        - write_status
+      events:
+        - publish:test_case_generated
+        - publish:duplicate_detected
 
   dev:
     provider: anthropic
     model: claude-sonnet-4-6
+    permissions:
+      github:
+        - clone_repo
+        - fetch_source_files
+        - checkout_branch
+        - write_file
+        - commit_and_push
+        - create_pull_request
+        - add_issue_comment
+      slack: []
+      email: []
+      redis:
+        - read_iterations
+        - write_pr_result
+        - write_status
+        - increment_iterations
+      events:
+        - publish:fix_suggested
+        - publish:pr_created
+        - publish:fix_failed
+
+  # Notifier has no LLM provider — it only sends notifications.
+  notifier:
+    permissions:
+      github: []
+      slack:
+        - post_message
+        - post_escalation
+        - post_approval_request
+      email:
+        - send_fix_suggested
+        - send_escalation
+        - send_pr_merged
+      redis:
+        - read_crash_report
+        - read_pr_result
+      events:
+        - subscribe:fix_suggested
+        - subscribe:fix_failed
+        - subscribe:pr_created
+        - subscribe:duplicate_detected
 
 
 # ---------------------------------------------------------------------------

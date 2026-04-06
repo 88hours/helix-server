@@ -17,6 +17,7 @@ from agents.crash_handler import prompts
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, RollbarEvent, Severity
+from core.permissions import load_permissions, require
 from core.state import write_crash_report, write_status
 from core.utils import extract_json
 
@@ -43,6 +44,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
     Raises:
         ValueError: If the LLM returns malformed JSON or an unknown severity value.
     """
+    permissions = load_permissions("crash_handler")
     incident_id = str(uuid.uuid4())
     logger.info(
         "crash handler started",
@@ -85,9 +87,12 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
     )
 
     logger.debug("writing crash_report to redis", extra={"incident_id": incident_id})
+    require(permissions, "redis", "write_crash_report")
     await write_crash_report(redis_client, report)
+    require(permissions, "redis", "write_status")
     await write_status(redis_client, incident_id, "crash_analysed")
     logger.debug("publishing crash_analysed event", extra={"incident_id": incident_id})
+    require(permissions, "events", "publish:crash_analysed")
     await publish(redis_client, "crash_analysed", incident_id, report.model_dump(mode="json"))
 
     logger.info(
