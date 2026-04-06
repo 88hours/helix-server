@@ -142,17 +142,13 @@ github:
 
 **3. Start everything**
 
-With a local Redis container (default for development):
-
-```bash
-docker compose --profile local up --build
-```
-
-With an external Redis (Redis Cloud, AWS ElastiCache, etc.) — set `REDIS_URL` in `.env` first:
-
 ```bash
 docker compose up --build
 ```
+
+Redis starts automatically. If `REDIS_URL` in `.env` points to `localhost`, it is automatically redirected to the Docker Redis container.
+
+To use an external Redis (Redis Cloud, AWS ElastiCache, etc.), set `REDIS_URL` to a non-localhost URL in `.env` before starting.
 
 This starts all four agents. The crash handler is available at `http://localhost:8000` with endpoints at `/webhook/sentry` and `/webhook/rollbar`.
 
@@ -166,7 +162,7 @@ docker compose logs -f crash_handler
 **Rebuild after code changes**
 
 ```bash
-docker compose --profile local up --build
+docker compose up --build
 ```
 
 **Stop the stack**
@@ -323,7 +319,7 @@ Redis is the default. Within Redis, the event transport can be configured with `
 
 | Stage | Recommended |
 |---|---|
-| Local dev | `docker compose --profile local up --build` |
+| Local dev | `docker compose up --build` |
 | MVP launch | Railway (one service per agent) + Redis Cloud |
 | AWS-native | Lambda per agent + EventBridge + ElastiCache |
 
