@@ -1,11 +1,15 @@
 """Tests for agents/crash_handler/agent.py and agents/crash_handler/main.py"""
+import hashlib
+import hmac
 import json
+import time
+import urllib.parse
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from core.models import CrashReport, RollbarEvent, Severity
+from core.models import CrashReport, PRResult, RollbarEvent, Severity
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +348,119 @@ def test_webhook_valid_request_returns_202():
 
     assert resp.status_code == 202
     assert resp.json()["incident_id"] == "inc-001"
+
+
+# ---------------------------------------------------------------------------
+# /slack/actions endpoint
+# ---------------------------------------------------------------------------
+
+SIGNING_SECRET = "test-slack-signing-secret"
+
+SAMPLE_PR_RESULT = PRResult(
+    incident_id="inc-001",
+    pr_url="https://github.com/acme/repo/pull/42",
+    pr_number=42,
+    branch_name="helix/fix-inc-001",
+    iterations_taken=1,
+    files_changed=["checkout.py"],
+    fix_summary="Fixed the KeyError in checkout.",
+)
+
+
+def _slack_action_body(action_id: str, incident_id: str) -> bytes:
+    """Build a URL-encoded Slack interaction payload."""
+    payload = {
+        "type": "block_actions",
+        "actions": [{"action_id": action_id, "value": incident_id}],
+    }
+    return urllib.parse.urlencode({"payload": json.dumps(payload)}).encode()
+
+
+def _slack_headers(body: bytes, secret: str) -> dict:
+    ts = str(int(time.time()))
+    base = f"v0:{ts}:{body.decode()}"
+    sig = "v0=" + hmac.new(secret.encode(), base.encode(), hashlib.sha256).hexdigest()
+    return {
+        "content-type": "application/x-www-form-urlencoded",
+        "X-Slack-Request-Timestamp": ts,
+        "X-Slack-Signature": sig,
+    }
+
+
+def _make_slack_yaml():
+    return {
+        **SAMPLE_YAML,
+        "slack": {
+            "token_env": "SLACK_BOT_TOKEN",
+            "approval_channel_env": "SLACK_APPROVAL_CHANNEL",
+            "signing_secret_env": "SLACK_SIGNING_SECRET",
+        },
+    }
+
+
+def test_slack_actions_missing_signing_secret_returns_403(monkeypatch):
+    monkeypatch.delenv("SLACK_SIGNING_SECRET", raising=False)
+    body = _slack_action_body("approve_pr", "inc-001")
+    ts = str(int(time.time()))
+    headers = {
+        "content-type": "application/x-www-form-urlencoded",
+        "X-Slack-Request-Timestamp": ts,
+        "X-Slack-Signature": "v0=invalid",
+    }
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 403
+
+
+def test_slack_actions_invalid_signature_returns_403(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    body = _slack_action_body("approve_pr", "inc-001")
+    ts = str(int(time.time()))
+    headers = {
+        "content-type": "application/x-www-form-urlencoded",
+        "X-Slack-Request-Timestamp": ts,
+        "X-Slack-Signature": "v0=badsignature",
+    }
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 403
+
+
+def test_slack_actions_approve_merges_pr(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-test-token")
+    body = _slack_action_body("approve_pr", "inc-001")
+    headers = _slack_headers(body, SIGNING_SECRET)
+
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()), \
+         patch("agents.crash_handler.main.read_pr_result", return_value=SAMPLE_PR_RESULT), \
+         patch("agents.crash_handler.main.write_status", new=AsyncMock()) as mock_write_status, \
+         patch("agents.crash_handler.main.merge_pull_request", new=AsyncMock()) as mock_merge:
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+
+    assert resp.status_code == 200
+    assert "merged" in resp.json()["text"].lower()
+    mock_merge.assert_awaited_once_with(repo="acme/repo", pr_number=42)
+    mock_write_status.assert_awaited_once_with(ANY, "inc-001", "pr_merged")
+
+
+def test_slack_actions_reject_updates_status(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    body = _slack_action_body("reject_pr", "inc-001")
+    headers = _slack_headers(body, SIGNING_SECRET)
+
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()), \
+         patch("agents.crash_handler.main.write_status", new=AsyncMock()) as mock_write_status:
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+
+    assert resp.status_code == 200
+    assert "rejected" in resp.json()["text"].lower()
+    mock_write_status.assert_awaited_once_with(ANY, "inc-001", "approval_rejected")

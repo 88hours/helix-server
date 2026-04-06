@@ -1,9 +1,11 @@
 """
 Notifier Agent — subscriber entry point.
 
-Subscribes to two Redis channels concurrently:
+Subscribes to three Redis channels concurrently:
   fix_suggested — sends Slack/email with a link to the GitHub Issue.
   fix_failed    — sends Slack/email escalation when Dev Agent exhausts retries.
+  pr_created    — sends a Slack approval request with Approve/Reject buttons.
+                  No-op when Slack is not configured.
 
 Run with:
     python -m agents.notifier.main
@@ -15,7 +17,7 @@ import os
 
 import redis.asyncio as aioredis
 
-from agents.notifier.agent import handle, handle_escalation
+from agents.notifier.agent import handle, handle_escalation, handle_pr_created
 from core.config import get_redis_url
 from core.events import subscribe
 
@@ -84,8 +86,30 @@ async def _listen_fix_failed(redis_client: aioredis.Redis) -> None:
             )
 
 
+async def _listen_pr_created(redis_client: aioredis.Redis) -> None:
+    """Subscribe to pr_created and dispatch handle_pr_created() for each event."""
+    logger.info("notifier agent listening on helix:events:pr_created")
+    async for incident_id, _payload in subscribe(redis_client, "pr_created", agent_name="notifier"):
+        logger.info(
+            "notifier received pr_created",
+            extra={"incident_id": incident_id},
+        )
+        try:
+            await handle_pr_created(incident_id, redis_client)
+            logger.info(
+                "notifier finished pr_created",
+                extra={"incident_id": incident_id},
+            )
+        except Exception as exc:
+            logger.error(
+                "notifier failed on pr_created",
+                extra={"incident_id": incident_id, "error": str(exc)},
+                exc_info=True,
+            )
+
+
 async def main() -> None:
-    """Connect to Redis and run both subscription loops concurrently."""
+    """Connect to Redis and run all three subscription loops concurrently."""
     logger.info("=== Notifier Agent starting ===")
     redis_url = get_redis_url()
     logger.info("notifier agent connecting to redis", extra={"redis_url": redis_url})
@@ -94,6 +118,7 @@ async def main() -> None:
     await asyncio.gather(
         _listen_fix_suggested(redis_client),
         _listen_fix_failed(redis_client),
+        _listen_pr_created(redis_client),
     )
 
 
