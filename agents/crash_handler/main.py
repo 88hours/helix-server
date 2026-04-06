@@ -52,6 +52,9 @@ from integrations.github import merge_pull_request
 # Path to the built React dashboard (populated by: cd dashboard && npm run build).
 _DASHBOARD_DIST = Path(__file__).parent.parent.parent / "dashboard" / "dist"
 
+# Landing page — static HTML served at /.
+_LANDING_PAGE = Path(__file__).parent.parent.parent / "index.html"
+
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -530,6 +533,22 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "email": current_user.get("email"),
         "picture": current_user.get("picture"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Landing page — serve index.html at the root
+# ---------------------------------------------------------------------------
+
+@app.get("/", include_in_schema=False)
+async def serve_landing():
+    """
+    Serve the static marketing/landing page at the root URL.
+
+    The page contains a Sign In CTA that routes visitors to /app.
+    """
+    if _LANDING_PAGE.exists():
+        return FileResponse(str(_LANDING_PAGE))
+    return {"error": "Landing page not found"}
 
 
 # ---------------------------------------------------------------------------
