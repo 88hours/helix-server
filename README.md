@@ -528,7 +528,7 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Multi-language support — Python, JavaScript/TypeScript, Ruby, Java/Kotlin, Go
 - [x] One-click Railway deploy
 
-### Phase 2 — Full-Stack Agent Experience (in progress)
+### Phase 2 — Full-Stack Agent Experience (complete)
 - [x] Scoped tool access — per-agent permission declarations enforced at runtime (`core/permissions.py`)
 - [x] Streaming dashboard — React + Vite frontend with live agent activity via SSE (`dashboard/`)
 - [x] Tool visualisation — live tool call timeline in the dashboard (LLM, GitHub, Git, Claude Code)
@@ -538,10 +538,10 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Projects page — create projects with a GitHub URL, configure per-project credentials (API keys, tokens, Slack, email) via `/app/projects`; secret values masked on read
 - [x] Sentry webhook signature verification — HMAC-SHA256 verification working end-to-end
 - [x] Demo mode default — flipped to `false`; production deployments verify signatures without any extra config
-- [ ] UI configuration not wired to `config.yaml` — agent models, providers, and settings must still be configured manually in `.env`
-- [ ] Onboarding flow incomplete — project credentials not yet injected into the agent pipeline at runtime
 
 ### Phase 3 — Observability and Platform Maturity
+- [ ] UI configuration via dashboard — agent models and providers configurable from the UI, wired to `config.yaml`
+- [ ] Project credentials injected into pipeline — per-project settings from the Projects page used at runtime instead of environment variables
 - [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend
 - [ ] LangSmith evals — record every LLM call with prompt, response, and token usage; eval suite on every deploy
 - [ ] Multi-agent orchestration — A2A communication patterns, dynamic sub-agent spawning
