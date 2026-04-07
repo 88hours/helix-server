@@ -86,6 +86,62 @@ class RepoConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Project configuration (repo + credentials)
+# ---------------------------------------------------------------------------
+
+class ProjectSettings(BaseModel):
+    """
+    Per-project credential and notification settings.
+
+    Stored inside Project and persisted to Redis.  Secret values are masked
+    to '***' before being returned by the API — callers send '***' back to
+    indicate "keep the existing value unchanged".
+
+    Required for the pipeline to run:
+        anthropic_api_key        — LLM calls (Crash Handler, QA, Dev agents)
+        github_token             — create issues, open PRs, read source files
+        redis_url                — shared state and event bus
+        sentry_webhook_secret    — HMAC verification for Sentry webhooks  \
+        rollbar_access_token     — token verification for Rollbar webhooks /  (at least one)
+
+    Optional notifications:
+        slack_bot_token          — post approval messages / escalations
+        slack_signing_secret     — verify Slack interaction payloads
+        slack_approval_channel   — channel ID or name for PR approval messages
+        sendgrid_api_key         — transactional email via SendGrid
+        smtp_host                — SMTP server for email (fallback if SendGrid absent)
+    """
+    # Required
+    anthropic_api_key: Optional[str] = None
+    github_token: Optional[str] = None
+    redis_url: Optional[str] = None
+    sentry_webhook_secret: Optional[str] = None
+    rollbar_access_token: Optional[str] = None
+    # Optional — Slack
+    slack_bot_token: Optional[str] = None
+    slack_signing_secret: Optional[str] = None
+    slack_approval_channel: Optional[str] = None
+    # Optional — Email
+    sendgrid_api_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+
+
+class Project(BaseModel):
+    """
+    A user-configured project: a GitHub repository plus its runtime credentials.
+
+    Stored in Redis per Auth0 user under helix:user:{sub}:projects (no TTL).
+    The settings field holds credentials that override environment variables
+    when the pipeline runs for this project.
+    """
+    repo: str                               # "owner/name", e.g. "acme/backend"
+    base_branch: str = "main"              # branch PRs are opened against
+    language: str = "python"               # primary language — influences test framework
+    added_at: datetime = Field(default_factory=_now)
+    settings: ProjectSettings = Field(default_factory=ProjectSettings)
+
+
+# ---------------------------------------------------------------------------
 # Rollbar inbound payload
 # ---------------------------------------------------------------------------
 

@@ -218,6 +218,87 @@ export async function removeRepo(repo: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Project configuration (repo + credentials)
+// ---------------------------------------------------------------------------
+
+export interface ProjectSettings {
+  anthropic_api_key: string | null
+  github_token: string | null
+  redis_url: string | null
+  sentry_webhook_secret: string | null
+  rollbar_access_token: string | null
+  slack_bot_token: string | null
+  slack_signing_secret: string | null
+  slack_approval_channel: string | null
+  sendgrid_api_key: string | null
+  smtp_host: string | null
+}
+
+export interface Project {
+  repo: string
+  base_branch: string
+  language: string
+  added_at: string
+  settings: ProjectSettings
+}
+
+/** List the calling user's projects (settings values are masked as '***' if set). */
+export async function fetchProjects(): Promise<Project[]> {
+  const headers = await _authHeaders()
+  const res = await fetch('/api/projects', { headers })
+  if (!res.ok) throw new Error(`Failed to fetch projects: ${res.status}`)
+  const data = await res.json()
+  return data.projects as Project[]
+}
+
+/** Create a new project. repo can be a full GitHub URL or owner/name slug. */
+export async function createProject(repo: string, baseBranch = 'main', language = 'python'): Promise<Project> {
+  const headers = { ...(await _authHeaders()), 'Content-Type': 'application/json' }
+  const res = await fetch('/api/projects', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ repo, base_branch: baseBranch, language }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail ?? `Failed to create project: ${res.status}`)
+  }
+  return res.json() as Promise<Project>
+}
+
+/**
+ * Update the settings for a project.
+ *
+ * Pass '***' for any secret you don't want to change (or omit it — null means
+ * "don't touch").  Pass an empty string to clear a value.
+ */
+export async function updateProjectSettings(
+  repo: string,
+  settings: Partial<ProjectSettings>,
+): Promise<Project> {
+  const [owner, name] = repo.split('/')
+  const headers = { ...(await _authHeaders()), 'Content-Type': 'application/json' }
+  const res = await fetch(`/api/projects/${owner}/${name}/settings`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(settings),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail ?? `Failed to update settings: ${res.status}`)
+  }
+  return res.json() as Promise<Project>
+}
+
+/** Delete a project and its settings. */
+export async function deleteProject(repo: string): Promise<void> {
+  const [owner, name] = repo.split('/')
+  const headers = await _authHeaders()
+  const res = await fetch(`/api/projects/${owner}/${name}`, { method: 'DELETE', headers })
+  if (!res.ok) throw new Error(`Failed to delete project: ${res.status}`)
+}
+
+// ---------------------------------------------------------------------------
 // Auth / identity
 // ---------------------------------------------------------------------------
 

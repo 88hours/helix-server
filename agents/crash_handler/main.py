@@ -41,8 +41,18 @@ from sse_starlette.sse import EventSourceResponse
 from agents.crash_handler.agent import handle
 from core.auth import get_current_user
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
-from core.models import RepoConfig
-from core.state import read_crash_report, read_pr_result, read_qa_result, read_status, read_user_repos, write_status, write_user_repos
+from core.models import Project, ProjectSettings, RepoConfig
+from core.state import (
+    read_crash_report,
+    read_pr_result,
+    read_qa_result,
+    read_status,
+    read_user_projects,
+    read_user_repos,
+    write_status,
+    write_user_projects,
+    write_user_repos,
+)
 from core.ui_events import subscribe_ui_events
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
@@ -516,6 +526,205 @@ async def remove_repo(owner: str, name: str, request: Request, current_user: dic
         raise HTTPException(status_code=404, detail=f"'{repo_slug}' is not configured")
 
     await write_user_repos(request.app.state.redis, user_id, updated)
+    return {"removed": repo_slug}
+
+
+# ---------------------------------------------------------------------------
+# Project API — repo + per-project credential settings
+# ---------------------------------------------------------------------------
+
+# Sentinel value returned (and accepted) in place of real secret values.
+# If a client sends this value back in a settings update, the field is left unchanged.
+_SETTINGS_MASK = "***"
+
+_SECRET_FIELDS = {
+    "anthropic_api_key",
+    "github_token",
+    "redis_url",
+    "sentry_webhook_secret",
+    "rollbar_access_token",
+    "slack_bot_token",
+    "slack_signing_secret",
+    "sendgrid_api_key",
+}
+
+
+def _mask_settings(settings: ProjectSettings) -> dict:
+    """
+    Return the settings dict with all non-empty secret values replaced by '***'.
+
+    Non-secret fields (e.g. slack_approval_channel, smtp_host) are returned
+    as-is so the UI can display them.
+    """
+    data = settings.model_dump()
+    for field in _SECRET_FIELDS:
+        if data.get(field):
+            data[field] = _SETTINGS_MASK
+    return data
+
+
+def _apply_settings_patch(existing: ProjectSettings, patch: dict) -> ProjectSettings:
+    """
+    Apply a settings update dict onto existing settings.
+
+    Any field set to the mask sentinel ('***') is skipped — the caller is
+    indicating "keep what was there".  Empty strings are treated as clearing
+    the value (set to None).
+    """
+    data = existing.model_dump()
+    for key, value in patch.items():
+        if key not in data:
+            continue
+        if value == _SETTINGS_MASK:
+            continue  # keep existing
+        data[key] = value if value else None
+    return ProjectSettings(**data)
+
+
+def _parse_repo_slug(repo_input: str) -> str:
+    """
+    Normalise a repo input to 'owner/name' format.
+
+    Accepts:
+      - https://github.com/owner/name
+      - https://github.com/owner/name.git
+      - git@github.com:owner/name.git
+      - owner/name
+
+    Raises ValueError if the result is not in 'owner/name' format.
+    """
+    s = repo_input.strip().rstrip("/")
+    # SSH format
+    if s.startswith("git@"):
+        s = s.split(":", 1)[-1]
+    # HTTPS format
+    if "github.com" in s:
+        idx = s.find("github.com")
+        s = s[idx + len("github.com"):].lstrip("/")
+    # Strip .git suffix
+    if s.endswith(".git"):
+        s = s[:-4]
+    if s.count("/") != 1:
+        raise ValueError(f"Could not parse '{repo_input}' as owner/name")
+    return s
+
+
+class CreateProjectBody(BaseModel):
+    """Request body for POST /api/projects."""
+    repo: str               # GitHub URL or owner/name
+    base_branch: str = "main"
+    language: str = "python"
+
+
+class UpdateProjectSettingsBody(BaseModel):
+    """Request body for PUT /api/projects/{owner}/{name}/settings."""
+    anthropic_api_key: Optional[str] = None
+    github_token: Optional[str] = None
+    redis_url: Optional[str] = None
+    sentry_webhook_secret: Optional[str] = None
+    rollbar_access_token: Optional[str] = None
+    slack_bot_token: Optional[str] = None
+    slack_signing_secret: Optional[str] = None
+    slack_approval_channel: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+
+
+@app.get("/api/projects", tags=["projects"])
+async def list_projects(request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    List all projects for the calling user.
+
+    Secret settings values are masked — each non-empty secret is returned as
+    '***' so the UI can show "already set" state without exposing credentials.
+    """
+    projects = await read_user_projects(request.app.state.redis, current_user["sub"])
+    return {
+        "projects": [
+            {**p.model_dump(mode="json", exclude={"settings"}), "settings": _mask_settings(p.settings)}
+            for p in projects
+        ]
+    }
+
+
+@app.post("/api/projects", tags=["projects"], status_code=201)
+async def create_project(body: CreateProjectBody, request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    Create a new project.
+
+    The repo field accepts a full GitHub URL or an 'owner/name' slug.
+    Returns 409 if a project for that repo already exists.
+    """
+    try:
+        repo_slug = _parse_repo_slug(body.repo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    user_id = current_user["sub"]
+    projects = await read_user_projects(request.app.state.redis, user_id)
+
+    if any(p.repo == repo_slug for p in projects):
+        raise HTTPException(status_code=409, detail=f"'{repo_slug}' already exists")
+
+    project = Project(repo=repo_slug, base_branch=body.base_branch, language=body.language)
+    projects.append(project)
+    await write_user_projects(request.app.state.redis, user_id, projects)
+
+    result = project.model_dump(mode="json", exclude={"settings"})
+    result["settings"] = _mask_settings(project.settings)
+    return result
+
+
+@app.put("/api/projects/{owner}/{name}/settings", tags=["projects"])
+async def update_project_settings(
+    owner: str,
+    name: str,
+    body: UpdateProjectSettingsBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Update the credential settings for a project.
+
+    Any field set to '***' in the request body is left unchanged (the client
+    is indicating it did not modify that field).  Pass an empty string to
+    clear a field.  Returns the updated project with masked secret values.
+    """
+    repo_slug = f"{owner}/{name}"
+    user_id = current_user["sub"]
+    projects = await read_user_projects(request.app.state.redis, user_id)
+
+    idx = next((i for i, p in enumerate(projects) if p.repo == repo_slug), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"'{repo_slug}' not found")
+
+    projects[idx].settings = _apply_settings_patch(
+        projects[idx].settings,
+        body.model_dump(exclude_none=False),
+    )
+    await write_user_projects(request.app.state.redis, user_id, projects)
+
+    result = projects[idx].model_dump(mode="json", exclude={"settings"})
+    result["settings"] = _mask_settings(projects[idx].settings)
+    return result
+
+
+@app.delete("/api/projects/{owner}/{name}", tags=["projects"])
+async def delete_project(owner: str, name: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    Remove a project and its settings from the calling user's configuration.
+
+    Returns 404 if the project does not exist.
+    """
+    repo_slug = f"{owner}/{name}"
+    user_id = current_user["sub"]
+    projects = await read_user_projects(request.app.state.redis, user_id)
+    updated = [p for p in projects if p.repo != repo_slug]
+
+    if len(updated) == len(projects):
+        raise HTTPException(status_code=404, detail=f"'{repo_slug}' not found")
+
+    await write_user_projects(request.app.state.redis, user_id, updated)
     return {"removed": repo_slug}
 
 

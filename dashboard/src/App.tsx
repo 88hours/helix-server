@@ -20,6 +20,7 @@ import { NavUserChip } from './components/NavUserChip'
 import { TokenProviderBridge } from './components/TokenProviderBridge'
 import { IncidentDetail } from './pages/IncidentDetail'
 import { IncidentList } from './pages/IncidentList'
+import { Projects } from './pages/Projects'
 import { Repos } from './pages/Repos'
 
 const authEnabled = Boolean(import.meta.env.VITE_AUTH0_DOMAIN)
@@ -54,6 +55,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="text-lg font-bold tracking-tight text-gray-900">helix</span>
             <span className="text-gray-200">|</span>
             <NavLink to="/incidents">Incidents</NavLink>
+            <NavLink to="/projects">Projects</NavLink>
             <NavLink to="/repos">Repos</NavLink>
           </div>
           {authEnabled && <NavUserChip />}
@@ -82,6 +84,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/incidents" replace />} />
             <Route path="/incidents" element={<IncidentList />} />
             <Route path="/incidents/:incidentId" element={<IncidentDetail />} />
+            <Route path="/projects" element={<Projects />} />
             <Route path="/repos" element={<Repos />} />
             <Route path="*" element={<Navigate to="/incidents" replace />} />
           </Routes>

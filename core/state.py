@@ -31,7 +31,7 @@ from typing import Optional
 
 import redis.asyncio as redis
 
-from core.models import CrashReport, PRResult, QAResult, RepoConfig
+from core.models import CrashReport, PRResult, Project, QAResult, RepoConfig
 
 logger = logging.getLogger(__name__)
 
@@ -304,3 +304,56 @@ async def write_user_repos(client: redis.Redis, user_id: str, repos: list[RepoCo
     payload = json.dumps([r.model_dump(mode="json") for r in repos])
     await client.set(key, payload)
     logger.info("user repos written", extra={"user_id": user_id, "count": len(repos)})
+
+
+# ---------------------------------------------------------------------------
+# User project configuration (repo + credentials)
+# ---------------------------------------------------------------------------
+
+def _user_projects_key(user_id: str) -> str:
+    """Build the Redis key for a user's project configuration list."""
+    return f"helix:user:{user_id}:projects"
+
+
+async def read_user_projects(client: redis.Redis, user_id: str) -> list[Project]:
+    """
+    Read all project configs for a user.
+
+    Stored at: helix:user:{user_id}:projects (no TTL — permanent user data).
+    Each project includes its repo details and per-project credential settings.
+
+    Args:
+        client:  Async Redis client.
+        user_id: Auth0 subject claim, e.g. "github|12345678".
+
+    Returns:
+        List of Project, empty if the user has not created any projects.
+    """
+    key = _user_projects_key(user_id)
+    raw = await client.get(key)
+    if raw is None:
+        return []
+    try:
+        data = json.loads(raw)
+        return [Project.model_validate(p) for p in data]
+    except Exception:
+        logger.warning("user projects schema mismatch — returning empty list", extra={"user_id": user_id})
+        return []
+
+
+async def write_user_projects(client: redis.Redis, user_id: str, projects: list[Project]) -> None:
+    """
+    Persist the full list of project configs for a user.
+
+    Overwrites the existing list atomically.  Callers are responsible for
+    the read-modify-write pattern.
+
+    Args:
+        client:   Async Redis client.
+        user_id:  Auth0 subject claim, e.g. "github|12345678".
+        projects: Full list of Project to persist.
+    """
+    key = _user_projects_key(user_id)
+    payload = json.dumps([p.model_dump(mode="json") for p in projects])
+    await client.set(key, payload)
+    logger.info("user projects written", extra={"user_id": user_id, "count": len(projects)})
