@@ -77,7 +77,7 @@
     <div class="max-w-4xl mx-auto">
       <div class="inline-flex items-center gap-2 text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-full mb-8">
         <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
-        v1.1.0 — open source
+        v3.0.0 — open source
       </div>
 
       <h1 class="text-5xl sm:text-6xl font-extrabold leading-tight mb-6 tracking-tight">
@@ -271,6 +271,24 @@
           <p class="text-sm text-gray-400 leading-relaxed">Deploy all four agents to Railway in one command. Sync your <code class="font-mono text-xs text-indigo-300">.env</code> file directly to Railway with <code class="font-mono text-xs text-indigo-300">--env-file</code>.</p>
         </div>
 
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🔑</div>
+          <h3 class="font-semibold mb-2">GitHub App integration</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Per-project GitHub App installation tokens — scoped to each repo, cached in Postgres, and threaded through all API calls. No more relying on a global personal access token.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">📊</div>
+          <h3 class="font-semibold mb-2">Project dashboard</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">React dashboard with Auth0 login. Add projects, watch the pipeline run live with SSE streaming, and review crash reports, test cases, and PRs — all in one place.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🗂️</div>
+          <h3 class="font-semibold mb-2">Per-project credentials</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Each project stores its own Anthropic key, Sentry secret, Rollbar token, Slack channel, and email settings in Postgres. Every project also gets a dedicated webhook URL scoped to its config.</p>
+        </div>
+
       </div>
     </div>
   </section>
@@ -381,8 +399,8 @@ docker compose up --build</pre>
         </div>
 
         <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-5 text-sm text-gray-400 leading-relaxed">
-          <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN · REDIS_URL<br/>
-          <span class="text-gray-600 font-medium">Optional:</span> SLACK_BOT_TOKEN · SLACK_SIGNING_SECRET · SLACK_APPROVAL_CHANNEL · SENDGRID_API_KEY · SMTP_HOST
+          <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN · REDIS_URL · DATABASE_URL<br/>
+          <span class="text-gray-600 font-medium">Optional:</span> GITHUB_APP_ID · GITHUB_APP_PRIVATE_KEY · GITHUB_APP_SLUG · SLACK_BOT_TOKEN · SLACK_SIGNING_SECRET · SLACK_APPROVAL_CHANNEL · SENDGRID_API_KEY · SMTP_HOST
         </div>
 
       </div>
@@ -395,7 +413,7 @@ docker compose up --build</pre>
       <div class="flex items-center gap-6 text-sm text-gray-500">
         <span class="font-semibold text-gray-400">Helix</span>
         <a href="https://github.com/88hours/helix/blob/main/LICENSE" target="_blank" class="hover:text-gray-300 transition-colors">MIT License</a>
-        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v1.1.0</a>
+        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v3.0.0</a>
         <a href="https://github.com/88hours/helix/blob/main/docs/features.md" target="_blank" class="hover:text-gray-300 transition-colors">Docs</a>
       </div>
       <a href="https://github.com/88hours/helix" target="_blank"
