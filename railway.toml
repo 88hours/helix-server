@@ -6,17 +6,23 @@
 # notifier) are deployed via railway-deploy.sh or the Railway dashboard.
 #
 # Required environment variables (set in Railway dashboard after deploy):
-#   ANTHROPIC_API_KEY      Anthropic API key
-#   REDIS_URL              Redis connection URL (e.g. Redis Cloud)
-#   ROLLBAR_ACCESS_TOKEN   Rollbar project access token
-#   GITHUB_TOKEN           GitHub personal access token (repo + issues scope)
+#   ANTHROPIC_API_KEY        Anthropic API key
+#   DATABASE_URL             Postgres connection URL (auto-set by Railway Postgres plugin)
+#   REDIS_URL                Redis connection URL (auto-set by Railway Redis plugin)
+#   GITHUB_APP_ID            GitHub App numeric ID
+#   GITHUB_APP_PRIVATE_KEY   Base64-encoded PEM private key from GitHub App settings
+#   GITHUB_APP_SLUG          GitHub App slug (e.g. helix-bot-aiagents)
+#   AUTH0_DOMAIN             Auth0 domain (e.g. dev-xxx.us.auth0.com)
+#   AUTH0_AUDIENCE           Auth0 API audience
 #
 # Optional:
-#   SLACK_BOT_TOKEN        Slack bot token for notifications
-#   SLACK_APPROVAL_CHANNEL Slack channel ID for notifications
-#   SENDGRID_API_KEY       SendGrid API key for email notifications
-#   EMAIL_FROM             Sender address for email notifications
-#   EMAIL_TO               Recipient addresses for email notifications
+#   SLACK_BOT_TOKEN          Slack bot token for notifications
+#   SLACK_SIGNING_SECRET     Slack signing secret
+#   SLACK_APPROVAL_CHANNEL   Slack channel ID for PR approval messages
+#   SENDGRID_API_KEY         SendGrid API key for email notifications
+#   SMTP_HOST                SMTP host (alternative to SendGrid)
+#   EMAIL_FROM               Sender address for email notifications
+#   EMAIL_TO                 Recipient addresses for email notifications
 # ---------------------------------------------------------------------------
 
 [build]

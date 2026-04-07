@@ -27,10 +27,12 @@ import httpx
 import redis.asyncio as redis
 
 from agents.dev import prompts
-from core.config import get_github_config
+from typing import Optional
+
+from core.config import ProjectConfig, get_github_config
 from core.events import publish
 from core.llm import complete
-from core.models import CrashReport, PRResult, QAResult
+from core.models import CrashReport, PRResult, Project, QAResult
 from core.permissions import AgentPermissions, load_permissions, require
 from core.state import (
     increment_iterations,
@@ -54,6 +56,8 @@ async def handle(
     qa_result: QAResult,
     crash_report: CrashReport,
     redis_client: redis.Redis,
+    project: Optional[Project] = None,
+    installation_token: Optional[str] = None,
 ) -> PRResult:
     """
     Generate a fix suggestion, post it to GitHub, notify the team, then
@@ -81,7 +85,10 @@ async def handle(
         RuntimeError: All iterations exhausted; escalation sent to Slack/email.
     """
     permissions = load_permissions("dev")
-    gh_config = get_github_config()
+    if project is not None:
+        gh_config = ProjectConfig(project).github(installation_token=installation_token)
+    else:
+        gh_config = get_github_config()
     incident_id = crash_report.incident_id
 
     logger.info("dev agent started", extra={"incident_id": incident_id})
@@ -92,6 +99,7 @@ async def handle(
     source_files = await _fetch_source_files(
         repo=gh_config.target_repo,
         paths=qa_result.relevant_files,
+        token=gh_config.token,
     )
     logger.debug(
         "source files fetched",
@@ -136,6 +144,7 @@ async def handle(
         repo=gh_config.target_repo,
         issue_number=qa_result.ticket_id,
         comment=issue_comment,
+        token=gh_config.token,
     )
     await publish_tool_event(redis_client, incident_id, "dev", "github", "add_comment", "success", f"#{qa_result.ticket_id} fix suggestion")
     logger.info(
@@ -167,6 +176,8 @@ async def handle(
         fix_suggestion=fix_suggestion,
         redis_client=redis_client,
         permissions=permissions,
+        project=project,
+        installation_token=installation_token,
     )
 
 
@@ -180,6 +191,8 @@ async def _tdd_loop(
     fix_suggestion: str,
     redis_client: redis.Redis,
     permissions: AgentPermissions,
+    project: Optional[Project] = None,
+    installation_token: Optional[str] = None,
 ) -> PRResult:
     """
     Clone the repo, write the failing test, and iterate with claude-code until
@@ -198,13 +211,16 @@ async def _tdd_loop(
     Raises:
         RuntimeError: All iterations exhausted; escalation sent to Slack/email.
     """
-    gh_config = get_github_config()
+    if project is not None:
+        gh_config = ProjectConfig(project).github(installation_token=installation_token)
+    else:
+        gh_config = get_github_config()
     incident_id = crash_report.incident_id
 
     require(permissions, "redis", "read_iterations")
     current_iterations = await read_iterations(redis_client, incident_id)
     if current_iterations >= MAX_ITERATIONS:
-        await _post_failure_comment(qa_result, gh_config.target_repo, [], permissions)
+        await _post_failure_comment(qa_result, gh_config.target_repo, [], permissions, token=gh_config.token)
         await _escalate(crash_report, [], redis_client, permissions)
         raise RuntimeError(
             f"Dev Agent for incident {incident_id} has exhausted all {MAX_ITERATIONS} iterations."
@@ -215,7 +231,7 @@ async def _tdd_loop(
     try:
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
         require(permissions, "github", "clone_repo")
-        await github.clone_repo(clone_url, repo_dir)
+        await github.clone_repo(clone_url, repo_dir, token=gh_config.token)
         await publish_tool_event(redis_client, incident_id, "dev", "git", "clone", "success", gh_config.target_repo)
 
         require(permissions, "redis", "increment_iterations")
@@ -287,6 +303,7 @@ async def _tdd_loop(
                     body=pr_body,
                     head=branch_name,
                     base=gh_config.base_branch,
+                    token=gh_config.token,
                 )
                 await publish_tool_event(redis_client, incident_id, "dev", "github", "create_pr", "success", f"#{pr_number}")
 
@@ -354,7 +371,7 @@ async def _tdd_loop(
 
     # All iterations exhausted.
     await publish_ui_event(redis_client, incident_id, "agent_done", "dev", f"All {MAX_ITERATIONS} iterations exhausted — escalating to human")
-    await _post_failure_comment(qa_result, gh_config.target_repo, prior_attempts, permissions)
+    await _post_failure_comment(qa_result, gh_config.target_repo, prior_attempts, permissions, token=gh_config.token)
     await _escalate(crash_report, prior_attempts, redis_client, permissions)
     raise RuntimeError(
         f"Dev Agent for incident {incident_id} exhausted all {MAX_ITERATIONS} iterations."
@@ -428,6 +445,7 @@ async def _post_failure_comment(
     repo: str,
     prior_attempts: list[str],
     permissions: AgentPermissions,
+    token: str | None = None,
 ) -> None:
     """
     Post a failure summary to the GitHub Issue when all fix attempts are exhausted.
@@ -437,6 +455,7 @@ async def _post_failure_comment(
         repo:           GitHub repository in "owner/name" format.
         prior_attempts: Per-attempt explanation strings from the TDD loop.
         permissions:    Dev Agent's loaded permissions.
+        token:          GitHub token. Falls back to GITHUB_TOKEN env var.
     """
     if prior_attempts:
         attempts_str = "\n\n".join(
@@ -462,6 +481,7 @@ async def _post_failure_comment(
             repo=repo,
             issue_number=qa_result.ticket_id,
             comment=comment,
+            token=token,
         )
     except Exception as exc:
         logger.warning(
@@ -513,13 +533,14 @@ async def _escalate(
     )
 
 
-async def _fetch_source_files(repo: str, paths: list[str]) -> dict[str, str]:
+async def _fetch_source_files(repo: str, paths: list[str], token: str | None = None) -> dict[str, str]:
     """
     Fetch the content of source files from the GitHub contents API.
 
     Args:
         repo:  Repository in "owner/name" format.
         paths: Relative file paths to fetch (from qa_result.relevant_files).
+        token: GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Returns:
         Mapping of relative path → file content (truncated if large).
@@ -532,7 +553,7 @@ async def _fetch_source_files(repo: str, paths: list[str]) -> dict[str, str]:
         for path in paths:
             url = f"{_GITHUB_API}/repos/{repo}/contents/{path}"
             try:
-                response = await client.get(url, headers=_api_headers())
+                response = await client.get(url, headers=_api_headers(token))
                 response.raise_for_status()
                 data = response.json()
                 content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")

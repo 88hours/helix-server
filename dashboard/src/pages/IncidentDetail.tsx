@@ -93,6 +93,9 @@ export function IncidentDetail() {
           return
         }
         setDetail(snapshot)
+        if (snapshot.events?.length) {
+          setEvents(snapshot.events)
+        }
         setIsConnected(true)
       },
       (event) => {

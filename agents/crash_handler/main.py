@@ -1,14 +1,18 @@
 """
 Crash Handler Agent — FastAPI entry point.
 
-Exposes three webhook endpoints plus the streaming dashboard API:
+Exposes per-project webhook endpoints plus the streaming dashboard API:
 
   Webhooks (no auth — verified via payload signature / access token):
-    POST /webhook/rollbar  — verifies the Rollbar access token, parses the payload, delegates to agent.py.
-    POST /webhook/sentry   — verifies HMAC-SHA256 signature, parses the payload, delegates to agent.py.
-    POST /slack/actions    — receives Slack button interactions (Approve / Reject PR).
-                             Verifies the Slack signing secret, then merges or rejects the PR.
-                             Only active when SLACK_SIGNING_SECRET is configured.
+    POST /webhook/rollbar/{project_id}  — per-project Rollbar webhook.
+    POST /webhook/sentry/{project_id}   — per-project Sentry webhook.
+    POST /webhook/rollbar               — legacy; returns 410 Gone with upgrade message.
+    POST /webhook/sentry                — legacy; returns 410 Gone with upgrade message.
+    POST /slack/actions                 — Slack button interactions (Approve / Reject PR).
+
+  GitHub App:
+    GET  /api/github/callback           — GitHub App installation callback; stores installation_id.
+    GET  /api/github/repos              — list repos accessible via the user's GitHub App installation.
 
   Dashboard API (requires Auth0 JWT when AUTH0_DOMAIN is set):
     GET  /api/incidents              — list all known incidents (reads Redis state).
@@ -17,6 +21,11 @@ Exposes three webhook endpoints plus the streaming dashboard API:
     GET  /api/repos                  — list the calling user's configured repos.
     POST /api/repos                  — add a repo to the calling user's config.
     DELETE /api/repos/{owner}/{name} — remove a repo from the calling user's config.
+    GET  /api/projects               — list projects from Postgres.
+    POST /api/projects               — create a project (wizard final step).
+    PUT  /api/projects/{project_id}/settings  — update project settings.
+    DELETE /api/projects/{project_id}         — delete a project.
+    GET  /api/projects/{project_id}/webhook-urls — return webhook URLs for copy.
 
   Dashboard SPA:
     GET /app  and  GET /app/*       — serve the built React frontend from dashboard/dist/.
@@ -28,33 +37,45 @@ Run with:
 import json
 import logging
 import os
+import uuid
 import urllib.parse
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 import redis.asyncio as aioredis
-from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from agents.crash_handler.agent import handle
 from core.auth import get_current_user
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
+from core.db import (
+    delete_project as db_delete_project,
+    get_db,
+    get_installation_for_user,
+    get_project,
+    init_db,
+    insert_project,
+    list_projects as db_list_projects,
+    upsert_github_installation,
+    upsert_project_settings,
+    upsert_user,
+)
+from core.github_app import build_install_url, get_app_slug, list_installation_repos
 from core.models import Project, ProjectSettings, RepoConfig
 from core.state import (
     read_crash_report,
     read_pr_result,
     read_qa_result,
     read_status,
-    read_user_projects,
     read_user_repos,
     write_status,
-    write_user_projects,
     write_user_repos,
 )
-from core.ui_events import subscribe_ui_events
+from core.ui_events import read_ui_events, subscribe_ui_events
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
 from integrations import slack as slack_integration
@@ -76,18 +97,24 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create the Redis client on startup and close it on shutdown."""
+    """Create the Redis client and initialise Postgres tables on startup."""
     redis_url = get_redis_url()
     logger.info("=== Crash Handler starting ===")
     logger.info("demo mode: %s", os.environ.get("HELIX_DEMO", "not set"))
     logger.info("crash handler connecting to redis", extra={"redis_url": redis_url})
     app.state.redis = aioredis.from_url(redis_url, decode_responses=False)
+
+    # Initialise Postgres tables (safe to call every startup — IF NOT EXISTS).
+    if os.environ.get("DATABASE_URL"):
+        try:
+            await init_db()
+        except Exception as exc:
+            logger.warning("Postgres init failed — continuing without DB: %s", exc)
+    else:
+        logger.warning("DATABASE_URL not set — project Postgres storage disabled")
+
     domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("PUBLIC_DOMAIN") or "localhost:8000"
-    logger.info(
-        "crash handler started — redis connected, listening on %s/webhook/rollbar and %s/webhook/sentry",
-        domain,
-        domain,
-    )
+    logger.info("crash handler started — listening on %s", domain)
     yield
     await app.state.redis.aclose()
     logger.info("crash handler shut down")
@@ -107,135 +134,125 @@ async def healthz():
     return {"status": "ok"}
 
 
-@app.post("/webhook/rollbar", status_code=status.HTTP_202_ACCEPTED)
-async def rollbar_webhook(request: Request):
-    """
-    Receive a Rollbar item-alert webhook.
+@app.post("/webhook/rollbar", status_code=status.HTTP_410_GONE)
+async def rollbar_webhook_legacy():
+    """Legacy Rollbar webhook endpoint — replaced by /webhook/rollbar/{project_id}."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "This webhook URL is no longer active. "
+            "Create a project in the Helix dashboard to get a per-project webhook URL: "
+            "POST /webhook/rollbar/{project_id}"
+        ),
+    )
 
-    Verifies the access token embedded in the payload, parses it, and
-    delegates to the Crash Handler Agent.  Returns 202 immediately —
-    processing is async (the agent publishes a Redis event; the QA Agent
-    picks it up).
 
-    Rollbar embeds the project read token at data.access_token in every
-    webhook payload. This is compared against ROLLBAR_ACCESS_TOKEN.
+@app.post("/webhook/sentry", status_code=status.HTTP_410_GONE)
+async def sentry_webhook_legacy():
+    """Legacy Sentry webhook endpoint — replaced by /webhook/sentry/{project_id}."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "This webhook URL is no longer active. "
+            "Create a project in the Helix dashboard to get a per-project webhook URL: "
+            "POST /webhook/sentry/{project_id}"
+        ),
+    )
+
+
+async def _load_project_or_404(project_id: str) -> dict:
     """
+    Load a project from Postgres by project_id.
+
+    Raises 404 if the project does not exist or DATABASE_URL is not configured.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured")
+    async with get_db() as db:
+        row = await get_project(db, project_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    return row
+
+
+@app.post("/webhook/rollbar/{project_id}", status_code=status.HTTP_202_ACCEPTED)
+async def rollbar_webhook(project_id: str, request: Request):
+    """
+    Receive a Rollbar item-alert webhook for a specific project.
+
+    Loads the project from Postgres to verify the access token embedded in
+    the payload, then delegates to the Crash Handler Agent.
+    Returns 202 immediately — processing is async.
+    """
+    row = await _load_project_or_404(project_id)
     body = await request.body()
 
     try:
         raw = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON payload: {exc}",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON: {exc}")
 
-    # Rollbar sends a tokenless ping payload to verify the URL is reachable.
-    # Acknowledge it immediately — there is nothing to process.
     if raw.get("event_name") == "test":
-        logger.info("rollbar connectivity test received — acknowledged")
+        logger.info("rollbar connectivity test received — acknowledged", extra={"project_id": project_id})
         return {"status": "ok"}
 
     if is_demo_mode():
-        logger.warning("demo mode enabled — skipping rollbar access token verification")
+        logger.warning("demo mode enabled — skipping rollbar token verification", extra={"project_id": project_id})
     else:
-        rollbar_cfg = get_rollbar_config()
-        if not rollbar_integration.verify_token(raw, rollbar_cfg.access_token):
-            logger.warning("rollbar webhook access token mismatch")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid access token",
-            )
+        access_token = row.get("rollbar_access_token") or ""
+        if not access_token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Rollbar access token not configured for this project")
+        if not rollbar_integration.verify_token(raw, access_token):
+            logger.warning("rollbar token mismatch", extra={"project_id": project_id})
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
 
     crash_event = rollbar_integration.parse_event(raw)
-    logger.debug(
-        "rollbar webhook parsed",
-        extra={"item_id": crash_event.item_id, "level": crash_event.level, "title": crash_event.title},
-    )
-
-    report = await handle(crash_event, request.app.state.redis)
-
-    logger.info(
-        "webhook accepted",
-        extra={"incident_id": report.incident_id, "severity": report.severity.value},
-    )
+    report = await handle(crash_event, request.app.state.redis, project_id=project_id)
+    logger.info("rollbar webhook accepted", extra={"incident_id": report.incident_id, "project_id": project_id})
     return {"incident_id": report.incident_id, "status": "accepted"}
 
 
-@app.post("/webhook/sentry", status_code=status.HTTP_202_ACCEPTED)
-async def sentry_webhook(request: Request):
+@app.post("/webhook/sentry/{project_id}", status_code=status.HTTP_202_ACCEPTED)
+async def sentry_webhook(project_id: str, request: Request):
     """
-    Receive a Sentry issue-alert webhook.
+    Receive a Sentry issue-alert webhook for a specific project.
 
-    Verifies the HMAC-SHA256 signature in the `sentry-hook-signature` header,
-    parses the payload, and delegates to the Crash Handler Agent.
-
-    Returns 202 immediately — the agent pipeline is fully async.
+    Loads the project from Postgres to verify the HMAC-SHA256 signature,
+    then delegates to the Crash Handler Agent.
+    Returns 202 immediately — processing is async.
     """
+    row = await _load_project_or_404(project_id)
     body = await request.body()
     signature = request.headers.get("sentry-hook-signature", "")
 
-    logger.debug(
-        "sentry webhook received — headers: %s",
-        dict(request.headers),
-    )
     logger.info(
-        "sentry webhook received — signature=%r demo=%s body_preview=%r",
-        signature,
-        is_demo_mode(),
-        body[:200],
+        "sentry webhook received",
+        extra={"project_id": project_id, "signature": signature[:20] if signature else "none"},
     )
 
     if is_demo_mode():
-        logger.warning("demo mode enabled — skipping sentry signature verification")
+        logger.warning("demo mode — skipping sentry signature verification", extra={"project_id": project_id})
     else:
-        sentry_cfg = get_sentry_config()
-        if sentry_cfg.webhook_secret:
-            if not sentry_integration.verify_signature(body, signature, sentry_cfg.webhook_secret):
-                import hashlib
-                import hmac as _hmac
-                expected = _hmac.new(
-                    sentry_cfg.webhook_secret.encode("utf-8"), body, hashlib.sha256
-                ).hexdigest()
-                logger.warning(
-                    "sentry webhook signature verification failed — "
-                    "received=%r expected=%r body_len=%d",
-                    signature,
-                    expected,
-                    len(body),
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid webhook signature",
-                )
+        webhook_secret = row.get("sentry_webhook_secret") or ""
+        if webhook_secret:
+            if not sentry_integration.verify_signature(body, signature, webhook_secret):
+                logger.warning("sentry signature mismatch", extra={"project_id": project_id})
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
         else:
-            logger.warning("SENTRY_WEBHOOK_SECRET not configured — skipping signature check")
+            logger.warning("sentry_webhook_secret not set for project — skipping check", extra={"project_id": project_id})
 
     try:
         raw = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON payload: {exc}",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON: {exc}")
 
-    # Sentry sends a ping on first save of the webhook URL.
     if raw.get("action") == "ping" or raw.get("type") == "ping":
-        logger.info("sentry connectivity ping received — acknowledged")
+        logger.info("sentry ping received — acknowledged", extra={"project_id": project_id})
         return {"status": "ok"}
 
     crash_event = sentry_integration.parse_event(raw)
-    logger.debug(
-        "sentry webhook parsed",
-        extra={"item_id": crash_event.item_id, "level": crash_event.level, "title": crash_event.title},
-    )
-
-    report = await handle(crash_event, request.app.state.redis)
-
-    logger.info(
-        "sentry webhook accepted",
-        extra={"incident_id": report.incident_id, "severity": report.severity.value},
-    )
+    report = await handle(crash_event, request.app.state.redis, project_id=project_id)
+    logger.info("sentry webhook accepted", extra={"incident_id": report.incident_id, "project_id": project_id})
     return {"incident_id": report.incident_id, "status": "accepted"}
 
 
@@ -439,6 +456,7 @@ async def stream_incident(incident_id: str, request: Request, _user: dict = Depe
         report = await read_crash_report(redis_client, incident_id)
         qa_result = await read_qa_result(redis_client, incident_id)
         pr_result = await read_pr_result(redis_client, incident_id)
+        past_events = await read_ui_events(redis_client, incident_id)
 
         yield {
             "event": "snapshot",
@@ -449,6 +467,7 @@ async def stream_incident(incident_id: str, request: Request, _user: dict = Depe
                     "crash_report": report.model_dump(mode="json") if report else None,
                     "qa_result": qa_result.model_dump(mode="json") if qa_result else None,
                     "pr_result": pr_result.model_dump(mode="json") if pr_result else None,
+                    "events": past_events,
                 }
             ),
         }
@@ -531,17 +550,137 @@ async def remove_repo(owner: str, name: str, request: Request, current_user: dic
 
 
 # ---------------------------------------------------------------------------
-# Project API — repo + per-project credential settings
+# GitHub App — installation callback and repo listing
+# ---------------------------------------------------------------------------
+
+@app.get("/api/github/callback", tags=["github"])
+async def github_app_callback(
+    request: Request,
+    installation_id: Optional[str] = None,
+    setup_action: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    GitHub App installation callback.
+
+    GitHub redirects here after a user installs or updates the Helix GitHub App.
+    Stores the installation_id linked to the user's Auth0 sub in Postgres, then
+    redirects back to the project wizard in the dashboard.
+
+    Query parameters (set by GitHub):
+        installation_id  — numeric installation ID
+        setup_action     — "install" or "update"
+    """
+    if not installation_id:
+        raise HTTPException(status_code=400, detail="Missing installation_id")
+
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    user = current_user
+    async with get_db() as db:
+        await upsert_user(
+            db,
+            sub=user.get("sub", ""),
+            name=user.get("name", ""),
+            email=user.get("email", "") or "",
+            picture=user.get("picture", "") or "",
+        )
+        await upsert_github_installation(db, installation_id=installation_id, owner_sub=user["sub"])
+
+    logger.info(
+        "github app installation stored",
+        extra={"installation_id": installation_id, "sub": user.get("sub"), "setup_action": setup_action},
+    )
+    # Redirect back to the wizard with the installation_id so React can pick it up.
+    return RedirectResponse(url=f"/app/projects/new?installation_id={installation_id}")
+
+
+@app.post("/api/github/installations", tags=["github"])
+async def register_github_installation(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Manually register a GitHub App installation for the current user.
+
+    Used when the user has already installed the GitHub App but the automatic
+    callback was not reached (e.g. Setup URL not configured at install time).
+    The frontend sends the installation_id and this endpoint stores it.
+
+    Body:
+        installation_id  — numeric GitHub App installation ID
+    """
+    installation_id = str(body.get("installation_id", "")).strip()
+    if not installation_id:
+        raise HTTPException(status_code=400, detail="installation_id is required")
+
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    user = current_user
+    async with get_db() as db:
+        await upsert_user(
+            db,
+            sub=user.get("sub", ""),
+            name=user.get("name", ""),
+            email=user.get("email", "") or "",
+            picture=user.get("picture", "") or "",
+        )
+        await upsert_github_installation(db, installation_id=installation_id, owner_sub=user["sub"])
+
+    logger.info(
+        "github app installation registered manually",
+        extra={"installation_id": installation_id, "sub": user.get("sub")},
+    )
+    return {"installation_id": installation_id, "status": "registered"}
+
+
+@app.get("/api/github/repos", tags=["github"])
+async def list_github_repos(request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    List all repositories accessible via the user's GitHub App installation.
+
+    Used by the project wizard repo picker dropdown.
+    Returns 404 if the user has not installed the GitHub App yet.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    async with get_db() as db:
+        installation = await get_installation_for_user(db, current_user["sub"])
+        if not installation:
+            raise HTTPException(
+                status_code=404,
+                detail="GitHub App not installed. Visit the install URL first.",
+            )
+        repos = await list_installation_repos(installation["installation_id"], db)
+
+    return {
+        "installation_id": installation["installation_id"],
+        "install_url": build_install_url(),
+        "repos": repos,
+    }
+
+
+@app.get("/api/github/install-url", tags=["github"])
+async def get_github_install_url():
+    """Return the GitHub App installation URL for the Connect GitHub button."""
+    try:
+        return {"install_url": build_install_url()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Project API — Postgres-backed CRUD
 # ---------------------------------------------------------------------------
 
 # Sentinel value returned (and accepted) in place of real secret values.
-# If a client sends this value back in a settings update, the field is left unchanged.
 _SETTINGS_MASK = "***"
 
 _SECRET_FIELDS = {
     "anthropic_api_key",
-    "github_token",
-    "redis_url",
     "sentry_webhook_secret",
     "rollbar_access_token",
     "slack_bot_token",
@@ -550,59 +689,28 @@ _SECRET_FIELDS = {
 }
 
 
-def _mask_settings(settings: ProjectSettings) -> dict:
-    """
-    Return the settings dict with all non-empty secret values replaced by '***'.
-
-    Non-secret fields (e.g. slack_approval_channel, smtp_host) are returned
-    as-is so the UI can display them.
-    """
-    data = settings.model_dump()
+def _mask_row(row: dict) -> dict:
+    """Return a project row dict with secret settings values replaced by '***'."""
+    masked = dict(row)
     for field in _SECRET_FIELDS:
-        if data.get(field):
-            data[field] = _SETTINGS_MASK
-    return data
-
-
-def _apply_settings_patch(existing: ProjectSettings, patch: dict) -> ProjectSettings:
-    """
-    Apply a settings update dict onto existing settings.
-
-    Any field set to the mask sentinel ('***') is skipped — the caller is
-    indicating "keep what was there".  Empty strings are treated as clearing
-    the value (set to None).
-    """
-    data = existing.model_dump()
-    for key, value in patch.items():
-        if key not in data:
-            continue
-        if value == _SETTINGS_MASK:
-            continue  # keep existing
-        data[key] = value if value else None
-    return ProjectSettings(**data)
+        if masked.get(field):
+            masked[field] = _SETTINGS_MASK
+    return masked
 
 
 def _parse_repo_slug(repo_input: str) -> str:
     """
     Normalise a repo input to 'owner/name' format.
 
-    Accepts:
-      - https://github.com/owner/name
-      - https://github.com/owner/name.git
-      - git@github.com:owner/name.git
-      - owner/name
-
+    Accepts HTTPS URLs, SSH URLs, and plain owner/name slugs.
     Raises ValueError if the result is not in 'owner/name' format.
     """
     s = repo_input.strip().rstrip("/")
-    # SSH format
     if s.startswith("git@"):
         s = s.split(":", 1)[-1]
-    # HTTPS format
     if "github.com" in s:
         idx = s.find("github.com")
         s = s[idx + len("github.com"):].lstrip("/")
-    # Strip .git suffix
     if s.endswith(".git"):
         s = s[:-4]
     if s.count("/") != 1:
@@ -610,18 +718,23 @@ def _parse_repo_slug(repo_input: str) -> str:
     return s
 
 
+def _public_base_url(request: Request) -> str:
+    """Return the public base URL for this deployment."""
+    domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("PUBLIC_DOMAIN")
+    if domain:
+        return f"https://{domain}"
+    return str(request.base_url).rstrip("/")
+
+
 class CreateProjectBody(BaseModel):
-    """Request body for POST /api/projects."""
-    repo: str               # GitHub URL or owner/name
+    """Request body for POST /api/projects (wizard final step)."""
+    name: str
+    repo: str                               # GitHub URL or owner/name
     base_branch: str = "main"
     language: str = "python"
-
-
-class UpdateProjectSettingsBody(BaseModel):
-    """Request body for PUT /api/projects/{owner}/{name}/settings."""
+    github_installation_id: Optional[str] = None
+    # Settings submitted in the wizard
     anthropic_api_key: Optional[str] = None
-    github_token: Optional[str] = None
-    redis_url: Optional[str] = None
     sentry_webhook_secret: Optional[str] = None
     rollbar_access_token: Optional[str] = None
     slack_bot_token: Optional[str] = None
@@ -629,104 +742,184 @@ class UpdateProjectSettingsBody(BaseModel):
     slack_approval_channel: Optional[str] = None
     sendgrid_api_key: Optional[str] = None
     smtp_host: Optional[str] = None
+    email_from: Optional[str] = None
+    email_to: Optional[str] = None
+    alert_sources: list[str] = ["sentry", "rollbar"]
+
+
+class UpdateProjectSettingsBody(BaseModel):
+    """Request body for PUT /api/projects/{project_id}/settings."""
+    anthropic_api_key: Optional[str] = None
+    sentry_webhook_secret: Optional[str] = None
+    rollbar_access_token: Optional[str] = None
+    slack_bot_token: Optional[str] = None
+    slack_signing_secret: Optional[str] = None
+    slack_approval_channel: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+    email_from: Optional[str] = None
+    email_to: Optional[str] = None
+
+
+def _require_db() -> None:
+    """Raise 503 if DATABASE_URL is not set."""
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured — set DATABASE_URL")
 
 
 @app.get("/api/projects", tags=["projects"])
 async def list_projects(request: Request, current_user: dict = Depends(get_current_user)):
     """
-    List all projects for the calling user.
+    List all projects for the calling user (from Postgres).
 
     Secret settings values are masked — each non-empty secret is returned as
     '***' so the UI can show "already set" state without exposing credentials.
     """
-    projects = await read_user_projects(request.app.state.redis, current_user["sub"])
-    return {
-        "projects": [
-            {**p.model_dump(mode="json", exclude={"settings"}), "settings": _mask_settings(p.settings)}
-            for p in projects
-        ]
-    }
+    _require_db()
+    async with get_db() as db:
+        rows = await db_list_projects(db, current_user["sub"])
+    return {"projects": [_mask_row(r) for r in rows]}
 
 
 @app.post("/api/projects", tags=["projects"], status_code=201)
-async def create_project(body: CreateProjectBody, request: Request, current_user: dict = Depends(get_current_user)):
+async def create_project(
+    body: CreateProjectBody,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     """
-    Create a new project.
+    Create a new project (wizard final step).
 
-    The repo field accepts a full GitHub URL or an 'owner/name' slug.
-    Returns 409 if a project for that repo already exists.
+    Accepts all project details and settings in one call — no orphaned records
+    from abandoned wizards.  Returns the project with webhook URLs.
     """
+    _require_db()
     try:
         repo_slug = _parse_repo_slug(body.repo)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    user_id = current_user["sub"]
-    projects = await read_user_projects(request.app.state.redis, user_id)
+    project_id = str(uuid.uuid4())
+    user = current_user
 
-    if any(p.repo == repo_slug for p in projects):
-        raise HTTPException(status_code=409, detail=f"'{repo_slug}' already exists")
+    async with get_db() as db:
+        await upsert_user(
+            db,
+            sub=user.get("sub", ""),
+            name=user.get("name", ""),
+            email=user.get("email", "") or "",
+            picture=user.get("picture", "") or "",
+        )
+        await insert_project(
+            db,
+            project_id=project_id,
+            owner_sub=user["sub"],
+            name=body.name,
+            repo=repo_slug,
+            base_branch=body.base_branch,
+            language=body.language,
+            github_installation_id=body.github_installation_id,
+        )
+        settings = {
+            "anthropic_api_key": body.anthropic_api_key,
+            "sentry_webhook_secret": body.sentry_webhook_secret,
+            "rollbar_access_token": body.rollbar_access_token,
+            "slack_bot_token": body.slack_bot_token,
+            "slack_signing_secret": body.slack_signing_secret,
+            "slack_approval_channel": body.slack_approval_channel,
+            "sendgrid_api_key": body.sendgrid_api_key,
+            "smtp_host": body.smtp_host,
+            "email_from": body.email_from,
+            "email_to": body.email_to,
+            "alert_sources": json.dumps(body.alert_sources),
+        }
+        await upsert_project_settings(db, project_id, settings)
+        row = await get_project(db, project_id)
 
-    project = Project(repo=repo_slug, base_branch=body.base_branch, language=body.language)
-    projects.append(project)
-    await write_user_projects(request.app.state.redis, user_id, projects)
-
-    result = project.model_dump(mode="json", exclude={"settings"})
-    result["settings"] = _mask_settings(project.settings)
+    base = _public_base_url(request)
+    result = _mask_row(dict(row))
+    result["webhook_urls"] = {
+        "sentry": f"{base}/webhook/sentry/{project_id}",
+        "rollbar": f"{base}/webhook/rollbar/{project_id}",
+    }
+    logger.info("project created", extra={"project_id": project_id, "repo": repo_slug, "sub": user.get("sub")})
     return result
 
 
-@app.put("/api/projects/{owner}/{name}/settings", tags=["projects"])
+@app.put("/api/projects/{project_id}/settings", tags=["projects"])
 async def update_project_settings(
-    owner: str,
-    name: str,
+    project_id: str,
     body: UpdateProjectSettingsBody,
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Update the credential settings for a project.
+    Update credential settings for a project.
 
-    Any field set to '***' in the request body is left unchanged (the client
-    is indicating it did not modify that field).  Pass an empty string to
-    clear a field.  Returns the updated project with masked secret values.
+    Fields set to '***' are left unchanged. Empty string clears a field.
+    Returns the updated project with masked secret values.
     """
-    repo_slug = f"{owner}/{name}"
-    user_id = current_user["sub"]
-    projects = await read_user_projects(request.app.state.redis, user_id)
+    _require_db()
+    async with get_db() as db:
+        row = await get_project(db, project_id)
+        if not row or row.get("owner_sub") != current_user["sub"]:
+            raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
 
-    idx = next((i for i, p in enumerate(projects) if p.repo == repo_slug), None)
-    if idx is None:
-        raise HTTPException(status_code=404, detail=f"'{repo_slug}' not found")
+        patch = body.model_dump(exclude_none=False)
+        settings: dict = {}
+        for key, value in patch.items():
+            if value == _SETTINGS_MASK:
+                continue
+            settings[key] = value if value else None
 
-    projects[idx].settings = _apply_settings_patch(
-        projects[idx].settings,
-        body.model_dump(exclude_none=False),
-    )
-    await write_user_projects(request.app.state.redis, user_id, projects)
+        await upsert_project_settings(db, project_id, settings)
+        updated_row = await get_project(db, project_id)
 
-    result = projects[idx].model_dump(mode="json", exclude={"settings"})
-    result["settings"] = _mask_settings(projects[idx].settings)
-    return result
+    return _mask_row(dict(updated_row))
 
 
-@app.delete("/api/projects/{owner}/{name}", tags=["projects"])
-async def delete_project(owner: str, name: str, request: Request, current_user: dict = Depends(get_current_user)):
+@app.delete("/api/projects/{project_id}", tags=["projects"])
+async def delete_project(
+    project_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     """
-    Remove a project and its settings from the calling user's configuration.
+    Delete a project and its settings.
 
-    Returns 404 if the project does not exist.
+    Returns 404 if the project does not exist or belongs to another user.
     """
-    repo_slug = f"{owner}/{name}"
-    user_id = current_user["sub"]
-    projects = await read_user_projects(request.app.state.redis, user_id)
-    updated = [p for p in projects if p.repo != repo_slug]
+    _require_db()
+    async with get_db() as db:
+        deleted = await db_delete_project(db, project_id, current_user["sub"])
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    logger.info("project deleted", extra={"project_id": project_id, "sub": current_user.get("sub")})
+    return {"deleted": project_id}
 
-    if len(updated) == len(projects):
-        raise HTTPException(status_code=404, detail=f"'{repo_slug}' not found")
 
-    await write_user_projects(request.app.state.redis, user_id, updated)
-    return {"removed": repo_slug}
+@app.get("/api/projects/{project_id}/webhook-urls", tags=["projects"])
+async def get_webhook_urls(
+    project_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Return the webhook URLs for a project.
+
+    Used by the wizard to display copy-paste URLs after project creation.
+    """
+    _require_db()
+    async with get_db() as db:
+        row = await get_project(db, project_id)
+    if not row or row.get("owner_sub") != current_user["sub"]:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    base = _public_base_url(request)
+    return {
+        "project_id": project_id,
+        "sentry": f"{base}/webhook/sentry/{project_id}",
+        "rollbar": f"{base}/webhook/rollbar/{project_id}",
+    }
 
 
 @app.get("/api/me", tags=["auth"])
@@ -759,6 +952,19 @@ async def serve_landing():
     if _LANDING_PAGE.exists():
         return FileResponse(str(_LANDING_PAGE))
     return {"error": "Landing page not found"}
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+async def serve_favicon():
+    """Serve the SVG favicon for the landing page and login page."""
+    favicon = _LANDING_PAGE.parent / "favicon.svg"
+    if favicon.exists():
+        return FileResponse(str(favicon), media_type="image/svg+xml")
+    # Fall back to the one built into the dashboard dist
+    favicon = _DASHBOARD_DIST / "favicon.svg"
+    if favicon.exists():
+        return FileResponse(str(favicon), media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="favicon not found")
 
 
 # ---------------------------------------------------------------------------

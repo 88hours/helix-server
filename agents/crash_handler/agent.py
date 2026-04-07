@@ -25,9 +25,9 @@ from core.utils import extract_json
 logger = logging.getLogger(__name__)
 
 
-async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
+async def handle(event: RollbarEvent, redis_client: redis.Redis, project_id: str = "") -> CrashReport:
     """
-    Analyse a Rollbar event and produce a structured CrashReport.
+    Analyse a Rollbar/Sentry event and produce a structured CrashReport.
 
     Steps:
       1. Generate a unique incident_id.
@@ -36,8 +36,10 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
       4. Publish the crash_analysed event to trigger the QA Agent.
 
     Args:
-        event:        Normalised RollbarEvent from integrations/rollbar.py.
+        event:        Normalised RollbarEvent from integrations/rollbar.py or sentry.py.
         redis_client: Async Redis client for state and event publishing.
+        project_id:   Project UUID — identifies which project this incident belongs to.
+                      Empty string for legacy single-project deployments.
 
     Returns:
         The persisted CrashReport.
@@ -78,6 +80,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
 
     report = CrashReport(
         incident_id=incident_id,
+        project_id=project_id,
         source_item_id=event.item_id,
         source=event.source,
         severity=Severity(data["severity"]),

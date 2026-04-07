@@ -4,7 +4,7 @@
  * Routes:
  *   /app/incidents              → IncidentList
  *   /app/incidents/:incidentId  → IncidentDetail
- *   /app/repos                  → Repos (repo configuration)
+ *   /app/projects               → Projects (project + repo configuration)
  *
  * When VITE_AUTH0_DOMAIN is set, renders TokenProviderBridge (registers the
  * Auth0 token-getter with the API client) and NavUserChip (avatar + sign-out).
@@ -20,8 +20,7 @@ import { NavUserChip } from './components/NavUserChip'
 import { TokenProviderBridge } from './components/TokenProviderBridge'
 import { IncidentDetail } from './pages/IncidentDetail'
 import { IncidentList } from './pages/IncidentList'
-import { Projects } from './pages/Projects'
-import { Repos } from './pages/Repos'
+import Projects from './pages/Projects'
 
 const authEnabled = Boolean(import.meta.env.VITE_AUTH0_DOMAIN)
 
@@ -56,7 +55,6 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="text-gray-200">|</span>
             <NavLink to="/incidents">Incidents</NavLink>
             <NavLink to="/projects">Projects</NavLink>
-            <NavLink to="/repos">Repos</NavLink>
           </div>
           {authEnabled && <NavUserChip />}
         </div>
@@ -85,7 +83,6 @@ export default function App() {
             <Route path="/incidents" element={<IncidentList />} />
             <Route path="/incidents/:incidentId" element={<IncidentDetail />} />
             <Route path="/projects" element={<Projects />} />
-            <Route path="/repos" element={<Repos />} />
             <Route path="*" element={<Navigate to="/incidents" replace />} />
           </Routes>
         </Shell>

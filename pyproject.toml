@@ -28,8 +28,12 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "sse-starlette>=2.1",        # Server-Sent Events for the streaming dashboard
 
-    # Auth0 JWT validation (RS256 via JWKS)
+    # Auth0 JWT validation (RS256 via JWKS) + GitHub App JWT signing
     "PyJWT[crypto]>=2.10",
+
+    # Postgres — user/project persistent storage
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
 
     # Error tracking
     "rollbar>=0.16.0",

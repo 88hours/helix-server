@@ -1,5 +1,6 @@
 """
-Close all open issues and pull requests in a GitHub repository.
+Close all open issues and pull requests, and delete all branches (except the
+default branch) in a GitHub repository.
 
 Usage:
     python scripts/close_all.py owner/repo
@@ -8,7 +9,7 @@ The script reads GITHUB_TOKEN from the environment (or a .env file in the
 repo root).  PRs are closed first (they are also issues, so closing the PR
 via the pulls API is enough — the corresponding issue entry closes too).
 
-Dry-run mode prints what would be closed without making any changes:
+Dry-run mode prints what would be closed/deleted without making any changes:
     python scripts/close_all.py owner/repo --dry-run
 """
 
@@ -58,7 +59,7 @@ def _headers(token: str) -> dict:
     }
 
 
-def _paginate(url: str, token: str, params: dict | None = None) -> list[dict]:
+def _paginate(url: str, token: str, params=None) -> list:
     """Fetch all pages from a GitHub list endpoint."""
     results = []
     params = {**(params or {}), "per_page": 100, "page": 1}
@@ -114,10 +115,47 @@ def close_issues(repo: str, token: str, dry_run: bool) -> int:
                 headers=_headers(token),
                 json={"state": "closed"},
             )
+            if resp.status_code == 403:
+                print(f"  skipped issue #{number} (forbidden — token lacks issues:write)")
+                continue
             resp.raise_for_status()
             print(f"  closed issue #{number}: {title}")
             time.sleep(0.1)
     return len(issues)
+
+
+def delete_branches(repo: str, token: str, dry_run: bool) -> int:
+    """Delete all branches except the default branch. Returns count deleted."""
+    # Get default branch name
+    resp = requests.get(f"https://api.github.com/repos/{repo}", headers=_headers(token))
+    resp.raise_for_status()
+    default_branch = resp.json()["default_branch"]
+
+    url = f"https://api.github.com/repos/{repo}/branches"
+    branches = _paginate(url, token)
+    deleted = 0
+    for branch in branches:
+        name = branch["name"]
+        if name == default_branch:
+            continue
+        if dry_run:
+            print(f"  [dry-run] would delete branch: {name}")
+        else:
+            resp = requests.delete(
+                f"https://api.github.com/repos/{repo}/git/refs/heads/{name}",
+                headers=_headers(token),
+            )
+            if resp.status_code == 403:
+                print(f"  skipped branch (forbidden): {name}")
+                continue
+            if resp.status_code == 422:
+                print(f"  skipped branch (protected): {name}")
+                continue
+            resp.raise_for_status()
+            print(f"  deleted branch: {name}")
+            time.sleep(0.1)
+        deleted += 1
+    return deleted
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +166,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Close all open PRs and issues in a GitHub repo.")
     parser.add_argument("repo", help="Repository in owner/name format, e.g. acme/backend")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be closed without making changes")
+    parser.add_argument("--token", help="GitHub token to use (overrides GITHUB_TOKEN env var)")
     args = parser.parse_args()
 
     if args.repo.count("/") != 1:
@@ -136,9 +175,9 @@ def main() -> None:
 
     _load_dotenv()
 
-    token = os.environ.get("GITHUB_TOKEN")
+    token = args.token or os.environ.get("GITHUB_TOKEN")
     if not token:
-        print("error: GITHUB_TOKEN not set", file=sys.stderr)
+        print("error: GITHUB_TOKEN not set (or pass --token)", file=sys.stderr)
         sys.exit(1)
 
     dry = args.dry_run
@@ -153,7 +192,11 @@ def main() -> None:
     issue_count = close_issues(args.repo, token, dry)
     print(f"  → {issue_count} issue(s) {'would be ' if dry else ''}closed\n")
 
-    print(f"Done. {pr_count + issue_count} item(s) total.")
+    print("Branches:")
+    branch_count = delete_branches(args.repo, token, dry)
+    print(f"  → {branch_count} branch(es) {'would be ' if dry else ''}deleted\n")
+
+    print(f"Done. {pr_count + issue_count + branch_count} item(s) total.")
 
 
 if __name__ == "__main__":

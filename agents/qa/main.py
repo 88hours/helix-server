@@ -16,8 +16,10 @@ import redis.asyncio as aioredis
 
 from agents.qa.agent import handle
 from core.config import get_redis_url
+from core.db import get_db, get_project
 from core.events import subscribe
-from core.models import CrashReport
+from core.github_app import get_installation_token
+from core.models import CrashReport, Project, ProjectSettings
 from core.state import read_crash_report
 
 logger = logging.getLogger(__name__)
@@ -59,7 +61,47 @@ async def main() -> None:
                     extra={"incident_id": incident_id, "severity": report.severity.value},
                 )
 
-            await handle(report, redis_client)
+            # Load per-project config from Postgres when available.
+            project: Project | None = None
+            installation_token: str | None = None
+            if report.project_id and os.environ.get("DATABASE_URL"):
+                try:
+                    async with get_db() as db:
+                        row = await get_project(db, report.project_id)
+                    if row:
+                        settings = ProjectSettings(
+                            anthropic_api_key=row.get("anthropic_api_key"),
+                            sentry_webhook_secret=row.get("sentry_webhook_secret"),
+                            rollbar_access_token=row.get("rollbar_access_token"),
+                            slack_bot_token=row.get("slack_bot_token"),
+                            slack_signing_secret=row.get("slack_signing_secret"),
+                            slack_approval_channel=row.get("slack_approval_channel"),
+                            sendgrid_api_key=row.get("sendgrid_api_key"),
+                            smtp_host=row.get("smtp_host"),
+                            email_from=row.get("email_from"),
+                            email_to=row.get("email_to"),
+                        )
+                        project = Project(
+                            project_id=row["project_id"],
+                            name=row["name"],
+                            repo=row["repo"],
+                            base_branch=row["base_branch"],
+                            language=row["language"],
+                            github_installation_id=row.get("github_installation_id"),
+                            settings=settings,
+                        )
+                        if project.github_installation_id:
+                            async with get_db() as db:
+                                installation_token = await get_installation_token(
+                                    project.github_installation_id, db
+                                )
+                except Exception as proj_exc:
+                    logger.warning(
+                        "failed to load project config — using env var fallback",
+                        extra={"incident_id": incident_id, "project_id": report.project_id, "error": str(proj_exc)},
+                    )
+
+            await handle(report, redis_client, project=project, installation_token=installation_token)
             logger.info("qa agent finished handling incident", extra={"incident_id": incident_id})
         except Exception as exc:
             logger.error(

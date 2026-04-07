@@ -7,6 +7,12 @@ Each model maps to a stage in the pipeline:
   QAResult      — QA Agent output (ticket + test case), persisted to Redis
   PRResult      — stored by Human Approval agent (PR merge details)
   HelixEvent    — generic event envelope for EventBridge / Redis Pub/Sub
+
+Project models:
+  AgentOverride    — per-project LLM provider/model override for one agent
+  PipelineSettings — per-project pipeline tuning (max iterations, file limits)
+  ProjectSettings  — full per-project credentials and config (stored in Postgres)
+  Project          — a GitHub repo plus its settings, identified by project_id
 """
 
 from datetime import datetime, timezone
@@ -89,20 +95,42 @@ class RepoConfig(BaseModel):
 # Project configuration (repo + credentials)
 # ---------------------------------------------------------------------------
 
+class AgentOverride(BaseModel):
+    """
+    Per-project LLM provider and model override for a single agent.
+
+    When set, these values take precedence over config.yaml for that agent.
+    Either field can be None to inherit the global default.
+    """
+    provider: Optional[str] = None   # e.g. "anthropic", "openrouter"
+    model: Optional[str] = None      # e.g. "claude-sonnet-4-6"
+
+
+class PipelineSettings(BaseModel):
+    """
+    Per-project pipeline tuning parameters.
+
+    These override the hardcoded defaults in each agent.
+    """
+    dev_max_iterations: int = 3       # max TDD fix attempts before escalation
+    qa_max_source_files: int = 8      # max source files read by QA Agent
+    qa_max_file_chars: int = 4000     # max characters read per source file
+
+
 class ProjectSettings(BaseModel):
     """
-    Per-project credential and notification settings.
+    Per-project credential and notification settings stored in Postgres.
 
-    Stored inside Project and persisted to Redis.  Secret values are masked
-    to '***' before being returned by the API — callers send '***' back to
-    indicate "keep the existing value unchanged".
+    Secret values are masked to '***' before being returned by the API —
+    callers send '***' back to indicate "keep the existing value unchanged".
 
     Required for the pipeline to run:
         anthropic_api_key        — LLM calls (Crash Handler, QA, Dev agents)
-        github_token             — create issues, open PRs, read source files
-        redis_url                — shared state and event bus
-        sentry_webhook_secret    — HMAC verification for Sentry webhooks  \
+        sentry_webhook_secret    — HMAC verification for Sentry webhooks  \\
         rollbar_access_token     — token verification for Rollbar webhooks /  (at least one)
+
+    GitHub access is provided by the GitHub App installation token (resolved
+    at runtime from github_installation_id on the parent Project) — no PAT needed.
 
     Optional notifications:
         slack_bot_token          — post approval messages / escalations
@@ -110,11 +138,15 @@ class ProjectSettings(BaseModel):
         slack_approval_channel   — channel ID or name for PR approval messages
         sendgrid_api_key         — transactional email via SendGrid
         smtp_host                — SMTP server for email (fallback if SendGrid absent)
+        email_from / email_to    — sender and recipient addresses for email alerts
+
+    Advanced:
+        alert_sources            — which platforms to accept webhooks from, e.g. ["sentry"]
+        agent_overrides          — per-agent LLM provider/model overrides
+        pipeline                 — pipeline tuning parameters
     """
     # Required
     anthropic_api_key: Optional[str] = None
-    github_token: Optional[str] = None
-    redis_url: Optional[str] = None
     sentry_webhook_secret: Optional[str] = None
     rollbar_access_token: Optional[str] = None
     # Optional — Slack
@@ -124,19 +156,30 @@ class ProjectSettings(BaseModel):
     # Optional — Email
     sendgrid_api_key: Optional[str] = None
     smtp_host: Optional[str] = None
+    email_from: Optional[str] = None
+    email_to: Optional[str] = None
+    # Optional — Advanced
+    alert_sources: list[str] = Field(default_factory=lambda: ["sentry", "rollbar"])
+    agent_overrides: dict[str, AgentOverride] = Field(default_factory=dict)
+    pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
 
 
 class Project(BaseModel):
     """
     A user-configured project: a GitHub repository plus its runtime credentials.
 
-    Stored in Redis per Auth0 user under helix:user:{sub}:projects (no TTL).
-    The settings field holds credentials that override environment variables
-    when the pipeline runs for this project.
+    Stored in Postgres. The project_id is the stable identity used in webhook
+    URLs (/webhook/sentry/{project_id}) and as the Redis namespace for incidents.
+
+    GitHub access is provided via the GitHub App installation identified by
+    github_installation_id — no personal access token is stored.
     """
-    repo: str                               # "owner/name", e.g. "acme/backend"
-    base_branch: str = "main"              # branch PRs are opened against
-    language: str = "python"               # primary language — influences test framework
+    project_id: str                                 # UUID, stable webhook identity
+    name: str                                       # human-readable display name
+    repo: str                                       # "owner/name", e.g. "acme/backend"
+    base_branch: str = "main"                       # branch PRs are opened against
+    language: str = "python"                        # primary language — influences test framework
+    github_installation_id: Optional[str] = None   # GitHub App installation ID
     added_at: datetime = Field(default_factory=_now)
     settings: ProjectSettings = Field(default_factory=ProjectSettings)
 
@@ -182,6 +225,7 @@ class CrashReport(BaseModel):
     Published as the payload of the CrashAnalysed event.
     """
     incident_id: str
+    project_id: str         # which Project this incident belongs to
     source_item_id: str     # issue / item ID from the originating tool (Rollbar or Sentry)
     source: str             # "rollbar" or "sentry"
     severity: Severity
@@ -259,5 +303,6 @@ class HelixEvent(BaseModel):
     (e.g. CrashReport.model_dump() for CrashAnalysed).
     """
     incident_id: str
+    project_id: str
     timestamp: datetime = Field(default_factory=_now)
     payload: dict = Field(default_factory=dict)

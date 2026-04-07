@@ -1,17 +1,12 @@
 # ---------------------------------------------------------------------------
 # Helix — full local stack
 #
-# Start everything (Redis included):
+# Start everything (Redis + Postgres included):
 #   docker compose up --build
 #
-# External Redis (Redis Cloud, AWS ElastiCache, etc.):
-#   Set REDIS_URL in .env to a non-localhost URL. The local Redis container
-#   will still start but agents will connect to your external instance.
-#
-# REDIS_URL in .env:
-#   redis://localhost:6379  — agents are automatically redirected to the
-#                             local Redis container (entrypoint.sh handles this)
-#   redis://<cloud-host>    — agents connect directly to the cloud instance
+# External Redis / Postgres:
+#   Set REDIS_URL / DATABASE_URL in .env to point at cloud instances.
+#   The local containers default as fallback when those vars are not set.
 #
 # Individual service logs:
 #   docker compose logs -f crash_handler
@@ -20,7 +15,7 @@
 services:
 
   # -------------------------------------------------------------------------
-  # Infrastructure — always started
+  # Infrastructure
   # -------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -33,14 +28,26 @@ services:
       timeout: 3s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: helix
+      POSTGRES_USER: helix
+      POSTGRES_PASSWORD: helix
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helix -d helix"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # -------------------------------------------------------------------------
   # Helix agents
   #
-  # REDIS_URL defaults to the local Redis container when --profile local is
-  # used. Set REDIS_URL in .env to point agents at an external instance.
-  #
-  # depends_on.redis.required: false means agents start even when the local
-  # Redis container is not present (i.e. when using an external Redis).
+  # REDIS_URL and DATABASE_URL default to the local containers when not set
+  # in .env. Set them in .env to point at external cloud instances instead.
   # -------------------------------------------------------------------------
   crash_handler:
     build: .
@@ -49,11 +56,15 @@ services:
       redis:
         condition: service_healthy
         required: false
+      postgres:
+        condition: service_healthy
+        required: false
     ports:
       - "8000:8000"
     env_file: .env
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://helix:helix@postgres:5432/helix}
     command: >
       uvicorn agents.crash_handler.main:app
         --host 0.0.0.0
@@ -66,9 +77,13 @@ services:
       redis:
         condition: service_healthy
         required: false
+      postgres:
+        condition: service_healthy
+        required: false
     env_file: .env
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://helix:helix@postgres:5432/helix}
     command: python -m agents.qa.main
 
   dev:
@@ -78,9 +93,13 @@ services:
       redis:
         condition: service_healthy
         required: false
+      postgres:
+        condition: service_healthy
+        required: false
     env_file: .env
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://helix:helix@postgres:5432/helix}
     command: python -m agents.dev.main
 
   notifier:
@@ -90,8 +109,12 @@ services:
       redis:
         condition: service_healthy
         required: false
+      postgres:
+        condition: service_healthy
+        required: false
     env_file: .env
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://helix:helix@postgres:5432/helix}
     command: python -m agents.notifier.main
 
