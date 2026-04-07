@@ -952,6 +952,19 @@ async def serve_landing():
     return {"error": "Landing page not found"}
 
 
+@app.get("/favicon.svg", include_in_schema=False)
+async def serve_favicon():
+    """Serve the SVG favicon for the landing page and login page."""
+    favicon = _LANDING_PAGE.parent / "favicon.svg"
+    if favicon.exists():
+        return FileResponse(str(favicon), media_type="image/svg+xml")
+    # Fall back to the one built into the dashboard dist
+    favicon = _DASHBOARD_DIST / "favicon.svg"
+    if favicon.exists():
+        return FileResponse(str(favicon), media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="favicon not found")
+
+
 # ---------------------------------------------------------------------------
 # Dashboard SPA — serve the built React app for all /app/* routes
 # ---------------------------------------------------------------------------
