@@ -1,6 +1,6 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/88hours/helix/tree/main.svg?style=svg&circle-token=CCIPRJ_Ep6waV9SHZqBRZGvT3jMRw_67ae3a13933cdc72c40be855fe2fc8b931f54f1c)](https://dl.circleci.com/status-badge/redirect/gh/88hours/helix/tree/main)
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/88hours/helix)
-[![Website](https://img.shields.io/badge/website-live-brightgreen)](https://playful-seahorse-1785f6.netlify.app)
+[![Website](https://img.shields.io/badge/website-live-brightgreen)](https://helix-production-3b95.up.railway.app/)
 # Helix
 
 Helix is an autonomous incident response platform. It takes a production crash from Sentry or Rollbar all the way to a ready-to-merge pull request in under 10 minutes — no human involvement required until the PR review.
@@ -27,9 +27,11 @@ agents/
   crash_handler/       FastAPI webhook server — receives Sentry/Rollbar events, hosts the dashboard API
     agent.py           Core logic: LLM analysis → CrashReport
     prompts.py         System + user prompt templates
-    main.py            POST /webhook/sentry, POST /webhook/rollbar, POST /slack/actions
+    main.py            GET / (landing page), POST /webhook/sentry, POST /webhook/rollbar, POST /slack/actions
                        GET /api/incidents, GET /api/incidents/{id}, GET /api/stream/{id} (SSE)
                        GET/POST/DELETE /api/repos — per-user repo configuration
+                       GET/POST /api/projects, PUT /api/projects/{owner}/{name}/settings,
+                       DELETE /api/projects/{owner}/{name} — per-project credential settings
                        GET /api/me — caller identity from JWT
                        GET /app/* (serves the React dashboard)
     railway.json       Railway service config for this agent
@@ -50,8 +52,8 @@ agents/
 core/
   config.py            Typed config loaders for all agents and integrations
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
-  state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo configs)
-  models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig)
+  state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo/project configs)
+  models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig, Project, ProjectSettings)
   llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI
   permissions.py       Per-agent tool access control — declare and enforce at runtime
   ui_events.py         Dashboard event publishing — agent progress + tool call events via Redis Pub/Sub
@@ -66,12 +68,13 @@ integrations/
   email.py             SendGrid API (preferred) or SMTP fallback
 dashboard/             React + TypeScript + Tailwind — streaming incident dashboard
   src/
-    App.tsx            Root app with React Router (base: /app/) — Incidents + Repos nav
+    App.tsx            Root app with React Router (base: /app/) — Incidents + Projects + Repos nav
     api.ts             fetch wrappers, EventSource subscription, Auth0 token injection
     main.tsx           Entry point — wraps app in Auth0Provider when VITE_AUTH0_DOMAIN is set
     pages/
       IncidentList.tsx   Polls /api/incidents — table of all incidents, newest first
       IncidentDetail.tsx Opens SSE stream — pipeline progress, tool calls, live log, crash/QA/PR details
+      Projects.tsx       Project management — create projects, configure per-project credentials (API keys, tokens)
       Repos.tsx          Repo configuration — add / remove repos per user
     components/
       PipelineProgress.tsx    4-step pipeline tracker with checkmarks
@@ -85,7 +88,9 @@ dashboard/             React + TypeScript + Tailwind — streaming incident dash
   .env.example         Frontend env var template (VITE_AUTH0_DOMAIN, VITE_AUTH0_CLIENT_ID, etc.)
   vite.config.ts       Base /app/, proxies /api → localhost:8000 in dev
 config.yaml            Source of truth for all non-secret config (models, Redis, permissions)
-index.html             Landing page
+index.html             Landing page — served at GET /, Sign In CTA routes to /app
+scripts/
+  close_all.py         Close all open PRs and issues in a repo (uses GITHUB_TOKEN)
 pyproject.toml         Python package definition and dependencies
 uv.lock                Pinned dependency lockfile
 .env.example           Template for all required environment variables
@@ -146,7 +151,7 @@ Required variables:
 | `SMTP_PASSWORD` | SMTP password or app password |
 | `EMAIL_FROM` | Sender address, e.g. `helix@acme.com` (optional — logs warning if absent) |
 | `EMAIL_TO` | Comma-separated recipients, e.g. `oncall@acme.com` (optional) |
-| `HELIX_DEMO` | Set to `true` to skip all webhook signature/token verification (useful for local testing) |
+| `HELIX_DEMO` | Set to `true` to skip webhook signature/token verification — local testing only; **default is `false`** |
 | `AUTH0_DOMAIN` | Auth0 tenant domain, e.g. `your-tenant.auth0.com` (optional — leave unset for demo mode) |
 | `AUTH0_AUDIENCE` | Auth0 API identifier, e.g. `https://api.helix.yourapp.com` (required when `AUTH0_DOMAIN` is set) |
 
@@ -337,10 +342,11 @@ curl -X POST http://localhost:8000/webhook/rollbar \
   -d @test_payloads/rollbar_new_item.json
 ```
 
-Sentry (demo mode skips signature verification — set `HELIX_DEMO=true` in `.env`):
+Sentry (signature is verified — set `HELIX_DEMO=true` in `.env` to skip verification during local testing):
 ```bash
 curl -X POST http://localhost:8000/webhook/sentry \
   -H "Content-Type: application/json" \
+  -H "sentry-hook-signature: <hmac-sha256-of-body>" \
   -d @test_payloads/sentry_event.json
 ```
 
@@ -528,11 +534,12 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Tool visualisation — live tool call timeline in the dashboard (LLM, GitHub, Git, Claude Code)
 - [x] Auth0 + GitHub login — JWT validation via JWKS, optional (demo mode if `AUTH0_DOMAIN` unset)
 - [x] Repo configuration — users add/manage repos via `/app/repos`; stored per user in Redis
+- [x] Landing page — `index.html` served at `GET /`; Sign In CTA routes to `/app`
+- [x] Projects page — create projects with a GitHub URL, configure per-project credentials (API keys, tokens, Slack, email) via `/app/projects`; secret values masked on read
+- [x] Sentry webhook signature verification — HMAC-SHA256 verification working end-to-end
+- [x] Demo mode default — flipped to `false`; production deployments verify signatures without any extra config
 - [ ] UI configuration not wired to `config.yaml` — agent models, providers, and settings must still be configured manually in `.env`
-- [ ] Live website (`index.html`) not served from Docker container — static landing page needs to be included in the image
-- [ ] Onboarding flow incomplete — repo selection and Sentry/Rollbar secret entry not yet connected end-to-end
-- [ ] Sentry and Rollbar webhook signature verification not working
-- [ ] Demo mode is on by default (`HELIX_DEMO=true`) — must be explicitly disabled for production use
+- [ ] Onboarding flow incomplete — project credentials not yet injected into the agent pipeline at runtime
 
 ### Phase 3 — Observability and Platform Maturity
 - [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend

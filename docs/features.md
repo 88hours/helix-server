@@ -23,9 +23,10 @@ Helix takes a production crash all the way to a ready-to-merge pull request with
 - Accepts Sentry issue-alert webhooks at `/webhook/sentry` — verifies the HMAC-SHA256 signature in `sentry-hook-signature` against `SENTRY_WEBHOOK_SECRET`
 - Returns `202 Accepted` with an `incident_id` immediately; processing continues asynchronously
 - Returns `401 Unauthorized` for invalid tokens or signatures
+- Signature verification is **always on** by default — set `HELIX_DEMO=true` to skip it for local testing without real credentials
 
 ### Crash analysis
-- Normalises Rollbar and Sentry payloads into the same internal event format before LLM analysis
+- Normalises Rollbar and Sentry payloads into the same internal event format before LLM analysis; the prompt labels the source correctly ("Sentry event" or "Rollbar crash event")
 - Produces a `CrashReport` with: `incident_id`, `source_item_id`, `source`, `severity`, `error_type`, `error_message`, `stack_trace`, `affected_component`, `affected_endpoint`, and a plain-English `summary`
 - Classifies severity as `low`, `medium`, `high`, or `critical`
 
@@ -177,7 +178,7 @@ Switch backends with `HELIX_EVENT_BACKEND=eventbridge`. EventBridge uses the sam
 
 ## Dashboard
 
-The React dashboard is served by the Crash Handler at `/app` and streams live agent activity via SSE.
+The static landing page is served at `GET /` and includes a **Sign in** CTA that routes visitors to `/app`. The React dashboard is served by the Crash Handler at `/app` and streams live agent activity via SSE.
 
 ### Incident list (`/app/incidents`)
 - Polls `GET /api/incidents` every 10 seconds
@@ -192,6 +193,19 @@ The React dashboard is served by the Crash Handler at `/app` and streams live ag
 - **Crash report** — error type, component, endpoint, language, source, stack trace (expandable)
 - **QA result** — test file, test name, format, full test content (expandable); link to GitHub Issue
 - **PR result** — PR link, branch name, fix summary, files changed, iterations taken
+
+### Projects (`/app/projects`)
+- A **project** is a GitHub repository plus all the credentials Helix needs to run the pipeline against it
+- Create a project by pasting any GitHub URL (`https://github.com/owner/name`, SSH `git@github.com:owner/name.git`, or a plain `owner/name` slug) — the slug is normalised automatically
+- Each project has a settings panel grouped into three sections:
+  - **Core credentials** (required): `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `REDIS_URL`, and at least one of `SENTRY_WEBHOOK_SECRET` / `ROLLBAR_ACCESS_TOKEN`
+  - **Slack notifications** (optional): `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_APPROVAL_CHANNEL`
+  - **Email notifications** (optional): `SENDGRID_API_KEY`, `SMTP_HOST`
+- Secret values are returned as `***` after being saved — the UI shows an "Already set" indicator so users know a field is configured without exposing the value
+- Typing a new value into a secret field replaces it; leaving it blank keeps the existing value
+- A **Ready** badge appears on a project card once all required credentials are set
+- Stored per Auth0 user in Redis at `helix:user:{sub}:projects` (no TTL — permanent user data)
+- API: `GET /api/projects`, `POST /api/projects`, `PUT /api/projects/{owner}/{name}/settings`, `DELETE /api/projects/{owner}/{name}`
 
 ### Repo configuration (`/app/repos`)
 - Lists all repos the authenticated user has configured
