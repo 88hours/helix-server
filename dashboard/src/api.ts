@@ -218,13 +218,48 @@ export async function removeRepo(repo: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// GitHub App
+// ---------------------------------------------------------------------------
+
+export interface GitHubRepo {
+  full_name: string
+  private: boolean
+  default_branch: string
+  description: string
+}
+
+export interface GitHubInstallation {
+  installation_id: string
+  install_url: string
+  repos: GitHubRepo[]
+}
+
+/** Return the GitHub App installation URL (for the Connect GitHub button). */
+export async function fetchGitHubInstallUrl(): Promise<string> {
+  const headers = await _authHeaders()
+  const res = await fetch('/api/github/install-url', { headers })
+  if (!res.ok) throw new Error(`Failed to fetch install URL: ${res.status}`)
+  const data = await res.json()
+  return (data as { install_url: string }).install_url
+}
+
+/** List repos accessible via the user's GitHub App installation. */
+export async function fetchGitHubRepos(): Promise<GitHubInstallation> {
+  const headers = await _authHeaders()
+  const res = await fetch('/api/github/repos', { headers })
+  if (res.status === 404) {
+    throw new Error('GitHub App not installed')
+  }
+  if (!res.ok) throw new Error(`Failed to fetch GitHub repos: ${res.status}`)
+  return res.json() as Promise<GitHubInstallation>
+}
+
+// ---------------------------------------------------------------------------
 // Project configuration (repo + credentials)
 // ---------------------------------------------------------------------------
 
 export interface ProjectSettings {
   anthropic_api_key: string | null
-  github_token: string | null
-  redis_url: string | null
   sentry_webhook_secret: string | null
   rollbar_access_token: string | null
   slack_bot_token: string | null
@@ -232,17 +267,55 @@ export interface ProjectSettings {
   slack_approval_channel: string | null
   sendgrid_api_key: string | null
   smtp_host: string | null
+  email_from: string | null
+  email_to: string | null
+  alert_sources: string[]
 }
 
 export interface Project {
+  project_id: string
+  name: string
   repo: string
   base_branch: string
   language: string
-  added_at: string
-  settings: ProjectSettings
+  github_installation_id: string | null
+  created_at: string
+  /** Set on the response from POST /api/projects */
+  webhook_urls?: { sentry: string; rollbar: string }
+  // Flattened settings columns (from the JOIN in list_projects / get_project)
+  anthropic_api_key: string | null
+  sentry_webhook_secret: string | null
+  rollbar_access_token: string | null
+  slack_bot_token: string | null
+  slack_signing_secret: string | null
+  slack_approval_channel: string | null
+  sendgrid_api_key: string | null
+  smtp_host: string | null
+  email_from: string | null
+  email_to: string | null
+  alert_sources: string | null
 }
 
-/** List the calling user's projects (settings values are masked as '***' if set). */
+export interface CreateProjectPayload {
+  name: string
+  repo: string
+  base_branch: string
+  language: string
+  github_installation_id: string | null
+  anthropic_api_key: string | null
+  sentry_webhook_secret: string | null
+  rollbar_access_token: string | null
+  slack_bot_token: string | null
+  slack_signing_secret: string | null
+  slack_approval_channel: string | null
+  sendgrid_api_key: string | null
+  smtp_host: string | null
+  email_from: string | null
+  email_to: string | null
+  alert_sources: string[]
+}
+
+/** List the calling user's projects (secret values are masked as '***' if set). */
 export async function fetchProjects(): Promise<Project[]> {
   const headers = await _authHeaders()
   const res = await fetch('/api/projects', { headers })
@@ -251,13 +324,13 @@ export async function fetchProjects(): Promise<Project[]> {
   return data.projects as Project[]
 }
 
-/** Create a new project. repo can be a full GitHub URL or owner/name slug. */
-export async function createProject(repo: string, baseBranch = 'main', language = 'python'): Promise<Project> {
+/** Create a new project (wizard final step — single API call with all settings). */
+export async function createProject(payload: CreateProjectPayload): Promise<Project> {
   const headers = { ...(await _authHeaders()), 'Content-Type': 'application/json' }
   const res = await fetch('/api/projects', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ repo, base_branch: baseBranch, language }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -267,18 +340,17 @@ export async function createProject(repo: string, baseBranch = 'main', language 
 }
 
 /**
- * Update the settings for a project.
+ * Update the settings for a project by project_id.
  *
- * Pass '***' for any secret you don't want to change (or omit it — null means
- * "don't touch").  Pass an empty string to clear a value.
+ * Pass '***' for any secret you don't want to change.
+ * Pass an empty string to clear a value.
  */
 export async function updateProjectSettings(
-  repo: string,
+  projectId: string,
   settings: Partial<ProjectSettings>,
 ): Promise<Project> {
-  const [owner, name] = repo.split('/')
   const headers = { ...(await _authHeaders()), 'Content-Type': 'application/json' }
-  const res = await fetch(`/api/projects/${owner}/${name}/settings`, {
+  const res = await fetch(`/api/projects/${projectId}/settings`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(settings),
@@ -290,12 +362,19 @@ export async function updateProjectSettings(
   return res.json() as Promise<Project>
 }
 
-/** Delete a project and its settings. */
-export async function deleteProject(repo: string): Promise<void> {
-  const [owner, name] = repo.split('/')
+/** Delete a project and its settings by project_id. */
+export async function deleteProject(projectId: string): Promise<void> {
   const headers = await _authHeaders()
-  const res = await fetch(`/api/projects/${owner}/${name}`, { method: 'DELETE', headers })
+  const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers })
   if (!res.ok) throw new Error(`Failed to delete project: ${res.status}`)
+}
+
+/** Return the webhook URLs for a project. */
+export async function fetchWebhookUrls(projectId: string): Promise<{ sentry: string; rollbar: string }> {
+  const headers = await _authHeaders()
+  const res = await fetch(`/api/projects/${projectId}/webhook-urls`, { headers })
+  if (!res.ok) throw new Error(`Failed to fetch webhook URLs: ${res.status}`)
+  return res.json() as Promise<{ sentry: string; rollbar: string }>
 }
 
 // ---------------------------------------------------------------------------

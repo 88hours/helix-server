@@ -20,7 +20,7 @@ import { NavUserChip } from './components/NavUserChip'
 import { TokenProviderBridge } from './components/TokenProviderBridge'
 import { IncidentDetail } from './pages/IncidentDetail'
 import { IncidentList } from './pages/IncidentList'
-import { Projects } from './pages/Projects'
+import Projects from './pages/Projects'
 import { Repos } from './pages/Repos'
 
 const authEnabled = Boolean(import.meta.env.VITE_AUTH0_DOMAIN)
