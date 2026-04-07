@@ -63,20 +63,32 @@ async def _git(args: list[str], cwd: Optional[str] = None) -> str:
     return stdout.decode().strip()
 
 
-async def clone_repo(repo_url: str, target_dir: str) -> None:
+async def clone_repo(repo_url: str, target_dir: str, token: str | None = None) -> None:
     """
     Clone a GitHub repository to a local directory.
 
-    If GITHUB_TOKEN is set, it is embedded in the URL so private repos work.
+    If a token is provided (or GITHUB_TOKEN is set), it is embedded in the URL
+    so private repos work.
 
     Args:
         repo_url:   HTTPS clone URL, e.g. "https://github.com/org/repo.git"
         target_dir: Local path to clone into. Must not already exist.
+        token:      GitHub token. Falls back to GITHUB_TOKEN env var.
     """
-    token = os.environ.get("GITHUB_TOKEN")
-    if token and repo_url.startswith("https://github.com/"):
-        # Embed token so git doesn't prompt for credentials.
-        repo_url = repo_url.replace("https://", f"https://{token}@")
+    if token:
+        resolved = token
+    else:
+        logger.warning(
+            "no installation token provided for clone — falling back to GITHUB_TOKEN env var; "
+            "ideally a GitHub App installation token should be used"
+        )
+        resolved = os.environ.get("GITHUB_TOKEN")
+    if resolved and repo_url.startswith("https://github.com/"):
+        # Embed token using x-access-token as the username. This works for both
+        # classic PATs and GitHub App installation tokens (ghs_...). Using the
+        # token as the username alone causes git to prompt for a password on
+        # App tokens, which fails in a headless environment.
+        repo_url = repo_url.replace("https://", f"https://x-access-token:{resolved}@")
 
     await _git(["clone", "--depth", "1", repo_url, target_dir])
     logger.info("repo cloned", extra={"target_dir": target_dir})
@@ -138,13 +150,24 @@ async def commit_and_push(
 # GitHub REST API helpers (httpx)
 # ---------------------------------------------------------------------------
 
-def _api_headers() -> dict[str, str]:
-    """Return standard headers for GitHub API requests."""
-    token = os.environ.get("GITHUB_TOKEN")
-    if not token:
+def _api_headers(token: str | None = None) -> dict[str, str]:
+    """Return standard headers for GitHub API requests.
+
+    Args:
+        token: GitHub token to use. Falls back to GITHUB_TOKEN env var.
+    """
+    if token:
+        resolved = token
+    else:
+        logger.warning(
+            "no installation token provided — falling back to GITHUB_TOKEN env var; "
+            "ideally a GitHub App installation token should be used"
+        )
+        resolved = os.environ.get("GITHUB_TOKEN")
+    if not resolved:
         raise EnvironmentError("GITHUB_TOKEN is not set")
     return {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {resolved}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
@@ -156,6 +179,7 @@ async def create_pull_request(
     body: str,
     head: str,
     base: str = "main",
+    token: str | None = None,
 ) -> tuple[int, str]:
     """
     Open a pull request on GitHub.
@@ -166,6 +190,7 @@ async def create_pull_request(
         body:  PR description (supports Markdown).
         head:  Source branch name (the fix branch).
         base:  Target branch name. Defaults to "main".
+        token: GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Returns:
         (pr_number, pr_url) tuple.
@@ -177,7 +202,7 @@ async def create_pull_request(
     payload = {"title": title, "body": body, "head": head, "base": base}
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload, headers=_api_headers())
+        response = await client.post(url, json=payload, headers=_api_headers(token))
         response.raise_for_status()
 
     data = response.json()
@@ -192,6 +217,7 @@ async def merge_pull_request(
     pr_number: int,
     commit_title: str = "",
     merge_method: str = "squash",
+    token: str | None = None,
 ) -> None:
     """
     Merge a pull request via the GitHub API.
@@ -201,6 +227,7 @@ async def merge_pull_request(
         pr_number:    Pull request number.
         commit_title: Optional title for the merge commit. Defaults to the PR title.
         merge_method: One of "merge", "squash", or "rebase". Defaults to "squash".
+        token:        GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Raises:
         httpx.HTTPStatusError: If the API request fails (e.g. PR not mergeable).
@@ -211,13 +238,13 @@ async def merge_pull_request(
         payload["commit_title"] = commit_title
 
     async with httpx.AsyncClient() as client:
-        response = await client.put(url, json=payload, headers=_api_headers())
+        response = await client.put(url, json=payload, headers=_api_headers(token))
         response.raise_for_status()
 
     logger.info("pull request merged", extra={"repo": repo, "pr_number": pr_number})
 
 
-async def find_existing_issue(repo: str, title: str) -> tuple[str, str] | None:
+async def find_existing_issue(repo: str, title: str, token: str | None = None) -> tuple[str, str] | None:
     """
     Search for an open GitHub Issue with a matching title in the given repo.
 
@@ -227,6 +254,7 @@ async def find_existing_issue(repo: str, title: str) -> tuple[str, str] | None:
     Args:
         repo:  Repository in "owner/name" format, e.g. "acme/backend".
         title: Issue title to search for.
+        token: GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Returns:
         (issue_number_str, issue_url) if a match is found, or None.
@@ -242,7 +270,7 @@ async def find_existing_issue(repo: str, title: str) -> tuple[str, str] | None:
         response = await client.get(
             url,
             params={"q": query, "per_page": 1},
-            headers=_api_headers(),
+            headers=_api_headers(token),
         )
         response.raise_for_status()
 
@@ -262,6 +290,7 @@ async def create_issue(
     title: str,
     body: str,
     labels: list[str] | None = None,
+    token: str | None = None,
 ) -> tuple[str, str]:
     """
     Create a new GitHub Issue.
@@ -271,6 +300,7 @@ async def create_issue(
         title:  Issue title.
         body:   Issue body (supports Markdown).
         labels: Optional list of label names to apply.
+        token:  GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Returns:
         (issue_number_str, issue_url) tuple.
@@ -284,7 +314,7 @@ async def create_issue(
         payload["labels"] = labels
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload, headers=_api_headers())
+        response = await client.post(url, json=payload, headers=_api_headers(token))
         response.raise_for_status()
 
     data = response.json()
@@ -294,7 +324,7 @@ async def create_issue(
     return issue_number, issue_url
 
 
-async def add_issue_comment(repo: str, issue_number: str, comment: str) -> None:
+async def add_issue_comment(repo: str, issue_number: str, comment: str, token: str | None = None) -> None:
     """
     Add a comment to an existing GitHub Issue.
 
@@ -302,6 +332,7 @@ async def add_issue_comment(repo: str, issue_number: str, comment: str) -> None:
         repo:         Repository in "owner/name" format.
         issue_number: Issue number as a string, e.g. "42".
         comment:      Comment body (supports Markdown).
+        token:        GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Raises:
         httpx.HTTPStatusError: If the API request fails.
@@ -310,19 +341,20 @@ async def add_issue_comment(repo: str, issue_number: str, comment: str) -> None:
     payload = {"body": comment}
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload, headers=_api_headers())
+        response = await client.post(url, json=payload, headers=_api_headers(token))
         response.raise_for_status()
 
     logger.info("github issue comment added", extra={"issue_number": issue_number})
 
 
-async def get_pr_diff(repo: str, pr_number: int) -> str:
+async def get_pr_diff(repo: str, pr_number: int, token: str | None = None) -> str:
     """
     Fetch the unified diff of a pull request.
 
     Args:
         repo:      Repository in "owner/name" format.
         pr_number: Pull request number.
+        token:     GitHub token. Falls back to GITHUB_TOKEN env var.
 
     Returns:
         Unified diff string.
@@ -331,7 +363,7 @@ async def get_pr_diff(repo: str, pr_number: int) -> str:
         httpx.HTTPStatusError: If the API request fails.
     """
     url = f"{_GITHUB_API}/repos/{repo}/pulls/{pr_number}"
-    headers = {**_api_headers(), "Accept": "application/vnd.github.diff"}
+    headers = {**_api_headers(token), "Accept": "application/vnd.github.diff"}
 
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)

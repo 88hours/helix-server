@@ -75,7 +75,7 @@ from core.state import (
     write_status,
     write_user_repos,
 )
-from core.ui_events import subscribe_ui_events
+from core.ui_events import read_ui_events, subscribe_ui_events
 from integrations import rollbar as rollbar_integration
 from integrations import sentry as sentry_integration
 from integrations import slack as slack_integration
@@ -456,6 +456,7 @@ async def stream_incident(incident_id: str, request: Request, _user: dict = Depe
         report = await read_crash_report(redis_client, incident_id)
         qa_result = await read_qa_result(redis_client, incident_id)
         pr_result = await read_pr_result(redis_client, incident_id)
+        past_events = await read_ui_events(redis_client, incident_id)
 
         yield {
             "event": "snapshot",
@@ -466,6 +467,7 @@ async def stream_incident(incident_id: str, request: Request, _user: dict = Depe
                     "crash_report": report.model_dump(mode="json") if report else None,
                     "qa_result": qa_result.model_dump(mode="json") if qa_result else None,
                     "pr_result": pr_result.model_dump(mode="json") if pr_result else None,
+                    "events": past_events,
                 }
             ),
         }

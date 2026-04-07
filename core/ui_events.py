@@ -48,11 +48,17 @@ import redis.asyncio as redis
 logger = logging.getLogger(__name__)
 
 _CHANNEL_PREFIX = "helix:ui"
+_EVENT_LOG_TTL = 7 * 24 * 3600  # 7 days, matches incident TTL
 
 
 def _channel(incident_id: str) -> str:
     """Build the Pub/Sub channel name for an incident's UI events."""
     return f"{_CHANNEL_PREFIX}:{incident_id}"
+
+
+def _event_log_key(incident_id: str) -> str:
+    """Build the Redis list key used to persist events for late-joining clients."""
+    return f"{_CHANNEL_PREFIX}:{incident_id}:events"
 
 
 async def publish_ui_event(
@@ -87,6 +93,9 @@ async def publish_ui_event(
         }
     )
     try:
+        log_key = _event_log_key(incident_id)
+        await client.rpush(log_key, payload)
+        await client.expire(log_key, _EVENT_LOG_TTL)
         await client.publish(channel, payload)
         logger.debug(
             "ui event published",
@@ -143,6 +152,9 @@ async def publish_tool_event(
         }
     )
     try:
+        log_key = _event_log_key(incident_id)
+        await client.rpush(log_key, payload)
+        await client.expire(log_key, _EVENT_LOG_TTL)
         await client.publish(channel, payload)
         logger.debug(
             "tool event published",
@@ -158,6 +170,34 @@ async def publish_tool_event(
             "ui tool event publish failed — continuing",
             extra={"incident_id": incident_id, "error": str(exc)},
         )
+
+
+async def read_ui_events(client: redis.Redis, incident_id: str) -> list[dict[str, Any]]:
+    """
+    Return all persisted UI events for an incident, in publish order.
+
+    Used by the SSE endpoint to replay past events to late-joining clients
+    (e.g. when the browser opens the incident page after the pipeline finished).
+
+    Args:
+        client:      Async Redis client.
+        incident_id: The incident to read events for.
+
+    Returns:
+        List of parsed event dicts, oldest first.  Empty list if none recorded.
+    """
+    log_key = _event_log_key(incident_id)
+    raw_events = await client.lrange(log_key, 0, -1)
+    events: list[dict[str, Any]] = []
+    for raw in raw_events:
+        try:
+            events.append(json.loads(raw))
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.warning(
+                "malformed persisted ui event — skipping",
+                extra={"incident_id": incident_id, "error": str(exc)},
+            )
+    return events
 
 
 async def subscribe_ui_events(

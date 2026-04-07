@@ -86,7 +86,7 @@ async def handle(
 
     # Step 1 — GitHub Issue.
     ticket_id, ticket_url, ticket_action = await _create_or_update_issue(
-        report, gh_config.target_repo, permissions, redis_client
+        report, gh_config.target_repo, permissions, redis_client, gh_config.token
     )
 
     await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", f"GitHub issue #{ticket_id} {'updated (duplicate)' if ticket_action == TicketAction.updated else 'created'}")
@@ -127,7 +127,7 @@ async def handle(
     try:
         clone_url = f"https://github.com/{gh_config.target_repo}.git"
         require(permissions, "github", "clone_repo")
-        await github.clone_repo(clone_url, repo_dir)
+        await github.clone_repo(clone_url, repo_dir, token=gh_config.token)
         await publish_tool_event(redis_client, report.incident_id, "qa", "git", "clone", "success", gh_config.target_repo)
         source_files = _read_relevant_files(repo_dir, report.stack_trace, report.language)
         await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", f"Read {len(source_files)} relevant source file(s)")
@@ -212,6 +212,7 @@ async def handle(
         repo=gh_config.target_repo,
         issue_number=ticket_id,
         comment=test_comment,
+        token=gh_config.token,
     )
     await publish_tool_event(redis_client, report.incident_id, "qa", "github", "add_comment", "success", f"#{ticket_id} test case")
     logger.debug("test case posted to github issue", extra={"incident_id": report.incident_id})
@@ -254,6 +255,7 @@ async def _create_or_update_issue(
     repo: str,
     permissions: AgentPermissions,
     redis_client: redis.Redis,
+    token: str | None = None,
 ) -> tuple[str, str, TicketAction]:
     """
     Find an existing GitHub Issue for this bug or create a new one.
@@ -262,6 +264,7 @@ async def _create_or_update_issue(
         report:      CrashReport from the Crash Handler Agent.
         repo:        GitHub repository in "owner/name" format.
         permissions: QA Agent's loaded permissions — enforced before each GitHub call.
+        token:       GitHub token (installation token or GITHUB_TOKEN fallback).
 
     Returns:
         (issue_number, issue_url, ticket_action)
@@ -277,7 +280,7 @@ async def _create_or_update_issue(
     )
 
     require(permissions, "github", "find_existing_issue")
-    existing = await github.find_existing_issue(repo=repo, title=title)
+    existing = await github.find_existing_issue(repo=repo, title=title, token=token)
     await publish_tool_event(redis_client, report.incident_id, "qa", "github", "find_issue", "success", "duplicate" if existing else "no match")
 
     if existing:
@@ -287,6 +290,7 @@ async def _create_or_update_issue(
             repo=repo,
             issue_number=issue_number,
             comment=f"⚠️ Helix re-detected this crash (incident `{report.incident_id}`). A Slack notification has been sent — if a fix PR is already open, please review and approve it.",
+            token=token,
         )
         await publish_tool_event(redis_client, report.incident_id, "qa", "github", "add_comment", "success", f"#{issue_number}")
         return issue_number, issue_url, TicketAction.updated
@@ -297,6 +301,7 @@ async def _create_or_update_issue(
         title=title,
         body=body,
         labels=["bug", "helix"],
+        token=token,
     )
     await publish_tool_event(redis_client, report.incident_id, "qa", "github", "create_issue", "success", f"#{issue_number}")
     return issue_number, issue_url, TicketAction.created

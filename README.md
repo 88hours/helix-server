@@ -466,6 +466,26 @@ Helix fixes **application-level bugs** only. Out of scope for MVP: infrastructur
 
 ---
 
+## Known Issues
+
+### GitHub App callback not firing — installation ID must be entered manually
+
+After a user installs the GitHub App, GitHub is supposed to redirect to the configured callback URL with `installation_id` in the query string. This redirect is not reliably firing in the current deployment, which means the installation ID is never automatically saved to the project.
+
+**Workaround:** after installing the app, find the installation ID in the GitHub App settings page (Settings → Applications → Installed GitHub Apps → Configure → the ID is in the URL: `github.com/settings/installations/<id>`) and paste it manually into the Helix Projects page.
+
+**Root cause:** the OAuth callback URL may not be correctly configured in the GitHub App settings, or the redirect is being swallowed before it reaches the handler.
+
+### GitHub App installation token not used for API calls — falls back to `GITHUB_TOKEN`
+
+The QA and Dev agents fetch a short-lived GitHub App installation token (scoped to the project's repo) but that token was not being passed through to the GitHub integration functions. All API calls (`create_issue`, `clone_repo`, `create_pull_request`, etc.) were silently falling back to the global `GITHUB_TOKEN` environment variable.
+
+This causes 403 errors if `GITHUB_TOKEN` does not have write access to the project's repo. A `WARNING integrations.github` log line is now emitted whenever the fallback is used.
+
+**Status:** the token threading fix is merged (`integrations/github.py`, `agents/qa/agent.py`, `agents/dev/agent.py`). The underlying cause (GitHub App callback not saving the installation ID — see above) means the installation token is still not always available; the fallback path remains active until that issue is resolved.
+
+---
+
 ## Production Considerations
 
 Known limitations of the current architecture and what needs to change before running Helix as a multi-tenant SaaS.

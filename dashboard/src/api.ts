@@ -86,6 +86,7 @@ export interface IncidentDetail {
   crash_report: CrashReport | null
   qa_result: QAResult | null
   pr_result: PRResult | null
+  events: UIProgressEvent[]
 }
 
 export interface AgentProgressEvent {

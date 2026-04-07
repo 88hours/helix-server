@@ -216,24 +216,31 @@ async def _deliver(
                           SENDGRID_API_KEY env var.
         smtp_*:           SMTP credentials. Only used when SendGrid is not active.
     """
-    api_key = sendgrid_api_key or os.environ.get("SENDGRID_API_KEY")
+    api_key = sendgrid_api_key or os.environ.get("SENDGRID_API_KEY") or None
+    resolved_smtp_host = smtp_host or os.environ.get("SMTP_HOST") or None
 
-    if api_key:
-        await _send_sendgrid(api_key, from_addr, to_addrs, subject, body_text, body_html)
-        return
-
-    resolved_smtp_host = smtp_host or os.environ.get("SMTP_HOST")
-    if resolved_smtp_host:
-        await _send_smtp(
-            from_addr, to_addrs, subject, body_text, body_html,
-            resolved_smtp_host, smtp_port, smtp_user, smtp_password,
+    if not api_key and not resolved_smtp_host:
+        logger.warning(
+            "email skipped — no backend configured (set SENDGRID_API_KEY or SMTP_HOST)",
+            extra={"subject": subject},
         )
         return
 
-    logger.warning(
-        "email skipped — no backend configured (set SENDGRID_API_KEY or SMTP_HOST)",
-        extra={"subject": subject},
-    )
+    try:
+        if api_key:
+            await _send_sendgrid(api_key, from_addr, to_addrs, subject, body_text, body_html)
+            return
+
+        if resolved_smtp_host:
+            await _send_smtp(
+                from_addr, to_addrs, subject, body_text, body_html,
+                resolved_smtp_host, smtp_port, smtp_user, smtp_password,
+            )
+    except Exception as exc:
+        logger.warning(
+            "email delivery failed — skipping; check email credentials",
+            extra={"subject": subject, "error": str(exc)},
+        )
 
 
 # ---------------------------------------------------------------------------
