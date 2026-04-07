@@ -20,10 +20,13 @@ import {
   fetchGitHubInstallUrl,
   fetchGitHubRepos,
   fetchProjects,
+  fetchWebhookUrls,
   registerGitHubInstallation,
+  updateProjectSettings,
   type CreateProjectPayload,
   type GitHubRepo,
   type Project,
+  type ProjectSettings,
 } from '../api'
 
 // ---------------------------------------------------------------------------
@@ -702,7 +705,7 @@ function Step5({
 // Wizard container
 // ---------------------------------------------------------------------------
 
-function ProjectWizard({ onProjectCreated }: { onProjectCreated: () => void }) {
+function ProjectWizard({ onProjectCreated }: { onProjectCreated: (p: Project) => void }) {
   const [step, setStep] = useState(0)
   const [state, setState] = useState<WizardState>(() => {
     // Pre-fill installation_id if we were redirected from GitHub
@@ -745,7 +748,7 @@ function ProjectWizard({ onProjectCreated }: { onProjectCreated: () => void }) {
     try {
       const project = await createProject(payload)
       setCreatedProject(project)
-      onProjectCreated()
+      onProjectCreated(project)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -803,16 +806,31 @@ function ProjectWizard({ onProjectCreated }: { onProjectCreated: () => void }) {
 function ProjectCard({
   project,
   onDelete,
+  onUpdated,
 }: {
   project: Project
   onDelete: (id: string) => void
+  onUpdated: (p: Project) => void
 }) {
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const hasRequired =
-    !!project.anthropic_api_key &&
-    (!!project.sentry_webhook_secret || !!project.rollbar_access_token)
+  // Webhook URLs — fetched lazily when expanded
+  const [showWebhooks, setShowWebhooks] = useState(false)
+  const [webhooks, setWebhooks] = useState<{ sentry: string; rollbar: string } | null>(null)
+  const [webhooksLoading, setWebhooksLoading] = useState(false)
+
+  // Settings edit panel
+  const [showEdit, setShowEdit] = useState(false)
+  const [editState, setEditState] = useState<Partial<ProjectSettings>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveOk, setSaveOk] = useState(false)
+
+  // A project is Ready when the GitHub App is installed — the key integration
+  // that can't fall back to env vars. Anthropic key and webhook secrets fall
+  // back to global env var config, so their absence isn't blocking.
+  const hasRequired = !!project.github_installation_id
 
   const doDelete = async () => {
     setDeleting(true)
@@ -825,8 +843,69 @@ function ProjectCard({
     }
   }
 
+  const loadWebhooks = () => {
+    setWebhooksLoading(true)
+    fetchWebhookUrls(project.project_id)
+      .then(setWebhooks)
+      .catch(() => {})
+      .finally(() => setWebhooksLoading(false))
+  }
+
+  const toggleWebhooks = () => {
+    const next = !showWebhooks
+    setShowWebhooks(next)
+    if (next && !webhooks) loadWebhooks()
+  }
+
+  const openEdit = () => {
+    setEditState({
+      anthropic_api_key: project.anthropic_api_key ?? '',
+      sentry_webhook_secret: project.sentry_webhook_secret ?? '',
+      rollbar_access_token: project.rollbar_access_token ?? '',
+      slack_bot_token: project.slack_bot_token ?? '',
+      slack_signing_secret: project.slack_signing_secret ?? '',
+      slack_approval_channel: project.slack_approval_channel ?? '',
+      sendgrid_api_key: project.sendgrid_api_key ?? '',
+      smtp_host: project.smtp_host ?? '',
+      email_from: project.email_from ?? '',
+      email_to: project.email_to ?? '',
+    })
+    setSaveError(null)
+    setSaveOk(false)
+    setShowEdit(true)
+  }
+
+  const setEdit = (k: keyof ProjectSettings, v: string) =>
+    setEditState(s => ({ ...s, [k]: v }))
+
+  const saveEdit = async () => {
+    setSaving(true)
+    setSaveError(null)
+    setSaveOk(false)
+    try {
+      const updated = await updateProjectSettings(project.project_id, editState)
+      onUpdated(updated)
+      setSaveOk(true)
+      setTimeout(() => {
+        setShowEdit(false)
+        setSaveOk(false)
+      }, 800)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const alertSources: string[] = project.alert_sources
+    ? (typeof project.alert_sources === 'string'
+        ? (project.alert_sources as string).replace(/[{}"]/g, '').split(',').filter(Boolean)
+        : project.alert_sources)
+    : []
+
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
+      {/* Header row */}
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -844,40 +923,209 @@ function ProjectCard({
           <div className="text-sm text-gray-400 truncate">{project.repo}</div>
         </div>
 
-        {confirming ? (
-          <div className="flex items-center gap-2 shrink-0 ml-4">
-            <span className="text-xs text-gray-400">Delete?</span>
+        <div className="flex items-center gap-2 shrink-0 ml-4">
+          {!showEdit && (
             <button
-              onClick={doDelete}
-              disabled={deleting}
-              className="text-xs px-2 py-1 bg-red-800 hover:bg-red-700 text-white rounded disabled:opacity-50"
+              onClick={openEdit}
+              className="text-xs text-gray-500 hover:text-gray-300"
+              title="Edit optional settings"
             >
-              Yes
+              Settings
             </button>
+          )}
+          {confirming ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Delete?</span>
+              <button
+                onClick={doDelete}
+                disabled={deleting}
+                className="text-xs px-2 py-1 bg-red-800 hover:bg-red-700 text-white rounded disabled:opacity-50"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded"
+              >
+                No
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={() => setConfirming(false)}
-              className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded"
+              onClick={() => setConfirming(true)}
+              className="text-xs text-gray-500 hover:text-red-400"
             >
-              No
+              Delete
             </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirming(true)}
-            className="text-xs text-gray-500 hover:text-red-400 shrink-0 ml-4"
-          >
-            Delete
-          </button>
-        )}
+          )}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+      {/* Tags row */}
+      <div className="flex flex-wrap gap-2 text-xs text-gray-400 mb-3">
         <span className="bg-gray-800 px-2 py-0.5 rounded">{project.language}</span>
         <span className="bg-gray-800 px-2 py-0.5 rounded">branch: {project.base_branch}</span>
         {project.github_installation_id && (
           <span className="bg-gray-800 px-2 py-0.5 rounded text-green-400">GitHub App ✓</span>
         )}
       </div>
+
+      {/* Webhook URLs toggle */}
+      <button
+        type="button"
+        onClick={toggleWebhooks}
+        className="text-xs text-indigo-400 hover:text-indigo-300 mb-1"
+      >
+        {showWebhooks ? '▲ Hide webhook URLs' : '▼ Show webhook URLs'}
+      </button>
+
+      {showWebhooks && (
+        <div className="mt-2 space-y-2">
+          {webhooksLoading && <p className="text-xs text-gray-500">Loading…</p>}
+          {webhooks && (
+            <>
+              {(alertSources.includes('sentry') || alertSources.length === 0) && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Sentry webhook URL</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-indigo-300 truncate">
+                      {webhooks.sentry}
+                    </code>
+                    <CopyButton text={webhooks.sentry} />
+                  </div>
+                </div>
+              )}
+              {alertSources.includes('rollbar') && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Rollbar webhook URL</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-indigo-300 truncate">
+                      {webhooks.rollbar}
+                    </code>
+                    <CopyButton text={webhooks.rollbar} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Optional settings edit panel */}
+      {showEdit && (
+        <div className="mt-4 border-t border-gray-700 pt-4 space-y-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-gray-300">Optional settings</span>
+            <button
+              onClick={() => setShowEdit(false)}
+              className="text-xs text-gray-500 hover:text-gray-300"
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          <div>
+            <Label>Anthropic API key</Label>
+            <SecretInput
+              value={(editState.anthropic_api_key as string) ?? ''}
+              onChange={v => setEdit('anthropic_api_key', v)}
+              placeholder="sk-ant-… (falls back to env var)"
+            />
+          </div>
+
+          <div>
+            <Label>Sentry webhook secret</Label>
+            <SecretInput
+              value={(editState.sentry_webhook_secret as string) ?? ''}
+              onChange={v => setEdit('sentry_webhook_secret', v)}
+              placeholder="Sentry client secret"
+            />
+          </div>
+
+          <div>
+            <Label>Rollbar access token</Label>
+            <SecretInput
+              value={(editState.rollbar_access_token as string) ?? ''}
+              onChange={v => setEdit('rollbar_access_token', v)}
+              placeholder="Rollbar project access token"
+            />
+          </div>
+
+          <Accordion title="Slack notifications">
+            <div>
+              <Label>Bot token</Label>
+              <SecretInput
+                value={(editState.slack_bot_token as string) ?? ''}
+                onChange={v => setEdit('slack_bot_token', v)}
+                placeholder="xoxb-..."
+              />
+            </div>
+            <div>
+              <Label>Signing secret</Label>
+              <SecretInput
+                value={(editState.slack_signing_secret as string) ?? ''}
+                onChange={v => setEdit('slack_signing_secret', v)}
+                placeholder="Slack signing secret"
+              />
+            </div>
+            <div>
+              <Label>Approval channel</Label>
+              <TextInput
+                value={(editState.slack_approval_channel as string) ?? ''}
+                onChange={v => setEdit('slack_approval_channel', v)}
+                placeholder="#helix-approvals"
+              />
+            </div>
+          </Accordion>
+
+          <Accordion title="Email notifications">
+            <div>
+              <Label>SendGrid API key</Label>
+              <SecretInput
+                value={(editState.sendgrid_api_key as string) ?? ''}
+                onChange={v => setEdit('sendgrid_api_key', v)}
+                placeholder="SG...."
+              />
+            </div>
+            <div>
+              <Label>SMTP host</Label>
+              <TextInput
+                value={(editState.smtp_host as string) ?? ''}
+                onChange={v => setEdit('smtp_host', v)}
+                placeholder="smtp.example.com"
+              />
+            </div>
+            <div>
+              <Label>From address</Label>
+              <TextInput
+                value={(editState.email_from as string) ?? ''}
+                onChange={v => setEdit('email_from', v)}
+                placeholder="helix@example.com"
+              />
+            </div>
+            <div>
+              <Label>To address</Label>
+              <TextInput
+                value={(editState.email_to as string) ?? ''}
+                onChange={v => setEdit('email_to', v)}
+                placeholder="team@example.com"
+              />
+            </div>
+          </Accordion>
+
+          {saveError && (
+            <p className="text-xs text-red-400">{saveError}</p>
+          )}
+
+          <button
+            onClick={saveEdit}
+            disabled={saving}
+            className="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm rounded-lg font-medium"
+          >
+            {saving ? 'Saving…' : saveOk ? '✓ Saved' : 'Save settings'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -893,6 +1141,10 @@ export default function Projects() {
     // Auto-open wizard if redirected back from GitHub App install
     return !!new URLSearchParams(window.location.search).get('installation_id')
   })
+  // Set to true once the wizard successfully creates a project — changes
+  // the Cancel button to a Done button so the user can read the webhook URLs
+  // before closing.
+  const [wizardDone, setWizardDone] = useState(false)
 
   const load = () => {
     fetchProjects()
@@ -902,6 +1154,11 @@ export default function Projects() {
   }
 
   useEffect(() => { load() }, [])
+
+  const closeWizard = () => {
+    setShowWizard(false)
+    setWizardDone(false)
+  }
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
@@ -927,16 +1184,20 @@ export default function Projects() {
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-medium text-gray-300">New project</span>
             <button
-              onClick={() => setShowWizard(false)}
-              className="text-gray-500 hover:text-gray-300 text-sm"
+              onClick={closeWizard}
+              className={`text-sm ${
+                wizardDone
+                  ? 'text-green-400 hover:text-green-300 font-medium'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
             >
-              ✕ Cancel
+              {wizardDone ? '✓ Done' : '✕ Cancel'}
             </button>
           </div>
           <ProjectWizard
             onProjectCreated={() => {
               load()
-              // Keep wizard open so user can see webhook URLs
+              setWizardDone(true)
             }}
           />
         </div>
@@ -963,6 +1224,9 @@ export default function Projects() {
               key={p.project_id}
               project={p}
               onDelete={id => setProjects(ps => ps.filter(p => p.project_id !== id))}
+              onUpdated={updated =>
+                setProjects(ps => ps.map(p => p.project_id === updated.project_id ? updated : p))
+              }
             />
           ))}
         </div>
