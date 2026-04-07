@@ -243,6 +243,20 @@ export async function fetchGitHubInstallUrl(): Promise<string> {
   return (data as { install_url: string }).install_url
 }
 
+/** Manually register an existing GitHub App installation for the current user. */
+export async function registerGitHubInstallation(installationId: string): Promise<void> {
+  const headers = { ...(await _authHeaders()), 'Content-Type': 'application/json' }
+  const res = await fetch('/api/github/installations', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ installation_id: installationId }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail ?? `Failed to register installation: ${res.status}`)
+  }
+}
+
 /** List repos accessible via the user's GitHub App installation. */
 export async function fetchGitHubRepos(): Promise<GitHubInstallation> {
   const headers = await _authHeaders()

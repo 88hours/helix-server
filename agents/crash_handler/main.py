@@ -594,6 +594,46 @@ async def github_app_callback(
     return RedirectResponse(url=f"/app/projects/new?installation_id={installation_id}")
 
 
+@app.post("/api/github/installations", tags=["github"])
+async def register_github_installation(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Manually register a GitHub App installation for the current user.
+
+    Used when the user has already installed the GitHub App but the automatic
+    callback was not reached (e.g. Setup URL not configured at install time).
+    The frontend sends the installation_id and this endpoint stores it.
+
+    Body:
+        installation_id  — numeric GitHub App installation ID
+    """
+    installation_id = str(body.get("installation_id", "")).strip()
+    if not installation_id:
+        raise HTTPException(status_code=400, detail="installation_id is required")
+
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    user = current_user
+    async with get_db() as db:
+        await upsert_user(
+            db,
+            sub=user.get("sub", ""),
+            name=user.get("name", ""),
+            email=user.get("email", "") or "",
+            picture=user.get("picture", "") or "",
+        )
+        await upsert_github_installation(db, installation_id=installation_id, owner_sub=user["sub"])
+
+    logger.info(
+        "github app installation registered manually",
+        extra={"installation_id": installation_id, "sub": user.get("sub")},
+    )
+    return {"installation_id": installation_id, "status": "registered"}
+
+
 @app.get("/api/github/repos", tags=["github"])
 async def list_github_repos(request: Request, current_user: dict = Depends(get_current_user)):
     """
