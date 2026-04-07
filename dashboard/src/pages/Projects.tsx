@@ -264,35 +264,38 @@ function Step2({
 }) {
   const [installUrl, setInstallUrl] = useState<string | null>(null)
   const [repos, setRepos] = useState<GitHubRepo[]>([])
-  const [loadingRepos, setLoadingRepos] = useState(false)
+  // true while the initial check is running
+  const [checking, setChecking] = useState(true)
+  const [notInstalled, setNotInstalled] = useState(false)
   const [repoError, setRepoError] = useState<string | null>(null)
-
-  // Pick up installation_id from URL after GitHub App redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const iid = params.get('installation_id')
-    if (iid && !state.github_installation_id) {
-      set('github_installation_id', iid)
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-  }, [])
 
   useEffect(() => {
     fetchGitHubInstallUrl().then(setInstallUrl).catch(() => {})
-  }, [])
 
-  useEffect(() => {
-    if (!state.github_installation_id) return
-    setLoadingRepos(true)
-    setRepoError(null)
+    // Always check for an existing installation on mount so returning users
+    // see the repo picker immediately without having to re-install the app.
     fetchGitHubRepos()
       .then(data => {
+        // Sync installation_id into wizard state if not already set
+        if (!state.github_installation_id) {
+          set('github_installation_id', data.installation_id)
+        }
         setRepos(data.repos)
-        if (data.repos.length === 1) set('repo', data.repos[0].full_name)
+        if (data.repos.length === 1 && !state.repo) set('repo', data.repos[0].full_name)
+        setNotInstalled(false)
       })
-      .catch(err => setRepoError((err as Error).message))
-      .finally(() => setLoadingRepos(false))
-  }, [state.github_installation_id])
+      .catch(err => {
+        const msg = (err as Error).message
+        if (msg === 'GitHub App not installed') {
+          setNotInstalled(true)
+        } else {
+          setRepoError(msg)
+        }
+      })
+      .finally(() => setChecking(false))
+  }, [])
+
+  const connected = !!state.github_installation_id && !notInstalled
 
   return (
     <div className="space-y-4">
@@ -301,7 +304,9 @@ function Step2({
         Helix uses a GitHub App to clone repos and open pull requests — no personal access token needed.
       </p>
 
-      {!state.github_installation_id ? (
+      {checking ? (
+        <p className="text-sm text-gray-400">Checking GitHub connection…</p>
+      ) : !connected ? (
         <a
           href={installUrl ?? '#'}
           className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg font-medium"
@@ -321,12 +326,11 @@ function Step2({
         </div>
       )}
 
-      {state.github_installation_id && (
+      {connected && (
         <div>
           <Label>Select repository</Label>
-          {loadingRepos && <p className="text-sm text-gray-400">Loading repos…</p>}
           {repoError && <p className="text-sm text-red-400">{repoError}</p>}
-          {!loadingRepos && repos.length > 0 && (
+          {repos.length > 0 && (
             <select
               value={state.repo}
               onChange={e => set('repo', e.target.value)}
@@ -340,13 +344,20 @@ function Step2({
               ))}
             </select>
           )}
+          {repos.length === 0 && !repoError && (
+            <p className="text-sm text-gray-400">
+              No repositories found.{' '}
+              <a href={installUrl ?? '#'} className="underline text-indigo-400">Configure the GitHub App</a>
+              {' '}to grant access to repos.
+            </p>
+          )}
         </div>
       )}
 
       <NavButtons
         onBack={onBack}
         onNext={onNext}
-        nextDisabled={!state.github_installation_id || !state.repo}
+        nextDisabled={checking || !connected || !state.repo}
       />
     </div>
   )
