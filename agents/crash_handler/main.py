@@ -30,6 +30,7 @@ import logging
 import os
 import urllib.parse
 from pathlib import Path
+from typing import Optional
 
 import redis.asyncio as aioredis
 from contextlib import asynccontextmanager
