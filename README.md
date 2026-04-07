@@ -359,6 +359,24 @@ redis-cli GET helix:incident:<incident_id>:crash_report | python3 -m json.tool
 redis-cli GET helix:incident:<incident_id>:status
 ```
 
+## Scripts
+
+### Close all open PRs and issues
+
+Useful for resetting a test repository between runs.
+
+```bash
+# Dry run — prints what would be closed without making any changes
+python scripts/close_all.py owner/repo --dry-run
+
+# Close everything
+python scripts/close_all.py owner/repo
+```
+
+Reads `GITHUB_TOKEN` from the environment or `.env`. Requires the token to have `repo` scope.
+
+---
+
 ## Tests
 
 ```bash
