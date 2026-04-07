@@ -20,12 +20,60 @@ import logging
 
 import redis.asyncio as redis
 
-from core.config import get_email_config, get_slack_config
+import os
+
+from core.config import ProjectConfig, get_email_config, get_slack_config
+from core.db import get_db, get_project
+from core.models import Project, ProjectSettings
 from core.permissions import load_permissions, require
 from core.state import read_crash_report, read_pr_result
 from integrations import email, slack
 
 logger = logging.getLogger(__name__)
+
+
+async def _load_project_config(project_id: str) -> tuple:
+    """
+    Load SlackConfig and EmailConfig for a project from Postgres.
+
+    Falls back to env-var-based global config if DATABASE_URL is not set,
+    the project is not found, or any error occurs.
+
+    Args:
+        project_id: Helix project UUID.
+
+    Returns:
+        Tuple of (SlackConfig, EmailConfig).
+    """
+    if not project_id or not os.environ.get("DATABASE_URL"):
+        return get_slack_config(), get_email_config()
+    try:
+        async with get_db() as db:
+            row = await get_project(db, project_id)
+        if not row:
+            return get_slack_config(), get_email_config()
+        settings = ProjectSettings(
+            slack_bot_token=row.get("slack_bot_token"),
+            slack_signing_secret=row.get("slack_signing_secret"),
+            slack_approval_channel=row.get("slack_approval_channel"),
+            sendgrid_api_key=row.get("sendgrid_api_key"),
+            smtp_host=row.get("smtp_host"),
+            email_from=row.get("email_from"),
+            email_to=row.get("email_to"),
+        )
+        project = Project(
+            project_id=row["project_id"],
+            name=row["name"],
+            repo=row["repo"],
+            base_branch=row["base_branch"],
+            language=row["language"],
+            settings=settings,
+        )
+        pc = ProjectConfig(project)
+        return pc.slack(), pc.email()
+    except Exception as exc:
+        logger.warning("failed to load project config for notifier — using env vars: %s", exc)
+        return get_slack_config(), get_email_config()
 
 
 async def handle(
@@ -49,12 +97,13 @@ async def handle(
     logger.info("notifier agent started", extra={"incident_id": incident_id})
 
     permissions = load_permissions("notifier")
-    slack_config = get_slack_config()
-    email_config = get_email_config()
 
     logger.debug("reading crash report from redis", extra={"incident_id": incident_id})
     require(permissions, "redis", "read_crash_report")
     crash_report = await read_crash_report(redis_client, incident_id)
+
+    project_id = crash_report.project_id if crash_report else ""
+    slack_config, email_config = await _load_project_config(project_id)
     if crash_report is None:
         logger.warning(
             "crash report not found in redis — sending notification without error context",
@@ -125,8 +174,10 @@ async def handle_escalation(
     logger.info("notifier agent escalating", extra={"incident_id": incident_id})
 
     permissions = load_permissions("notifier")
-    slack_config = get_slack_config()
-    email_config = get_email_config()
+    # Load project config from Postgres if available; fall back to env vars.
+    crash_report = await read_crash_report(redis_client, incident_id)
+    project_id = crash_report.project_id if crash_report else ""
+    slack_config, email_config = await _load_project_config(project_id)
 
     require(permissions, "slack", "post_escalation")
     await slack.post_escalation(
@@ -181,7 +232,9 @@ async def handle_pr_created(
     logger.info("notifier handling pr_created", extra={"incident_id": incident_id})
 
     permissions = load_permissions("notifier")
-    slack_config = get_slack_config()
+    crash_report = await read_crash_report(redis_client, incident_id)
+    project_id = crash_report.project_id if crash_report else ""
+    slack_config, _ = await _load_project_config(project_id)
     if not slack_config.token or not slack_config.approval_channel:
         logger.warning(
             "slack approval skipped — SLACK_BOT_TOKEN or SLACK_APPROVAL_CHANNEL not configured",
@@ -239,7 +292,9 @@ async def handle_duplicate(
     logger.info("notifier handling duplicate_detected", extra={"incident_id": incident_id})
 
     permissions = load_permissions("notifier")
-    slack_config = get_slack_config()
+    crash_report = await read_crash_report(redis_client, incident_id)
+    project_id = crash_report.project_id if crash_report else ""
+    slack_config, _ = await _load_project_config(project_id)
     if not slack_config.token or not slack_config.approval_channel:
         logger.warning(
             "duplicate notification skipped — Slack not configured",

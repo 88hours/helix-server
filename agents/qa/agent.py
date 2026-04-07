@@ -22,7 +22,10 @@ from pathlib import Path
 import redis.asyncio as redis
 
 from agents.qa import prompts
-from core.config import get_github_config
+from typing import Optional
+
+from core.config import ProjectConfig, get_github_config
+from core.models import Project
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction, language_to_test_format
@@ -44,7 +47,12 @@ _MAX_FILE_CHARS = 4_000
 _MAX_TEST_RETRIES = 2
 
 
-async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
+async def handle(
+    report: CrashReport,
+    redis_client: redis.Redis,
+    project: Optional[Project] = None,
+    installation_token: Optional[str] = None,
+) -> QAResult:
     """
     Generate a failing test case for the given crash report.
 
@@ -57,8 +65,12 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
       6. Publish the test_case_generated event to trigger the Dev Agent.
 
     Args:
-        report:       CrashReport produced by the Crash Handler Agent.
-        redis_client: Async Redis client.
+        report:             CrashReport produced by the Crash Handler Agent.
+        redis_client:       Async Redis client.
+        project:            Project model for per-project config (Phase 3+).
+                            When None, falls back to global env var config.
+        installation_token: GitHub App installation token for the project.
+                            Used when project is set; falls back to GITHUB_TOKEN.
 
     Returns:
         The persisted QAResult.
@@ -67,7 +79,10 @@ async def handle(report: CrashReport, redis_client: redis.Redis) -> QAResult:
     await publish_ui_event(redis_client, report.incident_id, "agent_start", "qa", "QA Agent started — creating GitHub issue…")
 
     permissions = load_permissions("qa")
-    gh_config = get_github_config()
+    if project is not None:
+        gh_config = ProjectConfig(project).github(installation_token=installation_token)
+    else:
+        gh_config = get_github_config()
 
     # Step 1 — GitHub Issue.
     ticket_id, ticket_url, ticket_action = await _create_or_update_issue(

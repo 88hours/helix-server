@@ -27,10 +27,12 @@ import httpx
 import redis.asyncio as redis
 
 from agents.dev import prompts
-from core.config import get_github_config
+from typing import Optional
+
+from core.config import ProjectConfig, get_github_config
 from core.events import publish
 from core.llm import complete
-from core.models import CrashReport, PRResult, QAResult
+from core.models import CrashReport, PRResult, Project, QAResult
 from core.permissions import AgentPermissions, load_permissions, require
 from core.state import (
     increment_iterations,
@@ -54,6 +56,8 @@ async def handle(
     qa_result: QAResult,
     crash_report: CrashReport,
     redis_client: redis.Redis,
+    project: Optional[Project] = None,
+    installation_token: Optional[str] = None,
 ) -> PRResult:
     """
     Generate a fix suggestion, post it to GitHub, notify the team, then
@@ -81,7 +85,10 @@ async def handle(
         RuntimeError: All iterations exhausted; escalation sent to Slack/email.
     """
     permissions = load_permissions("dev")
-    gh_config = get_github_config()
+    if project is not None:
+        gh_config = ProjectConfig(project).github(installation_token=installation_token)
+    else:
+        gh_config = get_github_config()
     incident_id = crash_report.incident_id
 
     logger.info("dev agent started", extra={"incident_id": incident_id})
@@ -167,6 +174,8 @@ async def handle(
         fix_suggestion=fix_suggestion,
         redis_client=redis_client,
         permissions=permissions,
+        project=project,
+        installation_token=installation_token,
     )
 
 
@@ -180,6 +189,8 @@ async def _tdd_loop(
     fix_suggestion: str,
     redis_client: redis.Redis,
     permissions: AgentPermissions,
+    project: Optional[Project] = None,
+    installation_token: Optional[str] = None,
 ) -> PRResult:
     """
     Clone the repo, write the failing test, and iterate with claude-code until
@@ -198,7 +209,10 @@ async def _tdd_loop(
     Raises:
         RuntimeError: All iterations exhausted; escalation sent to Slack/email.
     """
-    gh_config = get_github_config()
+    if project is not None:
+        gh_config = ProjectConfig(project).github(installation_token=installation_token)
+    else:
+        gh_config = get_github_config()
     incident_id = crash_report.incident_id
 
     require(permissions, "redis", "read_iterations")
