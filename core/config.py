@@ -32,12 +32,17 @@ Integration env vars (names stored in config.yaml, values in environment):
 Usage:
     from core.config import get_agent_config, get_redis_url, get_event_backend
     from core.config import get_rollbar_config, get_github_config
-    from core.config import get_jira_config, get_slack_config
+    from core.config import get_jira_config, get_slack_config, ProjectConfig
 
     cfg = get_agent_config("dev")       # AgentConfig(provider, model)
     url = get_redis_url()               # "redis://..."
     backend = get_event_backend()       # "redis" or "eventbridge"
     gh = get_github_config()            # GitHubConfig(target_repo, base_branch, token)
+
+    # Per-project config (Phase 3+):
+    pc = ProjectConfig(project)
+    gh = pc.github(installation_token)  # GitHubConfig using the App installation token
+    sl = pc.slack()                     # SlackConfig from project settings, falls back to env vars
 """
 
 import os
@@ -434,3 +439,119 @@ def get_eventbridge_config() -> EventBridgeConfig:
     region = _require_env(region_env)
 
     return EventBridgeConfig(bus=bus, region=region)
+
+
+# ---------------------------------------------------------------------------
+# Per-project config adapter (Phase 3+)
+# ---------------------------------------------------------------------------
+
+class ProjectConfig:
+    """
+    Adapter that exposes typed config objects from a Project's settings.
+
+    For each config type, project-level settings take precedence over
+    environment variables. If a project setting is None, the global env var
+    (or config.yaml default) is used as a fallback.
+
+    This allows single-project deployments that use only env vars to continue
+    working without changes, while multi-project deployments can have
+    per-project credentials.
+
+    Usage::
+
+        pc = ProjectConfig(project)
+        gh = pc.github(installation_token="ghs_...")
+        sl = pc.slack()
+        em = pc.email()
+        ag = pc.agent("dev")
+    """
+
+    def __init__(self, project: "Project") -> None:  # noqa: F821 — Project imported below
+        self._project = project
+
+    def github(self, installation_token: str | None = None) -> GitHubConfig:
+        """
+        Return GitHubConfig for this project.
+
+        Args:
+            installation_token: GitHub App installation access token. When
+                provided it takes precedence over the global GITHUB_TOKEN env var.
+                Pass the result of core.github_app.get_installation_token().
+
+        Returns:
+            GitHubConfig with target_repo, base_branch, and resolved token.
+        """
+        token = installation_token or os.environ.get("GITHUB_TOKEN", "")
+        return GitHubConfig(
+            target_repo=self._project.repo,
+            base_branch=self._project.base_branch,
+            token=token,
+        )
+
+    def slack(self) -> SlackConfig:
+        """
+        Return SlackConfig for this project.
+
+        Project settings override env vars; missing project settings fall back
+        to the global env var values.
+        """
+        s = self._project.settings
+        global_slack = get_slack_config()
+        return SlackConfig(
+            token=s.slack_bot_token or global_slack.token,
+            signing_secret=s.slack_signing_secret or global_slack.signing_secret,
+            approval_channel=s.slack_approval_channel or global_slack.approval_channel,
+        )
+
+    def email(self) -> EmailConfig:
+        """
+        Return EmailConfig for this project.
+
+        Project settings override env vars; missing project settings fall back
+        to the global env var values.
+        """
+        s = self._project.settings
+        global_email = get_email_config()
+        return EmailConfig(
+            from_addr=s.email_from or global_email.from_addr,
+            to_addrs=s.email_to or global_email.to_addrs,
+            sendgrid_api_key=s.sendgrid_api_key or global_email.sendgrid_api_key,
+            smtp_host=s.smtp_host or global_email.smtp_host,
+            smtp_port=global_email.smtp_port,
+            smtp_user=global_email.smtp_user,
+            smtp_password=global_email.smtp_password,
+        )
+
+    def agent(self, name: str) -> AgentConfig:
+        """
+        Return AgentConfig for the given agent, applying per-project overrides.
+
+        Resolution order:
+          1. project.settings.agent_overrides[name].provider / .model
+          2. HELIX_<AGENT>_PROVIDER / HELIX_<AGENT>_MODEL env vars
+          3. config.yaml defaults
+
+        Args:
+            name: Agent name, e.g. "dev", "qa", "crash_handler".
+        """
+        global_cfg = get_agent_config(name)
+        overrides = self._project.settings.agent_overrides.get(name)
+        if overrides is None:
+            return global_cfg
+        return AgentConfig(
+            agent=name,
+            provider=overrides.provider or global_cfg.provider,
+            model=overrides.model or global_cfg.model,
+        )
+
+    def anthropic_api_key(self) -> str:
+        """
+        Return the Anthropic API key for this project.
+
+        Falls back to the global ANTHROPIC_API_KEY env var.
+        """
+        return self._project.settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+# Avoid circular import — Project is defined in core.models
+from core.models import Project  # noqa: E402
