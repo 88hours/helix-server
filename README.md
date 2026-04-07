@@ -56,9 +56,11 @@ core/
   models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig, Project, ProjectSettings)
   llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI
   permissions.py       Per-agent tool access control — declare and enforce at runtime
-  ui_events.py         Dashboard event publishing — agent progress + tool call events via Redis Pub/Sub
+  ui_events.py         Dashboard event publishing — agent progress + tool call events persisted to Redis + forwarded via Pub/Sub
   auth.py              Auth0 JWT validation (RS256 via JWKS) — optional, falls back to demo user
   utils.py             extract_json() — parses structured JSON from LLM output
+  db.py                Async Postgres helpers — projects, github_installations, per-project settings tables
+  github_app.py        GitHub App JWT generation, installation access token fetch/cache, repo listing
 integrations/
   sentry.py            HMAC-SHA256 signature verification + Sentry webhook payload parsing
   rollbar.py           Access token verification + Rollbar webhook payload parsing
@@ -141,7 +143,11 @@ Required variables:
 | `REDIS_URL` | Redis connection URL — leave unset when using local Docker Redis |
 | `SENTRY_WEBHOOK_SECRET` | Sentry client secret — used for HMAC-SHA256 signature verification |
 | `ROLLBAR_ACCESS_TOKEN` | Rollbar project read token — verified against each webhook payload |
-| `GITHUB_TOKEN` | GitHub personal access token with `repo` + `issues` scope |
+| `GITHUB_TOKEN` | GitHub personal access token with `repo` + `issues` scope — used as fallback when no GitHub App installation token is available |
+| `GITHUB_APP_ID` | Numeric GitHub App ID (Phase 3+) |
+| `GITHUB_APP_PRIVATE_KEY` | GitHub App RSA private key, base64-encoded (Phase 3+) |
+| `GITHUB_APP_SLUG` | GitHub App slug for building the installation URL, e.g. `helix-bot` (Phase 3+) |
+| `DATABASE_URL` | Postgres connection URL — required for Phase 3 per-project config and GitHub App token caching |
 | `SLACK_BOT_TOKEN` | Slack bot token (`xoxb-...`) with `chat:write` scope (optional — logs warning if absent) |
 | `SLACK_SIGNING_SECRET` | Slack app signing secret — from app settings → Basic Information |
 | `SLACK_APPROVAL_CHANNEL` | Channel ID or name for approval messages (optional) |
@@ -472,17 +478,9 @@ Helix fixes **application-level bugs** only. Out of scope for MVP: infrastructur
 
 After a user installs the GitHub App, GitHub is supposed to redirect to the configured callback URL with `installation_id` in the query string. This redirect is not reliably firing in the current deployment, which means the installation ID is never automatically saved to the project.
 
-**Workaround:** after installing the app, find the installation ID in the GitHub App settings page (Settings → Applications → Installed GitHub Apps → Configure → the ID is in the URL: `github.com/settings/installations/<id>`) and paste it manually into the Helix Projects page.
+**Workaround:** after installing the app, find the installation ID in the GitHub App settings page (Settings → Applications → Installed GitHub Apps → Configure — the ID is in the URL: `github.com/settings/installations/<id>`) and paste it manually into the Helix Projects page using the manual entry field.
 
 **Root cause:** the OAuth callback URL may not be correctly configured in the GitHub App settings, or the redirect is being swallowed before it reaches the handler.
-
-### GitHub App installation token not used for API calls — falls back to `GITHUB_TOKEN`
-
-The QA and Dev agents fetch a short-lived GitHub App installation token (scoped to the project's repo) but that token was not being passed through to the GitHub integration functions. All API calls (`create_issue`, `clone_repo`, `create_pull_request`, etc.) were silently falling back to the global `GITHUB_TOKEN` environment variable.
-
-This causes 403 errors if `GITHUB_TOKEN` does not have write access to the project's repo. A `WARNING integrations.github` log line is now emitted whenever the fallback is used.
-
-**Status:** the token threading fix is merged (`integrations/github.py`, `agents/qa/agent.py`, `agents/dev/agent.py`). The underlying cause (GitHub App callback not saving the installation ID — see above) means the installation token is still not always available; the fallback path remains active until that issue is resolved.
 
 ---
 
@@ -547,7 +545,7 @@ Helix now uses Redis Streams (`XADD`/`XREAD`) by default. Messages persist until
 | Concurrent repo fixes | Per-repo Redis lock (`SET NX EX`) | Low |
 | No Dev Agent timeout | Wall-clock budget at worker level | Low |
 | ~~Message loss on restart~~ | ~~Redis Streams instead of Pub/Sub~~ | Done — Redis Streams is the default |
-| Single-tenant config | Postgres org/repo tables | High — requires future work |
+| ~~Single-tenant config~~ | ~~Postgres org/repo tables~~ | Done — Phase 3 Postgres layer |
 
 None of these require changes to agent logic. The event-driven architecture is the right foundation — these are distribution and configuration concerns layered on top of it.
 
@@ -577,10 +575,20 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Sentry webhook signature verification — HMAC-SHA256 verification working end-to-end
 - [x] Demo mode default — flipped to `false`; production deployments verify signatures without any extra config
 
-### Phase 3 — Observability and Platform Maturity
-- [ ] UI configuration via dashboard — agent models and providers configurable from the UI, wired to `config.yaml`
-- [ ] Project credentials injected into pipeline — per-project settings from the Projects page used at runtime instead of environment variables
+### Phase 3 — Per-Project GitHub App and Platform Maturity (complete)
+- [x] GitHub App integration — per-project installation tokens, JWT flow, token caching in Postgres (`core/github_app.py`)
+- [x] Postgres layer — projects, github_installations, per-project settings tables (`core/db.py`)
+- [x] Per-project webhooks — each project gets a dedicated Sentry/Rollbar webhook URL scoped to its credentials
+- [x] Project onboarding wizard — 5-step UI: repo URL → GitHub App install → credential config → done
+- [x] Installation token threaded through all GitHub API calls — fixes 403s on repos where `GITHUB_TOKEN` lacks write access
+- [x] Git push auth fix — GitHub App tokens use `x-access-token:{token}` URL format; fixes headless push failures
+- [x] SSE event replay — past agent events persisted to Redis and replayed on page load; ToolTimeline and StreamPanel no longer empty for completed incidents
+- [x] Email resilience — missing or invalid SendGrid key warns and skips instead of crashing the notifier
+- [x] Local Postgres container in Docker Compose
+
+### Phase 4 — Observability and Scale
 - [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend
 - [ ] LangSmith evals — record every LLM call with prompt, response, and token usage; eval suite on every deploy
+- [ ] UI model configuration — agent models and providers configurable from the dashboard
 - [ ] Multi-agent orchestration — A2A communication patterns, dynamic sub-agent spawning
 - [ ] Rollback agent — monitors error rate post-deploy, triggers automatic rollback if thresholds exceeded
