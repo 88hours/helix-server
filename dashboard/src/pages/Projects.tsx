@@ -819,6 +819,7 @@ function ProjectCard({
   const [showWebhooks, setShowWebhooks] = useState(false)
   const [webhooks, setWebhooks] = useState<{ sentry: string; rollbar: string } | null>(null)
   const [webhooksLoading, setWebhooksLoading] = useState(false)
+  const [webhooksError, setWebhooksError] = useState<string | null>(null)
 
   // Settings edit panel
   const [showEdit, setShowEdit] = useState(false)
@@ -845,9 +846,10 @@ function ProjectCard({
 
   const loadWebhooks = () => {
     setWebhooksLoading(true)
+    setWebhooksError(null)
     fetchWebhookUrls(project.project_id)
       .then(setWebhooks)
-      .catch(() => {})
+      .catch(err => setWebhooksError(err instanceof Error ? err.message : 'Failed to load URLs'))
       .finally(() => setWebhooksLoading(false))
   }
 
@@ -896,12 +898,6 @@ function ProjectCard({
       setSaving(false)
     }
   }
-
-  const alertSources: string[] = project.alert_sources
-    ? (typeof project.alert_sources === 'string'
-        ? (project.alert_sources as string).replace(/[{}"]/g, '').split(',').filter(Boolean)
-        : project.alert_sources)
-    : []
 
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
@@ -982,30 +978,27 @@ function ProjectCard({
       {showWebhooks && (
         <div className="mt-2 space-y-2">
           {webhooksLoading && <p className="text-xs text-gray-500">Loading…</p>}
+          {webhooksError && <p className="text-xs text-red-400">{webhooksError}</p>}
           {webhooks && (
             <>
-              {(alertSources.includes('sentry') || alertSources.length === 0) && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Sentry webhook URL</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-indigo-300 truncate">
-                      {webhooks.sentry}
-                    </code>
-                    <CopyButton text={webhooks.sentry} />
-                  </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Sentry webhook URL</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-indigo-300 truncate">
+                    {webhooks.sentry}
+                  </code>
+                  <CopyButton text={webhooks.sentry} />
                 </div>
-              )}
-              {alertSources.includes('rollbar') && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Rollbar webhook URL</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-indigo-300 truncate">
-                      {webhooks.rollbar}
-                    </code>
-                    <CopyButton text={webhooks.rollbar} />
-                  </div>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Rollbar webhook URL</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-indigo-300 truncate">
+                    {webhooks.rollbar}
+                  </code>
+                  <CopyButton text={webhooks.rollbar} />
                 </div>
-              )}
+              </div>
             </>
           )}
         </div>
