@@ -199,7 +199,7 @@ def is_demo_mode() -> bool:
       2. demo key in config.yaml (default: true)
     """
     raw = _load_yaml()
-    yaml_value = raw.get("demo", True)
+    yaml_value = raw.get("demo", False)
     env_value = os.environ.get("HELIX_DEMO", "").split("#")[0].strip().lower()
     if env_value in ("false", "0"):
         return False

@@ -60,6 +60,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis) -> CrashReport:
         stack_trace=event.stack_trace or "(no stack trace)",
         raw_summary=event.title,
         known_language=event.language or "",
+        source=event.source,
     )
 
     await publish_ui_event(redis_client, incident_id, "agent_step", "crash_handler", "Calling LLM to classify crash…")

@@ -1,14 +1,14 @@
 """
 LLM prompts for the Crash Handler Agent.
 
-The agent receives a raw Rollbar event and must return a structured JSON
-object that maps to the CrashReport model.
+The agent receives a normalised crash event (from Rollbar or Sentry) and must
+return a structured JSON object that maps to the CrashReport model.
 """
 
 SYSTEM = """\
 You are an expert SRE analysing production crash reports.
-Your job is to extract structured information from a Rollbar error event so it
-can feed into an automated incident response pipeline.
+Your job is to extract structured information from a crash event (Rollbar or Sentry)
+so it can feed into an automated incident response pipeline.
 
 Always respond with a single JSON object — no prose, no markdown fences.
 """
@@ -21,22 +21,26 @@ def user(
     stack_trace: str,
     raw_summary: str,
     known_language: str = "",
+    source: str = "",
 ) -> str:
     """
     Build the user-turn prompt for the Crash Handler LLM call.
 
     Args:
-        event_title:     Rollbar item title / exception message.
-        level:           Rollbar severity level string, e.g. "error", "critical".
-        culprit:         Rollbar occurrence context — best guess at the offending call.
+        event_title:     Event title / exception message.
+        level:           Severity level string, e.g. "error", "critical".
+        culprit:         Context identifying the offending call or file.
         stack_trace:     Formatted stack trace string.
         raw_summary:     Any additional context from the raw payload.
-        known_language:  Language already known from Rollbar (e.g. "python"). When
+        known_language:  Language already known from the source (e.g. "python"). When
                          provided, the LLM is told to confirm rather than detect.
+        source:          Origin of the event: "sentry", "rollbar", or empty.
 
     Returns:
         Formatted prompt string.
     """
+    source_label = {"sentry": "Sentry", "rollbar": "Rollbar"}.get(source, "crash")
+
     language_hint = (
         f"The application language is already known to be: {known_language}\n"
         f'Return this value as-is in the "language" field.\n'
@@ -45,7 +49,7 @@ def user(
     )
 
     return f"""\
-Analyse the following Rollbar crash event and return a JSON object with exactly
+Analyse the following {source_label} event and return a JSON object with exactly
 these fields:
 
   severity          — one of: "critical", "high", "medium"
