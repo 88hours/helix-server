@@ -282,8 +282,11 @@ function Step2({
       })
       .catch(err => {
         const msg = (err as Error).message
-        if (msg === 'GitHub App not installed') setNotInstalled(true)
-        else setRepoError(msg)
+        if (msg === 'GitHub App not installed' || msg.includes('500')) {
+          setNotInstalled(true)
+        } else {
+          setRepoError(msg)
+        }
       })
   }
 
