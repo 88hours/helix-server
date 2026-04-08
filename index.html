@@ -289,6 +289,18 @@
           <p class="text-sm text-gray-400 leading-relaxed">Each project stores its own Anthropic key, Sentry secret, Rollbar token, Slack channel, and email settings in Postgres. Every project also gets a dedicated webhook URL scoped to its config.</p>
         </div>
 
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">🔭</div>
+          <h3 class="font-semibold mb-2">OpenTelemetry tracing</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">End-to-end distributed tracing across all four agents. Enable with <code class="font-mono text-xs text-indigo-300">OTEL_ENABLED=true</code> — exports to Datadog, Grafana Tempo, Jaeger, or any OTLP-compatible backend. Zero overhead when disabled.</p>
+        </div>
+
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+          <div class="text-2xl mb-3">📈</div>
+          <h3 class="font-semibold mb-2">LangSmith observability</h3>
+          <p class="text-sm text-gray-400 leading-relaxed">Every LLM call is traced with prompt, response, token usage, and latency. An automated eval suite covers all three agents — run on every deploy via GitHub Actions, fails CI if any agent scores below 80%.</p>
+        </div>
+
       </div>
     </div>
   </section>
@@ -400,7 +412,7 @@ docker compose up --build</pre>
 
         <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-5 text-sm text-gray-400 leading-relaxed">
           <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN · REDIS_URL · DATABASE_URL<br/>
-          <span class="text-gray-600 font-medium">Optional:</span> GITHUB_APP_ID · GITHUB_APP_PRIVATE_KEY · GITHUB_APP_SLUG · SLACK_BOT_TOKEN · SLACK_SIGNING_SECRET · SLACK_APPROVAL_CHANNEL · SENDGRID_API_KEY · SMTP_HOST
+          <span class="text-gray-600 font-medium">Optional:</span> GITHUB_APP_ID · GITHUB_APP_PRIVATE_KEY · GITHUB_APP_SLUG · SLACK_BOT_TOKEN · SLACK_SIGNING_SECRET · SLACK_APPROVAL_CHANNEL · SENDGRID_API_KEY · SMTP_HOST · LANGSMITH_API_KEY · OTEL_ENABLED · OTEL_EXPORTER_OTLP_ENDPOINT
         </div>
 
       </div>
@@ -413,7 +425,7 @@ docker compose up --build</pre>
       <div class="flex items-center gap-6 text-sm text-gray-500">
         <span class="font-semibold text-gray-400">Helix</span>
         <a href="https://github.com/88hours/helix/blob/main/LICENSE" target="_blank" class="hover:text-gray-300 transition-colors">MIT License</a>
-        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v3.0.0</a>
+        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v4.0.0</a>
         <a href="https://github.com/88hours/helix/blob/main/docs/features.md" target="_blank" class="hover:text-gray-300 transition-colors">Docs</a>
       </div>
       <a href="https://github.com/88hours/helix" target="_blank"

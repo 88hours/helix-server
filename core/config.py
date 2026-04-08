@@ -38,6 +38,7 @@ Usage:
     url = get_redis_url()               # "redis://..."
     backend = get_event_backend()       # "redis" or "eventbridge"
     gh = get_github_config()            # GitHubConfig(target_repo, base_branch, token)
+    ls = get_langsmith_config()         # LangSmithConfig(api_key, project, tracing_enabled)
 
     # Per-project config (Phase 3+):
     pc = ProjectConfig(project)
@@ -109,6 +110,23 @@ class SlackConfig:
     token: str | None           # Slack bot token (xoxb-...); None → notifications skipped
     signing_secret: str | None  # Slack app signing secret — used to verify interaction payloads
     approval_channel: str | None  # channel ID or name for approval/escalation messages
+
+
+@dataclass
+class LangSmithConfig:
+    """LangSmith tracing and eval settings."""
+    api_key: str | None     # LangSmith API key; None → tracing disabled
+    project: str            # LangSmith project name, e.g. "helix"
+    endpoint: str           # LangSmith API endpoint URL
+    tracing_enabled: bool   # True when API key is set and LANGSMITH_TRACING=true
+
+
+@dataclass
+class OtelConfig:
+    """OpenTelemetry distributed tracing settings."""
+    enabled: bool       # True when OTEL_ENABLED=true
+    endpoint: str       # OTLP/gRPC endpoint, default http://localhost:4317
+    service_name: str   # OTel service.name resource attribute, default "helix"
 
 
 @dataclass
@@ -418,6 +436,72 @@ def get_email_config() -> EmailConfig:
         smtp_user=os.environ.get(smtp_user_env) or None,
         smtp_password=os.environ.get(smtp_password_env) or None,
     )
+
+
+def get_langsmith_config() -> LangSmithConfig:
+    """
+    Return LangSmith tracing and eval settings.
+
+    Tracing is enabled when LANGSMITH_API_KEY is set AND LANGSMITH_TRACING is
+    "true".  If LANGSMITH_API_KEY is absent, tracing is always disabled.
+
+    Resolution order for each field:
+      1. Environment variable (LANGSMITH_API_KEY, LANGSMITH_PROJECT,
+         LANGSMITH_TRACING, LANGSMITH_ENDPOINT)
+      2. config.yaml (langsmith.api_key_env, langsmith.project_env,
+         langsmith.tracing_env, langsmith.endpoint_env)
+      3. Defaults: project → "helix",
+                   endpoint → "https://api.smith.langchain.com",
+                   tracing → disabled
+    """
+    raw = _load_yaml()
+    ls = raw.get("langsmith", {})
+
+    api_key_env = ls.get("api_key_env", "LANGSMITH_API_KEY")
+    project_env = ls.get("project_env", "LANGSMITH_PROJECT")
+    tracing_env = ls.get("tracing_env", "LANGSMITH_TRACING")
+    endpoint_env = ls.get("endpoint_env", "LANGSMITH_ENDPOINT")
+
+    api_key = os.environ.get(api_key_env) or None
+    project = os.environ.get(project_env) or "helix"
+    endpoint = os.environ.get(endpoint_env) or "https://api.smith.langchain.com"
+    tracing_flag = os.environ.get(tracing_env, "").lower()
+    tracing_enabled = api_key is not None and tracing_flag in ("true", "1")
+
+    return LangSmithConfig(
+        api_key=api_key,
+        project=project,
+        endpoint=endpoint,
+        tracing_enabled=tracing_enabled,
+    )
+
+
+def get_otel_config() -> OtelConfig:
+    """
+    Return OpenTelemetry tracing settings.
+
+    Tracing is enabled only when OTEL_ENABLED is set to "true" or "1".
+    When disabled the OTel API's built-in no-op tracer is used automatically —
+    no overhead, no errors.
+
+    Resolution order for each field:
+      1. Environment variable (OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT,
+         OTEL_SERVICE_NAME)
+      2. config.yaml (otel.enabled_env, otel.endpoint_env, otel.service_name_env)
+      3. Defaults: endpoint → "http://localhost:4317", service_name → "helix"
+    """
+    raw = _load_yaml()
+    otel = raw.get("otel", {})
+
+    enabled_env = otel.get("enabled_env", "OTEL_ENABLED")
+    endpoint_env = otel.get("endpoint_env", "OTEL_EXPORTER_OTLP_ENDPOINT")
+    service_name_env = otel.get("service_name_env", "OTEL_SERVICE_NAME")
+
+    enabled = os.environ.get(enabled_env, "").lower() in ("true", "1")
+    endpoint = os.environ.get(endpoint_env) or "http://localhost:4317"
+    service_name = os.environ.get(service_name_env) or "helix"
+
+    return OtelConfig(enabled=enabled, endpoint=endpoint, service_name=service_name)
 
 
 def get_eventbridge_config() -> EventBridgeConfig:

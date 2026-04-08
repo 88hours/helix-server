@@ -19,6 +19,7 @@ async def test_complete_anthropic(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     mock_msg = MagicMock()
     mock_msg.content = [MagicMock(text="analysis result")]
+    mock_msg.usage = MagicMock(input_tokens=100, output_tokens=50)
     mock_client = AsyncMock()
     mock_client.messages.create.return_value = mock_msg
 
@@ -40,6 +41,7 @@ async def test_complete_anthropic_no_system(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     mock_msg = MagicMock()
     mock_msg.content = [MagicMock(text="result")]
+    mock_msg.usage = MagicMock(input_tokens=50, output_tokens=20)
     mock_client = AsyncMock()
     mock_client.messages.create.return_value = mock_msg
 
@@ -60,6 +62,7 @@ async def test_complete_openrouter(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="openrouter result"))]
+    mock_response.usage = MagicMock(prompt_tokens=80, completion_tokens=30)
     mock_client = AsyncMock()
     mock_client.chat.completions.create.return_value = mock_response
 

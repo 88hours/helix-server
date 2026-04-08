@@ -22,6 +22,7 @@ import redis.asyncio as aioredis
 from agents.notifier.agent import handle, handle_duplicate, handle_escalation, handle_pr_created
 from core.config import get_redis_url
 from core.events import subscribe
+from core.telemetry import get_tracer, setup_tracing
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+
+
+_tracer = get_tracer("helix.notifier")
 
 
 async def _listen_fix_suggested(redis_client: aioredis.Redis) -> None:
@@ -47,7 +51,9 @@ async def _listen_fix_suggested(redis_client: aioredis.Redis) -> None:
                     extra={"incident_id": incident_id},
                 )
                 continue
-            await handle(incident_id, issue_url, redis_client)
+            with _tracer.start_as_current_span("notifier.fix_suggested") as span:
+                span.set_attribute("helix.incident_id", incident_id)
+                await handle(incident_id, issue_url, redis_client)
             logger.info(
                 "notifier finished fix_suggested",
                 extra={"incident_id": incident_id},
@@ -69,13 +75,15 @@ async def _listen_fix_failed(redis_client: aioredis.Redis) -> None:
             extra={"incident_id": incident_id},
         )
         try:
-            await handle_escalation(
-                incident_id=incident_id,
-                crash_summary=payload.get("crash_summary", ""),
-                attempts=payload.get("attempts", 0),
-                context=payload.get("context", "No attempts recorded."),
-                redis_client=redis_client,
-            )
+            with _tracer.start_as_current_span("notifier.fix_failed") as span:
+                span.set_attribute("helix.incident_id", incident_id)
+                await handle_escalation(
+                    incident_id=incident_id,
+                    crash_summary=payload.get("crash_summary", ""),
+                    attempts=payload.get("attempts", 0),
+                    context=payload.get("context", "No attempts recorded."),
+                    redis_client=redis_client,
+                )
             logger.info(
                 "notifier finished fix_failed escalation",
                 extra={"incident_id": incident_id},
@@ -97,7 +105,9 @@ async def _listen_pr_created(redis_client: aioredis.Redis) -> None:
             extra={"incident_id": incident_id},
         )
         try:
-            await handle_pr_created(incident_id, redis_client)
+            with _tracer.start_as_current_span("notifier.pr_created") as span:
+                span.set_attribute("helix.incident_id", incident_id)
+                await handle_pr_created(incident_id, redis_client)
             logger.info(
                 "notifier finished pr_created",
                 extra={"incident_id": incident_id},
@@ -119,13 +129,15 @@ async def _listen_duplicate_detected(redis_client: aioredis.Redis) -> None:
             extra={"incident_id": incident_id},
         )
         try:
-            await handle_duplicate(
-                incident_id=incident_id,
-                issue_url=payload.get("issue_url", ""),
-                error_type=payload.get("error_type", "unknown"),
-                error_message=payload.get("error_message", ""),
-                redis_client=redis_client,
-            )
+            with _tracer.start_as_current_span("notifier.duplicate_detected") as span:
+                span.set_attribute("helix.incident_id", incident_id)
+                await handle_duplicate(
+                    incident_id=incident_id,
+                    issue_url=payload.get("issue_url", ""),
+                    error_type=payload.get("error_type", "unknown"),
+                    error_message=payload.get("error_message", ""),
+                    redis_client=redis_client,
+                )
             logger.info(
                 "notifier finished duplicate_detected",
                 extra={"incident_id": incident_id},
@@ -140,6 +152,7 @@ async def _listen_duplicate_detected(redis_client: aioredis.Redis) -> None:
 
 async def main() -> None:
     """Connect to Redis and run all four subscription loops concurrently."""
+    setup_tracing()
     logger.info("=== Notifier Agent starting ===")
     redis_url = get_redis_url()
     logger.info("notifier agent connecting to redis", extra={"redis_url": redis_url})

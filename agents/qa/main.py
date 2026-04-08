@@ -16,6 +16,7 @@ import redis.asyncio as aioredis
 
 from agents.qa.agent import handle
 from core.config import get_redis_url
+from core.telemetry import get_tracer, setup_tracing
 from core.db import get_db, get_project
 from core.events import subscribe
 from core.github_app import get_installation_token
@@ -30,6 +31,9 @@ logging.basicConfig(
 )
 
 
+_tracer = get_tracer("helix.qa")
+
+
 async def main() -> None:
     """
     Subscribe to crash_analysed events and run the QA Agent for each one.
@@ -37,6 +41,7 @@ async def main() -> None:
     If the CrashReport is not in Redis (e.g. expired), the event is skipped
     with a warning rather than crashing the loop.
     """
+    setup_tracing()
     logger.info("=== QA Agent starting ===")
     redis_url = get_redis_url()
     logger.info("qa agent connecting to redis", extra={"redis_url": redis_url})
@@ -101,7 +106,9 @@ async def main() -> None:
                         extra={"incident_id": incident_id, "project_id": report.project_id, "error": str(proj_exc)},
                     )
 
-            await handle(report, redis_client, project=project, installation_token=installation_token)
+            with _tracer.start_as_current_span("qa.handle_incident") as span:
+                span.set_attribute("helix.incident_id", incident_id)
+                await handle(report, redis_client, project=project, installation_token=installation_token)
             logger.info("qa agent finished handling incident", extra={"incident_id": incident_id})
         except Exception as exc:
             logger.error(

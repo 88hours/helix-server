@@ -132,10 +132,10 @@ Each agent only has permission to call the tools it needs. The Dev Agent cannot 
 ### Phase 3 – Observability and Platform Maturity
 
 #### OpenTelemetry tracing
-Every agent call is traced end to end. Trace data includes: which tools were called, how long each step took, what inputs and outputs were, and where latency is hiding. Traces are exportable to Datadog, Grafana, or any OpenTelemetry-compatible backend.
+Every agent call is traced end to end using the OpenTelemetry SDK. Spans are created at two levels: one parent span per incident per agent (e.g. `qa.handle_incident`) and one child span per LLM call (`llm.complete`). Key attributes on every span: `helix.agent`, `helix.incident_id`, `helix.provider`, `helix.model`, `helix.input_tokens`, `helix.output_tokens`. Enabled via `OTEL_ENABLED=true`; exports via OTLP/gRPC to Datadog, Grafana Tempo, Jaeger, or any compatible backend. Zero overhead when disabled — the OTel API's no-op tracer is used automatically.
 
 #### LangSmith evals
-Every LLM call is recorded with its prompt, response, and token usage. A test suite for the agents measures accuracy and success rates. Evals run automatically on every deployment.
+Every LLM call in `core/llm.py` is recorded with its prompt, response, and token usage via LangSmith tracing. A heuristic eval suite covers all three LLM-calling agents (Crash Handler, QA, Dev) and runs automatically on every push to `main` via GitHub Actions. Evaluators are pure Python — no LLM-as-judge cost. Any agent scoring below 0.8 fails the CI check.
 
 #### AI platform layer
 Helix evolves from a point solution into a platform. Other engineering teams can register their own agents, define their own workflows, and use Helix's orchestration, auth, observability, and UI infrastructure.
