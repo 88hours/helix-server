@@ -18,6 +18,7 @@ Entry points:
   handle()  — called on test_case_generated events
 """
 
+import asyncio
 import base64
 import logging
 import shutil
@@ -50,6 +51,12 @@ MAX_ITERATIONS = 3
 
 # Maximum characters to read per source file passed to the LLM.
 _MAX_FILE_CHARS = 4_000
+
+# Per-repo lock: prevents two Dev Agent workers from cloning the same repo
+# simultaneously, which would produce conflicting branches and duplicate PRs.
+_REPO_LOCK_TTL = 600      # seconds — covers the longest expected TDD run
+_REPO_LOCK_RETRIES = 12   # 12 × 30 s = up to 6 minutes of waiting
+_REPO_LOCK_RETRY_DELAY = 30  # seconds between lock-check retries
 
 
 async def handle(
@@ -226,6 +233,33 @@ async def _tdd_loop(
             f"Dev Agent for incident {incident_id} has exhausted all {MAX_ITERATIONS} iterations."
         )
 
+    # Acquire a per-repo lock so concurrent incidents on the same repo do not
+    # clone simultaneously, create conflicting branches, or open duplicate PRs.
+    # The lock value is the incident_id so it is traceable in Redis.
+    repo_lock_key = f"helix:repo_lock:{gh_config.target_repo}"
+    lock_acquired = False
+    for _attempt in range(_REPO_LOCK_RETRIES):
+        lock_acquired = await redis_client.set(
+            repo_lock_key, incident_id, nx=True, ex=_REPO_LOCK_TTL
+        )
+        if lock_acquired:
+            break
+        logger.info(
+            "repo lock held — waiting before retry",
+            extra={
+                "incident_id": incident_id,
+                "repo": gh_config.target_repo,
+                "attempt": _attempt + 1,
+            },
+        )
+        await asyncio.sleep(_REPO_LOCK_RETRY_DELAY)
+
+    if not lock_acquired:
+        raise RuntimeError(
+            f"Could not acquire repo lock for {gh_config.target_repo} after "
+            f"{_REPO_LOCK_RETRIES} retries — another incident is already in progress."
+        )
+
     repo_dir = tempfile.mkdtemp(prefix="helix-dev-")
     prior_attempts: list[str] = []
     try:
@@ -368,6 +402,8 @@ async def _tdd_loop(
 
     finally:
         shutil.rmtree(repo_dir, ignore_errors=True)
+        if lock_acquired:
+            await redis_client.delete(repo_lock_key)
 
     # All iterations exhausted.
     await publish_ui_event(redis_client, incident_id, "agent_done", "dev", f"All {MAX_ITERATIONS} iterations exhausted — escalating to human")
