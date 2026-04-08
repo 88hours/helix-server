@@ -40,13 +40,19 @@ from langsmith.evaluation import evaluate
 
 from core.config import get_langsmith_config
 from agents.crash_handler import prompts as crash_handler_prompts
+from agents.dev import prompts as dev_prompts
 from agents.qa import prompts as qa_prompts
 from core.llm import complete
-from evals.datasets import CRASH_HANDLER_EXAMPLES, QA_EXAMPLES
+from evals.datasets import CRASH_HANDLER_EXAMPLES, DEV_EXAMPLES, QA_EXAMPLES
 from evals.evaluators import (
+    after_block_differs_from_before,
     correct_error_type,
+    has_after_block,
+    has_before_block,
     has_required_crash_fields,
     has_required_qa_fields,
+    has_root_cause_sentence,
+    no_new_imports_in_fix,
     test_avoids_exception_assertion,
     test_content_not_empty,
     valid_json_crash_handler,
@@ -153,6 +159,30 @@ def qa_target(inputs: dict) -> dict:
     return {"output": response}
 
 
+def dev_target(inputs: dict) -> dict:
+    """
+    Eval target for the Dev Agent fix-suggestion step.
+
+    Calls dev_prompts.build_suggestion() with the given inputs and returns the
+    raw response string so evaluators can check structural compliance (root
+    cause sentence, BEFORE/AFTER blocks, no new imports).
+
+    Note: this evals the build_suggestion() API call only. The build_tdd()
+    Claude Code CLI step requires a live repo and is not evaled here.
+
+    Args:
+        inputs: Keys matching dev_prompts.build_suggestion() parameters.
+
+    Returns:
+        {"output": raw LLM response string}
+    """
+    prompt = dev_prompts.build_suggestion(**inputs)
+    response = _LOOP.run_until_complete(
+        complete("dev", prompt)
+    )
+    return {"output": response}
+
+
 # ---------------------------------------------------------------------------
 # Eval runners
 # ---------------------------------------------------------------------------
@@ -183,6 +213,37 @@ def run_crash_handler_eval(client: Client, experiment_prefix: str) -> float:
         ],
         experiment_prefix=experiment_prefix,
         max_concurrency=1,  # sequential to avoid rate limits on small runs
+    )
+
+    return _mean_score(results)
+
+
+def run_dev_eval(client: Client, experiment_prefix: str) -> float:
+    """
+    Run the Dev Agent fix-suggestion eval suite and return the mean score.
+
+    Args:
+        client:            Authenticated LangSmith client.
+        experiment_prefix: Prefix for the LangSmith experiment name.
+
+    Returns:
+        Mean score in [0.0, 1.0].
+    """
+    dataset_name = "helix-dev"
+    upsert_dataset(client, dataset_name, DEV_EXAMPLES)
+
+    results = evaluate(
+        dev_target,
+        data=dataset_name,
+        evaluators=[
+            has_root_cause_sentence,
+            has_before_block,
+            has_after_block,
+            after_block_differs_from_before,
+            no_new_imports_in_fix,
+        ],
+        experiment_prefix=experiment_prefix,
+        max_concurrency=1,
     )
 
     return _mean_score(results)
@@ -257,7 +318,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--agent",
-        choices=["crash_handler", "qa"],
+        choices=["crash_handler", "qa", "dev"],
         help="Run evals for a single agent only (default: all agents)",
     )
     parser.add_argument(
@@ -281,7 +342,7 @@ def main() -> int:
     client = Client(api_key=ls_cfg.api_key, api_url=ls_cfg.endpoint)
     experiment_prefix = args.experiment or f"helix-eval-{datetime.now(UTC).strftime('%Y%m%d-%H%M')}"
 
-    agents_to_run = [args.agent] if args.agent else ["crash_handler", "qa"]
+    agents_to_run = [args.agent] if args.agent else ["crash_handler", "qa", "dev"]
 
     if args.dataset_only:
         print("Dataset-only mode — uploading examples, skipping LLM calls.\n")
@@ -291,6 +352,8 @@ def main() -> int:
                 upsert_dataset(client, "helix-crash-handler", CRASH_HANDLER_EXAMPLES)
             elif agent == "qa":
                 upsert_dataset(client, "helix-qa", QA_EXAMPLES)
+            elif agent == "dev":
+                upsert_dataset(client, "helix-dev", DEV_EXAMPLES)
             print()
         return 0
 
@@ -303,6 +366,8 @@ def main() -> int:
             score = run_crash_handler_eval(client, experiment_prefix)
         elif agent == "qa":
             score = run_qa_eval(client, experiment_prefix)
+        elif agent == "dev":
+            score = run_dev_eval(client, experiment_prefix)
         else:
             continue
         scores[agent] = score

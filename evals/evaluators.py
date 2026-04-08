@@ -211,3 +211,118 @@ def test_avoids_exception_assertion(run, example) -> dict:
             "comment": f"Test uses forbidden exception assertion(s): {found}",
         }
     return {"key": "no_exception_assertion", "score": 1}
+
+
+# ---------------------------------------------------------------------------
+# Dev Agent evaluators
+#
+# The Dev Agent's build_suggestion() returns plain text (not JSON) with three
+# required sections: a one-sentence root cause, labelled BEFORE/AFTER code
+# blocks, and a short explanation. These evaluators check structural compliance
+# without making any LLM calls.
+# ---------------------------------------------------------------------------
+
+def has_root_cause_sentence(run, example) -> dict:
+    """
+    Check that the fix suggestion identifies a root cause in one sentence.
+
+    The prompt explicitly asks for the root cause as the first item. Its
+    presence is a reliable signal that the model followed the structure.
+    """
+    output = _get_output(run).lower()
+    if "root cause" in output:
+        return {"key": "has_root_cause", "score": 1}
+    return {
+        "key": "has_root_cause",
+        "score": 0,
+        "comment": "Output does not contain a root cause statement",
+    }
+
+
+def has_before_block(run, example) -> dict:
+    """
+    Check that the fix suggestion contains a BEFORE code block.
+
+    The prompt requires clearly labelled BEFORE and AFTER blocks so the
+    reviewer can see exactly what changed.
+    """
+    output = _get_output(run)
+    if "BEFORE" in output or "before" in output.lower():
+        return {"key": "has_before_block", "score": 1}
+    return {
+        "key": "has_before_block",
+        "score": 0,
+        "comment": "Output does not contain a BEFORE block",
+    }
+
+
+def has_after_block(run, example) -> dict:
+    """
+    Check that the fix suggestion contains an AFTER code block.
+
+    An AFTER block is required — without it the developer cannot see what
+    the fixed code should look like.
+    """
+    output = _get_output(run)
+    if "AFTER" in output or "after" in output.lower():
+        return {"key": "has_after_block", "score": 1}
+    return {
+        "key": "has_after_block",
+        "score": 0,
+        "comment": "Output does not contain an AFTER block",
+    }
+
+
+def after_block_differs_from_before(run, example) -> dict:
+    """
+    Check that the AFTER block is not identical to the BEFORE block.
+
+    If they are the same the model produced a no-op fix, which would not
+    make the failing test pass.
+    """
+    output = _get_output(run)
+    upper = output.upper()
+    before_pos = upper.find("BEFORE")
+    after_pos = upper.find("AFTER")
+    if before_pos == -1 or after_pos == -1 or after_pos <= before_pos:
+        return {
+            "key": "after_differs_from_before",
+            "score": 0,
+            "comment": "Could not locate distinct BEFORE and AFTER sections",
+        }
+    before_text = output[before_pos:after_pos].strip()
+    after_text = output[after_pos:].strip()
+    if before_text == after_text:
+        return {
+            "key": "after_differs_from_before",
+            "score": 0,
+            "comment": "BEFORE and AFTER blocks are identical — fix is a no-op",
+        }
+    return {"key": "after_differs_from_before", "score": 1}
+
+
+def no_new_imports_in_fix(run, example) -> dict:
+    """
+    Check that the AFTER block does not introduce new import statements.
+
+    The prompt says not to add new dependencies. Any new import in the fix
+    violates that constraint and may break the target environment.
+    """
+    output = _get_output(run)
+    upper = output.upper()
+    after_pos = upper.find("AFTER")
+    if after_pos == -1:
+        return {"key": "no_new_imports", "score": 1, "comment": "no AFTER block found — skipped"}
+    after_text = output[after_pos:]
+    lines = after_text.splitlines()
+    new_imports = [
+        l.strip() for l in lines
+        if l.strip().startswith("import ") or l.strip().startswith("from ")
+    ]
+    if new_imports:
+        return {
+            "key": "no_new_imports",
+            "score": 0,
+            "comment": f"AFTER block introduces new import(s): {new_imports[:3]}",
+        }
+    return {"key": "no_new_imports", "score": 1}
