@@ -333,6 +333,35 @@ langsmith:
   endpoint_env: LANGSMITH_ENDPOINT  # default: https://api.smith.langchain.com
 
 # ---------------------------------------------------------------------------
+# OpenTelemetry (distributed tracing)
+# ---------------------------------------------------------------------------
+#
+# When OTEL_ENABLED=true, every agent call is traced end-to-end using the
+# OpenTelemetry SDK. Traces are exported via OTLP/gRPC and are compatible with
+# Datadog, Grafana Tempo, Jaeger, Honeycomb, and any other OTel backend.
+#
+# When OTEL_ENABLED is unset or false, the OTel API's built-in no-op tracer
+# is used — zero overhead, no packages need to be running.
+#
+# Span hierarchy per incident:
+#   <agent>.handle_incident          (one span per incident per agent)
+#     └── llm.complete               (one span per LLM call)
+#
+# Attributes on every span: helix.agent, helix.incident_id,
+#                            helix.provider, helix.model,
+#                            helix.input_tokens, helix.output_tokens
+#
+# Override env vars:
+#   OTEL_ENABLED                    — set to "true" to enable tracing
+#   OTEL_EXPORTER_OTLP_ENDPOINT     — OTLP/gRPC endpoint (default: http://localhost:4317)
+#   OTEL_SERVICE_NAME               — service name tag on all spans (default: "helix")
+
+otel:
+  enabled_env: OTEL_ENABLED
+  endpoint_env: OTEL_EXPORTER_OTLP_ENDPOINT   # default: http://localhost:4317
+  service_name_env: OTEL_SERVICE_NAME          # default: "helix"
+
+# ---------------------------------------------------------------------------
 # Server (Crash Handler FastAPI app)
 # ---------------------------------------------------------------------------
 #

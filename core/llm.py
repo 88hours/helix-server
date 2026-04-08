@@ -30,6 +30,9 @@ import os
 from typing import Optional
 
 from core.config import AgentConfig, get_agent_config
+from core.telemetry import get_tracer
+
+_tracer = get_tracer("helix.llm")
 
 # LangSmith tracing — gracefully disabled when the package is not installed
 # or LANGSMITH_TRACING is not set.
@@ -271,29 +274,37 @@ async def complete(
         extra={"agent": agent, "provider": config.provider, "model": config.model},
     )
 
-    if config.provider == "anthropic":
-        response, usage = await _complete_anthropic(config, prompt, system)
-    elif config.provider == "openrouter":
-        response, usage = await _complete_openrouter(config, prompt, system)
-    elif config.provider == "claude-code":
-        response, usage = await _complete_claude_code(prompt, cwd)
-    else:
-        raise ValueError(
-            f"Unknown provider '{config.provider}' for agent '{agent}'. "
-            "Must be 'anthropic', 'openrouter', or 'claude-code'."
-        )
+    with _tracer.start_as_current_span("llm.complete") as span:
+        span.set_attribute("helix.agent", agent)
+        span.set_attribute("helix.provider", config.provider)
+        span.set_attribute("helix.model", config.model)
 
-    # Attach model metadata and token usage to the active LangSmith run.
-    # Silently skipped when tracing is disabled or langsmith is not installed.
-    try:
-        rt = _get_run_tree()
-        if rt is not None:
-            rt.add_metadata({
-                "provider": config.provider,
-                "model": config.model,
-                **usage,
-            })
-    except Exception:
-        pass
+        if config.provider == "anthropic":
+            response, usage = await _complete_anthropic(config, prompt, system)
+        elif config.provider == "openrouter":
+            response, usage = await _complete_openrouter(config, prompt, system)
+        elif config.provider == "claude-code":
+            response, usage = await _complete_claude_code(prompt, cwd)
+        else:
+            raise ValueError(
+                f"Unknown provider '{config.provider}' for agent '{agent}'. "
+                "Must be 'anthropic', 'openrouter', or 'claude-code'."
+            )
+
+        span.set_attribute("helix.input_tokens", usage.get("input_tokens", 0))
+        span.set_attribute("helix.output_tokens", usage.get("output_tokens", 0))
+
+        # Attach model metadata and token usage to the active LangSmith run.
+        # Silently skipped when tracing is disabled or langsmith is not installed.
+        try:
+            rt = _get_run_tree()
+            if rt is not None:
+                rt.add_metadata({
+                    "provider": config.provider,
+                    "model": config.model,
+                    **usage,
+                })
+        except Exception:
+            pass
 
     return response

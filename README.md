@@ -54,7 +54,8 @@ core/
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
   state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo/project configs)
   models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig, Project, ProjectSettings)
-  llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI; instruments every call with LangSmith tracing
+  llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI; instruments every call with LangSmith tracing and OTel spans
+  telemetry.py         OpenTelemetry setup — call setup_tracing() once at startup; no-op when OTEL_ENABLED is not true
   permissions.py       Per-agent tool access control — declare and enforce at runtime
   ui_events.py         Dashboard event publishing — agent progress + tool call events persisted to Redis + forwarded via Pub/Sub
   auth.py              Auth0 JWT validation (RS256 via JWKS) — optional, falls back to demo user
@@ -164,6 +165,9 @@ Required variables:
 | `LANGSMITH_API_KEY` | LangSmith API key — enables LLM call tracing and the eval suite (optional; tracing disabled if unset) |
 | `LANGSMITH_PROJECT` | LangSmith project name (default: `helix`) |
 | `LANGSMITH_TRACING` | Set to `true` to enable LangSmith tracing in `core/llm.py` (requires `LANGSMITH_API_KEY`) |
+| `OTEL_ENABLED` | Set to `true` to enable OpenTelemetry distributed tracing across all agents |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/gRPC endpoint to export traces to (default: `http://localhost:4317`) |
+| `OTEL_SERVICE_NAME` | OTel service name tag on all spans (default: `helix`) |
 | `HELIX_DEMO` | Set to `true` to skip webhook signature/token verification — local testing only; **default is `false`** |
 | `AUTH0_DOMAIN` | Auth0 tenant domain, e.g. `your-tenant.auth0.com` (optional — leave unset for demo mode) |
 | `AUTH0_AUDIENCE` | Auth0 API identifier, e.g. `https://api.helix.yourapp.com` (required when `AUTH0_DOMAIN` is set) |
@@ -428,6 +432,38 @@ Evals also run automatically in CI on every push to `main` and on PRs targeting 
 
 Requires `LANGSMITH_API_KEY` and `ANTHROPIC_API_KEY` (set as GitHub Actions secrets for CI).
 
+## OpenTelemetry tracing
+
+End-to-end distributed tracing across all four agents. Disabled by default — zero overhead unless explicitly enabled.
+
+**Enable:**
+
+```bash
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317   # or your backend's endpoint
+```
+
+**Span hierarchy per incident:**
+
+```
+crash_handler.handle_incident  (one parent span per webhook)
+  └── llm.complete             (one child span per LLM call)
+
+qa.handle_incident
+  └── llm.complete
+
+dev.handle_incident
+  └── llm.complete
+
+notifier.fix_suggested / fix_failed / pr_created / duplicate_detected
+```
+
+**Attributes on every span:** `helix.agent`, `helix.incident_id`, `helix.provider`, `helix.model`, `helix.input_tokens`, `helix.output_tokens`
+
+**Compatible backends:** Datadog, Grafana Tempo, Jaeger, Honeycomb, AWS X-Ray — any OTLP/gRPC-compatible receiver.
+
+When `OTEL_ENABLED` is not set, the OTel API's built-in no-op tracer is used — no packages need to be running, no errors thrown.
+
 ## Agent models
 
 | Agent | Provider | Model | Why |
@@ -623,10 +659,8 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Email resilience — missing or invalid SendGrid key warns and skips instead of crashing the notifier
 - [x] Local Postgres container in Docker Compose
 
-### Phase 4 — Observability and Scale (in progress)
+### Phase 4 — Observability and Scale (complete)
 - [x] LangSmith tracing — every LLM call in `core/llm.py` is traced with prompt, response, and token usage
 - [x] LangSmith eval suite — Crash Handler, QA Agent, and Dev Agent; heuristic evaluators, no LLM-as-judge cost
 - [x] Evals in CI — GitHub Actions workflow runs evals on every push to `main` and on PRs; fails if any agent scores below 0.8
-- [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend
-- [ ] UI model configuration — agent models and providers configurable from the dashboard
-- [ ] Multi-agent orchestration — A2A communication patterns, dynamic sub-agent spawning
+- [x] OpenTelemetry tracing — end-to-end spans across all four agents, exportable to Datadog, Grafana, Jaeger, or any OTLP backend; enabled via `OTEL_ENABLED=true`

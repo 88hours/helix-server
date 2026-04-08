@@ -17,6 +17,7 @@ import redis.asyncio as aioredis
 
 from agents.dev.agent import handle
 from core.config import get_redis_url
+from core.telemetry import get_tracer, setup_tracing
 from core.db import get_db, get_project
 from core.events import subscribe
 from core.github_app import get_installation_token
@@ -31,8 +32,12 @@ logging.basicConfig(
 )
 
 
+_tracer = get_tracer("helix.dev")
+
+
 async def main() -> None:
     """Subscribe to test_case_generated events and run the Dev Agent for each one."""
+    setup_tracing()
     logger.info("=== Dev Agent starting ===")
     redis_url = get_redis_url()
     logger.info("dev agent connecting to redis", extra={"redis_url": redis_url})
@@ -106,7 +111,9 @@ async def main() -> None:
                         extra={"incident_id": incident_id, "project_id": crash_report.project_id, "error": str(proj_exc)},
                     )
 
-            await handle(qa_result, crash_report, redis_client, project=project, installation_token=installation_token)
+            with _tracer.start_as_current_span("dev.handle_incident") as span:
+                span.set_attribute("helix.incident_id", incident_id)
+                await handle(qa_result, crash_report, redis_client, project=project, installation_token=installation_token)
             logger.info("dev agent finished handling test_case_generated", extra={"incident_id": incident_id})
         except Exception as exc:
             logger.error(

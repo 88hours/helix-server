@@ -122,6 +122,14 @@ class LangSmithConfig:
 
 
 @dataclass
+class OtelConfig:
+    """OpenTelemetry distributed tracing settings."""
+    enabled: bool       # True when OTEL_ENABLED=true
+    endpoint: str       # OTLP/gRPC endpoint, default http://localhost:4317
+    service_name: str   # OTel service.name resource attribute, default "helix"
+
+
+@dataclass
 class EmailConfig:
     """Email notification settings — SendGrid API or SMTP fallback."""
     from_addr: str | None           # sender address; None → email notifications skipped
@@ -466,6 +474,34 @@ def get_langsmith_config() -> LangSmithConfig:
         endpoint=endpoint,
         tracing_enabled=tracing_enabled,
     )
+
+
+def get_otel_config() -> OtelConfig:
+    """
+    Return OpenTelemetry tracing settings.
+
+    Tracing is enabled only when OTEL_ENABLED is set to "true" or "1".
+    When disabled the OTel API's built-in no-op tracer is used automatically —
+    no overhead, no errors.
+
+    Resolution order for each field:
+      1. Environment variable (OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT,
+         OTEL_SERVICE_NAME)
+      2. config.yaml (otel.enabled_env, otel.endpoint_env, otel.service_name_env)
+      3. Defaults: endpoint → "http://localhost:4317", service_name → "helix"
+    """
+    raw = _load_yaml()
+    otel = raw.get("otel", {})
+
+    enabled_env = otel.get("enabled_env", "OTEL_ENABLED")
+    endpoint_env = otel.get("endpoint_env", "OTEL_EXPORTER_OTLP_ENDPOINT")
+    service_name_env = otel.get("service_name_env", "OTEL_SERVICE_NAME")
+
+    enabled = os.environ.get(enabled_env, "").lower() in ("true", "1")
+    endpoint = os.environ.get(endpoint_env) or "http://localhost:4317"
+    service_name = os.environ.get(service_name_env) or "helix"
+
+    return OtelConfig(enabled=enabled, endpoint=endpoint, service_name=service_name)
 
 
 def get_eventbridge_config() -> EventBridgeConfig:

@@ -43,6 +43,12 @@ dependencies = [
     "openai>=1.55",           # openrouter backend (OpenAI-compatible)
     "boto3>=1.35",            # eventbridge backend (optional; AWS deployments only)
     "langsmith>=0.2",         # LLM call tracing and eval suite
+
+    # OpenTelemetry — end-to-end distributed tracing (enabled via OTEL_ENABLED=true)
+    "opentelemetry-api>=1.20",                        # core API; no-op by default when SDK not configured
+    "opentelemetry-sdk>=1.20",                        # SDK: TracerProvider, BatchSpanProcessor
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20",   # OTLP/gRPC exporter (Datadog, Grafana, Jaeger, etc.)
+    "opentelemetry-instrumentation-fastapi>=0.41b0",  # auto-instrument FastAPI (crash handler)
 ]
 
 [project.optional-dependencies]

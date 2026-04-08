@@ -52,6 +52,7 @@ from sse_starlette.sse import EventSourceResponse
 from agents.crash_handler.agent import handle
 from core.auth import get_current_user
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
+from core.telemetry import get_tracer, setup_tracing
 from core.db import (
     delete_project as db_delete_project,
     get_db,
@@ -95,9 +96,13 @@ logging.basicConfig(
 )
 
 
+_tracer = get_tracer("helix.crash_handler")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create the Redis client and initialise Postgres tables on startup."""
+    setup_tracing()
     redis_url = get_redis_url()
     logger.info("=== Crash Handler starting ===")
     logger.info("demo mode: %s", os.environ.get("HELIX_DEMO", "not set"))
@@ -207,7 +212,11 @@ async def rollbar_webhook(project_id: str, request: Request):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
 
     crash_event = rollbar_integration.parse_event(raw)
-    report = await handle(crash_event, request.app.state.redis, project_id=project_id)
+    with _tracer.start_as_current_span("crash_handler.handle_incident") as span:
+        span.set_attribute("helix.source", "rollbar")
+        span.set_attribute("helix.project_id", project_id)
+        report = await handle(crash_event, request.app.state.redis, project_id=project_id)
+        span.set_attribute("helix.incident_id", report.incident_id)
     logger.info("rollbar webhook accepted", extra={"incident_id": report.incident_id, "project_id": project_id})
     return {"incident_id": report.incident_id, "status": "accepted"}
 
@@ -251,7 +260,11 @@ async def sentry_webhook(project_id: str, request: Request):
         return {"status": "ok"}
 
     crash_event = sentry_integration.parse_event(raw)
-    report = await handle(crash_event, request.app.state.redis, project_id=project_id)
+    with _tracer.start_as_current_span("crash_handler.handle_incident") as span:
+        span.set_attribute("helix.source", "sentry")
+        span.set_attribute("helix.project_id", project_id)
+        report = await handle(crash_event, request.app.state.redis, project_id=project_id)
+        span.set_attribute("helix.incident_id", report.incident_id)
     logger.info("sentry webhook accepted", extra={"incident_id": report.incident_id, "project_id": project_id})
     return {"incident_id": report.incident_id, "status": "accepted"}
 
