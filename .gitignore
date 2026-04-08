@@ -1,7 +1,11 @@
-# Environment variables — never commit secrets
+# Environment variables and private keys — never commit secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.p12
+*.pfx
+*.key
 
 # Python
 __pycache__/
