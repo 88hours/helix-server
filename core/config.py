@@ -38,6 +38,7 @@ Usage:
     url = get_redis_url()               # "redis://..."
     backend = get_event_backend()       # "redis" or "eventbridge"
     gh = get_github_config()            # GitHubConfig(target_repo, base_branch, token)
+    ls = get_langsmith_config()         # LangSmithConfig(api_key, project, tracing_enabled)
 
     # Per-project config (Phase 3+):
     pc = ProjectConfig(project)
@@ -109,6 +110,14 @@ class SlackConfig:
     token: str | None           # Slack bot token (xoxb-...); None → notifications skipped
     signing_secret: str | None  # Slack app signing secret — used to verify interaction payloads
     approval_channel: str | None  # channel ID or name for approval/escalation messages
+
+
+@dataclass
+class LangSmithConfig:
+    """LangSmith tracing and eval settings."""
+    api_key: str | None     # LangSmith API key; None → tracing disabled
+    project: str            # LangSmith project name, e.g. "helix"
+    tracing_enabled: bool   # True when API key is set and LANGSMITH_TRACING=true
 
 
 @dataclass
@@ -418,6 +427,33 @@ def get_email_config() -> EmailConfig:
         smtp_user=os.environ.get(smtp_user_env) or None,
         smtp_password=os.environ.get(smtp_password_env) or None,
     )
+
+
+def get_langsmith_config() -> LangSmithConfig:
+    """
+    Return LangSmith tracing and eval settings.
+
+    Tracing is enabled when LANGSMITH_API_KEY is set AND LANGSMITH_TRACING is
+    "true".  If LANGSMITH_API_KEY is absent, tracing is always disabled.
+
+    Resolution order for each field:
+      1. Environment variable (LANGSMITH_API_KEY, LANGSMITH_PROJECT, LANGSMITH_TRACING)
+      2. config.yaml (langsmith.api_key_env, langsmith.project_env, langsmith.tracing_env)
+      3. Defaults: project → "helix", tracing → disabled
+    """
+    raw = _load_yaml()
+    ls = raw.get("langsmith", {})
+
+    api_key_env = ls.get("api_key_env", "LANGSMITH_API_KEY")
+    project_env = ls.get("project_env", "LANGSMITH_PROJECT")
+    tracing_env = ls.get("tracing_env", "LANGSMITH_TRACING")
+
+    api_key = os.environ.get(api_key_env) or None
+    project = os.environ.get(project_env) or "helix"
+    tracing_flag = os.environ.get(tracing_env, "").lower()
+    tracing_enabled = api_key is not None and tracing_flag in ("true", "1")
+
+    return LangSmithConfig(api_key=api_key, project=project, tracing_enabled=tracing_enabled)
 
 
 def get_eventbridge_config() -> EventBridgeConfig:

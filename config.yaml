@@ -313,6 +313,25 @@ pipeline:
   qa_max_file_chars: 4000
 
 # ---------------------------------------------------------------------------
+# LangSmith (LLM observability and evals)
+# ---------------------------------------------------------------------------
+#
+# When LANGSMITH_API_KEY is set and LANGSMITH_TRACING=true, every LLM call is
+# traced automatically — inputs, outputs, latency, and token usage are recorded.
+#
+# The eval suite (evals/run.py) uploads sample datasets and runs quality checks
+# against all agents on every deployment.
+#
+# Required for tracing:    LANGSMITH_API_KEY, LANGSMITH_TRACING=true
+# Optional project name:   LANGSMITH_PROJECT (default: "helix")
+# Sign up at:              https://smith.langchain.com
+
+langsmith:
+  api_key_env: LANGSMITH_API_KEY
+  project_env: LANGSMITH_PROJECT    # LangSmith project — default: "helix"
+  tracing_env: LANGSMITH_TRACING    # set to "true" to enable tracing
+
+# ---------------------------------------------------------------------------
 # Server (Crash Handler FastAPI app)
 # ---------------------------------------------------------------------------
 #
