@@ -29,7 +29,11 @@ Exit codes:
 import argparse
 import asyncio
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
+
+# A single event loop reused across all eval target calls, so httpx can close
+# its async transport cleanly instead of hitting "Event loop is closed".
+_LOOP = asyncio.new_event_loop()
 
 from langsmith import Client
 from langsmith.evaluation import evaluate
@@ -123,7 +127,7 @@ def crash_handler_target(inputs: dict) -> dict:
         {"output": raw LLM response string}
     """
     prompt = crash_handler_prompts.user(**inputs)
-    response = asyncio.run(
+    response = _LOOP.run_until_complete(
         complete("crash_handler", prompt, system=crash_handler_prompts.SYSTEM)
     )
     return {"output": response}
@@ -143,7 +147,7 @@ def qa_target(inputs: dict) -> dict:
         {"output": raw LLM response string}
     """
     prompt = qa_prompts.user(**inputs)
-    response = asyncio.run(
+    response = _LOOP.run_until_complete(
         complete("qa", prompt, system=qa_prompts.SYSTEM)
     )
     return {"output": response}
@@ -275,7 +279,7 @@ def main() -> int:
         return 2
 
     client = Client(api_key=ls_cfg.api_key, api_url=ls_cfg.endpoint)
-    experiment_prefix = args.experiment or f"helix-eval-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+    experiment_prefix = args.experiment or f"helix-eval-{datetime.now(UTC).strftime('%Y%m%d-%H%M')}"
 
     agents_to_run = [args.agent] if args.agent else ["crash_handler", "qa"]
 
