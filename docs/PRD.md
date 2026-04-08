@@ -135,7 +135,7 @@ Each agent only has permission to call the tools it needs. The Dev Agent cannot 
 Every agent call is traced end to end. Trace data includes: which tools were called, how long each step took, what inputs and outputs were, and where latency is hiding. Traces are exportable to Datadog, Grafana, or any OpenTelemetry-compatible backend.
 
 #### LangSmith evals
-Every LLM call is recorded with its prompt, response, and token usage. A test suite for the agents measures accuracy and success rates. Evals run automatically on every deployment.
+Every LLM call in `core/llm.py` is recorded with its prompt, response, and token usage via LangSmith tracing. A heuristic eval suite covers all three LLM-calling agents (Crash Handler, QA, Dev) and runs automatically on every push to `main` via GitHub Actions. Evaluators are pure Python — no LLM-as-judge cost. Any agent scoring below 0.8 fails the CI check.
 
 #### AI platform layer
 Helix evolves from a point solution into a platform. Other engineering teams can register their own agents, define their own workflows, and use Helix's orchestration, auth, observability, and UI infrastructure.

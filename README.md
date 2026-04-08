@@ -54,7 +54,7 @@ core/
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
   state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo/project configs)
   models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig, Project, ProjectSettings)
-  llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI
+  llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI; instruments every call with LangSmith tracing
   permissions.py       Per-agent tool access control — declare and enforce at runtime
   ui_events.py         Dashboard event publishing — agent progress + tool call events persisted to Redis + forwarded via Pub/Sub
   auth.py              Auth0 JWT validation (RS256 via JWKS) — optional, falls back to demo user
@@ -89,7 +89,11 @@ dashboard/             React + TypeScript + Tailwind — streaming incident dash
       TokenProviderBridge.tsx  Registers Auth0 token-getter with the API client
   .env.example         Frontend env var template (VITE_AUTH0_DOMAIN, VITE_AUTH0_CLIENT_ID, etc.)
   vite.config.ts       Base /app/, proxies /api → localhost:8000 in dev
-config.yaml            Source of truth for all non-secret config (models, Redis, permissions)
+evals/
+  datasets.py          Sample inputs for each agent eval — uploaded to LangSmith datasets
+  evaluators.py        Heuristic evaluator functions (no LLM calls) — score each agent's output
+  run.py               CLI runner — uploads datasets, runs evals, prints pass/fail summary
+config.yaml            Source of truth for all non-secret config (models, Redis, permissions, LangSmith)
 index.html             Landing page — served at GET /, Sign In CTA routes to /app
 scripts/
   close_all.py         Close all open PRs and issues in a repo (uses GITHUB_TOKEN)
@@ -157,6 +161,9 @@ Required variables:
 | `SMTP_PASSWORD` | SMTP password or app password |
 | `EMAIL_FROM` | Sender address, e.g. `helix@acme.com` (optional — logs warning if absent) |
 | `EMAIL_TO` | Comma-separated recipients, e.g. `oncall@acme.com` (optional) |
+| `LANGSMITH_API_KEY` | LangSmith API key — enables LLM call tracing and the eval suite (optional; tracing disabled if unset) |
+| `LANGSMITH_PROJECT` | LangSmith project name (default: `helix`) |
+| `LANGSMITH_TRACING` | Set to `true` to enable LangSmith tracing in `core/llm.py` (requires `LANGSMITH_API_KEY`) |
 | `HELIX_DEMO` | Set to `true` to skip webhook signature/token verification — local testing only; **default is `false`** |
 | `AUTH0_DOMAIN` | Auth0 tenant domain, e.g. `your-tenant.auth0.com` (optional — leave unset for demo mode) |
 | `AUTH0_AUDIENCE` | Auth0 API identifier, e.g. `https://api.helix.yourapp.com` (required when `AUTH0_DOMAIN` is set) |
@@ -391,6 +398,36 @@ uv run pytest
 
 161 tests across agents, core, and integrations. All tests use mocks — no live Redis, GitHub, or LLM calls required.
 
+## Evals
+
+LangSmith evals measure agent output quality. Each eval calls the real LLM and scores the response using heuristic evaluators (no LLM-as-judge, no extra cost beyond the API call itself).
+
+Agents covered: Crash Handler (4 examples), QA Agent (2 examples), Dev Agent (3 examples).
+
+**Push datasets only (no LLM calls):**
+
+```bash
+uv run --env-file .env python -m evals.run --dataset-only
+```
+
+**Run all evals:**
+
+```bash
+uv run --env-file .env python -m evals.run
+```
+
+**Run one agent:**
+
+```bash
+uv run --env-file .env python -m evals.run --agent crash_handler
+uv run --env-file .env python -m evals.run --agent qa
+uv run --env-file .env python -m evals.run --agent dev
+```
+
+Evals also run automatically in CI on every push to `main` and on PRs targeting `main` (`.github/workflows/evals.yml`). The CI job tags each experiment with the commit SHA so any LangSmith run is traceable to the exact commit. The job exits non-zero if any agent scores below 0.8, failing the check.
+
+Requires `LANGSMITH_API_KEY` and `ANTHROPIC_API_KEY` (set as GitHub Actions secrets for CI).
+
 ## Agent models
 
 | Agent | Provider | Model | Why |
@@ -586,9 +623,10 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Email resilience — missing or invalid SendGrid key warns and skips instead of crashing the notifier
 - [x] Local Postgres container in Docker Compose
 
-### Phase 4 — Observability and Scale
+### Phase 4 — Observability and Scale (in progress)
+- [x] LangSmith tracing — every LLM call in `core/llm.py` is traced with prompt, response, and token usage
+- [x] LangSmith eval suite — Crash Handler, QA Agent, and Dev Agent; heuristic evaluators, no LLM-as-judge cost
+- [x] Evals in CI — GitHub Actions workflow runs evals on every push to `main` and on PRs; fails if any agent scores below 0.8
 - [ ] OpenTelemetry tracing — end-to-end traces exportable to Datadog, Grafana, or any OTel backend
-- [ ] LangSmith evals — record every LLM call with prompt, response, and token usage; eval suite on every deploy
 - [ ] UI model configuration — agent models and providers configurable from the dashboard
 - [ ] Multi-agent orchestration — A2A communication patterns, dynamic sub-agent spawning
-- [ ] Rollback agent — monitors error rate post-deploy, triggers automatic rollback if thresholds exceeded
