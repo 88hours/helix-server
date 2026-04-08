@@ -57,6 +57,9 @@ _MAX_TOKENS = 4096
 # can be long — allow up to 10 minutes per call.
 _SUBPROCESS_TIMEOUT = 600
 
+# Fallback model used when Anthropic returns 529 Overloaded for the primary model.
+_HAIKU_FALLBACK = "claude-haiku-4-5-20251001"
+
 
 # ---------------------------------------------------------------------------
 # Anthropic backend
@@ -93,7 +96,20 @@ async def _complete_anthropic(
     if system:
         kwargs["system"] = system
 
-    message = await client.messages.create(**kwargs)
+    try:
+        message = await client.messages.create(**kwargs)
+    except anthropic.APIStatusError as exc:
+        if exc.status_code == 529:
+            logger.warning(
+                "Anthropic model overloaded (529) — retrying with %s",
+                _HAIKU_FALLBACK,
+                extra={"original_model": config.model},
+            )
+            kwargs["model"] = _HAIKU_FALLBACK
+            message = await client.messages.create(**kwargs)
+        else:
+            raise
+
     usage = {
         "input_tokens": message.usage.input_tokens,
         "output_tokens": message.usage.output_tokens,

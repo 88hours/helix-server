@@ -330,6 +330,7 @@ langsmith:
   api_key_env: LANGSMITH_API_KEY
   project_env: LANGSMITH_PROJECT    # LangSmith project — default: "helix"
   tracing_env: LANGSMITH_TRACING    # set to "true" to enable tracing
+  endpoint_env: LANGSMITH_ENDPOINT  # default: https://api.smith.langchain.com
 
 # ---------------------------------------------------------------------------
 # Server (Crash Handler FastAPI app)

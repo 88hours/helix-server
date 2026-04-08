@@ -28,13 +28,13 @@ Exit codes:
 
 import argparse
 import asyncio
-import os
 import sys
 from datetime import datetime
 
 from langsmith import Client
 from langsmith.evaluation import evaluate
 
+from core.config import get_langsmith_config
 from agents.crash_handler import prompts as crash_handler_prompts
 from agents.qa import prompts as qa_prompts
 from core.llm import complete
@@ -268,13 +268,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    api_key = os.environ.get("LANGSMITH_API_KEY")
-    if not api_key:
+    ls_cfg = get_langsmith_config()
+    if not ls_cfg.api_key:
         print("ERROR: LANGSMITH_API_KEY is not set.", file=sys.stderr)
         print("Set it to your LangSmith API key and retry.", file=sys.stderr)
         return 2
 
-    client = Client(api_key=api_key)
+    client = Client(api_key=ls_cfg.api_key, api_url=ls_cfg.endpoint)
     experiment_prefix = args.experiment or f"helix-eval-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
 
     agents_to_run = [args.agent] if args.agent else ["crash_handler", "qa"]

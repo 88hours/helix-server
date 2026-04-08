@@ -57,6 +57,20 @@ def test_langsmith_config_project_override(monkeypatch):
     assert cfg.project == "helix-staging"
 
 
+def test_langsmith_config_endpoint_default(monkeypatch):
+    """Default endpoint is the LangChain API URL when LANGSMITH_ENDPOINT is not set."""
+    monkeypatch.delenv("LANGSMITH_ENDPOINT", raising=False)
+    cfg = get_langsmith_config()
+    assert cfg.endpoint == "https://api.smith.langchain.com"
+
+
+def test_langsmith_config_endpoint_override(monkeypatch):
+    """LANGSMITH_ENDPOINT overrides the default endpoint."""
+    monkeypatch.setenv("LANGSMITH_ENDPOINT", "https://eu.api.smith.langchain.com")
+    cfg = get_langsmith_config()
+    assert cfg.endpoint == "https://eu.api.smith.langchain.com"
+
+
 def test_langsmith_config_tracing_false_string(monkeypatch):
     """LANGSMITH_TRACING=false disables tracing even with an API key."""
     monkeypatch.setenv("LANGSMITH_API_KEY", "ls-test-key")
@@ -141,6 +155,58 @@ async def test_complete_claude_code_adds_metadata_no_tokens(monkeypatch):
     # No token keys for subprocess backend
     assert "input_tokens" not in metadata
     assert "output_tokens" not in metadata
+
+
+async def test_complete_anthropic_falls_back_to_haiku_on_529(monkeypatch):
+    """
+    When Anthropic returns 529 Overloaded for the primary model, complete()
+    retries with claude-haiku-4-5-20251001 and returns the response.
+    """
+    import anthropic as _anthropic
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    overloaded_exc = _anthropic.APIStatusError(
+        "overloaded",
+        response=MagicMock(status_code=529),
+        body={},
+    )
+    fallback_msg = MagicMock()
+    fallback_msg.content = [MagicMock(text="haiku fallback response")]
+    fallback_msg.usage = MagicMock(input_tokens=50, output_tokens=20)
+
+    mock_client = AsyncMock()
+    mock_client.messages.create.side_effect = [overloaded_exc, fallback_msg]
+
+    with patch("core.llm.get_agent_config", return_value=_make_config("anthropic", "claude-sonnet-4-6")):
+        with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+            with patch("core.llm._get_run_tree", return_value=None):
+                result = await complete("crash_handler", "prompt")
+
+    assert result == "haiku fallback response"
+    # Second call should use the haiku model
+    second_call_kwargs = mock_client.messages.create.call_args_list[1][1]
+    assert second_call_kwargs["model"] == "claude-haiku-4-5-20251001"
+
+
+async def test_complete_anthropic_reraises_non_529_errors(monkeypatch):
+    """Non-529 API errors are re-raised and not swallowed by the fallback logic."""
+    import anthropic as _anthropic
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    auth_exc = _anthropic.APIStatusError(
+        "auth error",
+        response=MagicMock(status_code=401),
+        body={},
+    )
+    mock_client = AsyncMock()
+    mock_client.messages.create.side_effect = auth_exc
+
+    with patch("core.llm.get_agent_config", return_value=_make_config("anthropic")):
+        with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+            with pytest.raises(_anthropic.APIStatusError):
+                await complete("crash_handler", "prompt")
 
 
 async def test_complete_metadata_silently_skipped_when_run_tree_none(monkeypatch):

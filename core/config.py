@@ -117,6 +117,7 @@ class LangSmithConfig:
     """LangSmith tracing and eval settings."""
     api_key: str | None     # LangSmith API key; None → tracing disabled
     project: str            # LangSmith project name, e.g. "helix"
+    endpoint: str           # LangSmith API endpoint URL
     tracing_enabled: bool   # True when API key is set and LANGSMITH_TRACING=true
 
 
@@ -437,9 +438,13 @@ def get_langsmith_config() -> LangSmithConfig:
     "true".  If LANGSMITH_API_KEY is absent, tracing is always disabled.
 
     Resolution order for each field:
-      1. Environment variable (LANGSMITH_API_KEY, LANGSMITH_PROJECT, LANGSMITH_TRACING)
-      2. config.yaml (langsmith.api_key_env, langsmith.project_env, langsmith.tracing_env)
-      3. Defaults: project → "helix", tracing → disabled
+      1. Environment variable (LANGSMITH_API_KEY, LANGSMITH_PROJECT,
+         LANGSMITH_TRACING, LANGSMITH_ENDPOINT)
+      2. config.yaml (langsmith.api_key_env, langsmith.project_env,
+         langsmith.tracing_env, langsmith.endpoint_env)
+      3. Defaults: project → "helix",
+                   endpoint → "https://api.smith.langchain.com",
+                   tracing → disabled
     """
     raw = _load_yaml()
     ls = raw.get("langsmith", {})
@@ -447,13 +452,20 @@ def get_langsmith_config() -> LangSmithConfig:
     api_key_env = ls.get("api_key_env", "LANGSMITH_API_KEY")
     project_env = ls.get("project_env", "LANGSMITH_PROJECT")
     tracing_env = ls.get("tracing_env", "LANGSMITH_TRACING")
+    endpoint_env = ls.get("endpoint_env", "LANGSMITH_ENDPOINT")
 
     api_key = os.environ.get(api_key_env) or None
     project = os.environ.get(project_env) or "helix"
+    endpoint = os.environ.get(endpoint_env) or "https://api.smith.langchain.com"
     tracing_flag = os.environ.get(tracing_env, "").lower()
     tracing_enabled = api_key is not None and tracing_flag in ("true", "1")
 
-    return LangSmithConfig(api_key=api_key, project=project, tracing_enabled=tracing_enabled)
+    return LangSmithConfig(
+        api_key=api_key,
+        project=project,
+        endpoint=endpoint,
+        tracing_enabled=tracing_enabled,
+    )
 
 
 def get_eventbridge_config() -> EventBridgeConfig:
