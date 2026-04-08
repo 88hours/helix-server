@@ -58,6 +58,11 @@ _REPO_LOCK_TTL = 600      # seconds — covers the longest expected TDD run
 _REPO_LOCK_RETRIES = 12   # 12 × 30 s = up to 6 minutes of waiting
 _REPO_LOCK_RETRY_DELAY = 30  # seconds between lock-check retries
 
+# Hard wall-clock budget for the entire TDD loop (clone → fix → PR).
+# If exceeded the incident is escalated exactly like exhausted retries.
+# Must be less than _REPO_LOCK_TTL so the lock always expires after the timeout.
+_TDD_TIMEOUT = 480  # seconds (8 minutes)
+
 
 async def handle(
     qa_result: QAResult,
@@ -177,15 +182,36 @@ async def handle(
     )
 
     # Step 5 — TDD loop: implement the fix and open a PR.
-    return await _tdd_loop(
-        qa_result=qa_result,
-        crash_report=crash_report,
-        fix_suggestion=fix_suggestion,
-        redis_client=redis_client,
-        permissions=permissions,
-        project=project,
-        installation_token=installation_token,
-    )
+    # A hard timeout guards against large repos or flaky test suites holding
+    # a worker indefinitely.  On timeout we escalate the same way as exhausted
+    # retries so the human always gets a Slack alert.
+    try:
+        return await asyncio.wait_for(
+            _tdd_loop(
+                qa_result=qa_result,
+                crash_report=crash_report,
+                fix_suggestion=fix_suggestion,
+                redis_client=redis_client,
+                permissions=permissions,
+                project=project,
+                installation_token=installation_token,
+            ),
+            timeout=_TDD_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "dev agent tdd loop timed out — escalating",
+            extra={"incident_id": incident_id, "timeout_seconds": _TDD_TIMEOUT},
+        )
+        await publish_ui_event(
+            redis_client, incident_id, "agent_done", "dev",
+            f"TDD loop exceeded {_TDD_TIMEOUT}s time budget — escalating to human",
+        )
+        permissions = load_permissions("dev")
+        await _escalate(crash_report, [], redis_client, permissions)
+        raise RuntimeError(
+            f"Dev Agent timed out after {_TDD_TIMEOUT}s for incident {incident_id}."
+        )
 
 
 # ---------------------------------------------------------------------------
