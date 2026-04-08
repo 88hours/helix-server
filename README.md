@@ -587,17 +587,13 @@ All orgs share the same worker pool. A single org with a burst of crashes can st
 | Pro | Shared pool, standard-priority queue |
 | Team | Dedicated worker pool — no noisy neighbour |
 
-### Concurrent fixes on the same repo
+### ~~Concurrent fixes on the same repo~~ (resolved)
 
-If the same repo has two crashes at the same time, two Dev Agent workers will clone it simultaneously, create conflicting branches, and potentially open duplicate PRs.
+Before a TDD loop starts, the Dev Agent acquires `SET helix:repo_lock:{repo} {incident_id} NX EX 600` in Redis. A second incident on the same repo retries every 30 seconds for up to 6 minutes; if the lock is still held it escalates to a human rather than forging ahead with a conflicting branch.
 
-**Fix:** a per-repo lock in Redis before starting the TDD loop. One line: `SET helix:{org_id}:repo_lock:{repo} 1 NX EX 600`. If the lock is held, the incident waits in a short retry queue.
+### ~~No Dev Agent timeout budget~~ (resolved)
 
-### No Dev Agent timeout budget
-
-The Dev Agent retries up to 3 times but has no wall-clock limit. A pathological case (large repo, flaky tests) can hold a worker indefinitely.
-
-**Fix:** a hard timeout per incident (e.g. 8 minutes total). If the budget is exceeded, escalate rather than continuing to retry. The timeout is enforced at the worker level, not inside the agent.
+The TDD loop is now wrapped in `asyncio.wait_for(..., timeout=480)`. If the 8-minute budget is exceeded the incident is escalated via the same path as exhausted retries — the human always gets a Slack alert. The lock TTL (600 s) is intentionally longer than the timeout so the lock always expires cleanly even if cancellation interrupts the Redis delete.
 
 ### ~~Redis Pub/Sub is fire-and-forget~~ (resolved)
 
@@ -615,8 +611,8 @@ Helix now uses Redis Streams (`XADD`/`XREAD`) by default. Messages persist until
 |---|---|---|
 | Sequential bottleneck | Multiple ECS task instances + auto-scaling | Low — ECS handles this |
 | No org isolation | Priority queues per plan tier | Medium |
-| Concurrent repo fixes | Per-repo Redis lock (`SET NX EX`) | Low |
-| No Dev Agent timeout | Wall-clock budget at worker level | Low |
+| ~~Concurrent repo fixes~~ | ~~Per-repo Redis lock (`SET NX EX`)~~ | Done — `agents/dev/agent.py` |
+| ~~No Dev Agent timeout~~ | ~~Wall-clock budget at worker level~~ | Done — `asyncio.wait_for` 8 min |
 | ~~Message loss on restart~~ | ~~Redis Streams instead of Pub/Sub~~ | Done — Redis Streams is the default |
 | ~~Single-tenant config~~ | ~~Postgres org/repo tables~~ | Done — Phase 3 Postgres layer |
 
@@ -664,3 +660,15 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] LangSmith eval suite — Crash Handler, QA Agent, and Dev Agent; heuristic evaluators, no LLM-as-judge cost
 - [x] Evals in CI — GitHub Actions workflow runs evals on every push to `main` and on PRs; fails if any agent scores below 0.8
 - [x] OpenTelemetry tracing — end-to-end spans across all four agents, exportable to Datadog, Grafana, Jaeger, or any OTLP backend; enabled via `OTEL_ENABLED=true`
+- [x] Per-repo Redis lock — prevents concurrent Dev Agent workers from cloning the same repo simultaneously and opening conflicting branches or duplicate PRs
+- [x] Dev Agent timeout — hard 8-minute wall-clock budget per incident; exceeded budget escalates to human via Slack rather than holding a worker indefinitely
+- [x] Responsive landing page — mobile hamburger nav, scaled typography and padding, scrollable language table; self-healing product framing with countdown timer
+
+### Phase 5 — Multi-Tenancy and Production Scale (planned)
+- [ ] `organisations` Postgres table — org_id, name, plan tier, owner; foreign key on all projects
+- [ ] `org_id` threaded through event payloads — agents look up the correct `Project` at runtime from `org_id` + `repo`; removes the static `config.yaml` GitHub fallback entirely
+- [ ] Priority queues per plan tier — Free / Pro / Team incidents route to separate Redis Stream keys; workers poll high-priority streams first; Team orgs get dedicated worker pools
+- [ ] Worker pool per agent — multiple concurrent instances pulling from the same stream; ECS Fargate auto-scaling on queue depth eliminates the sequential processing bottleneck
+- [ ] Per-org noisy-neighbour protection — burst limiting so a single org with many crashes cannot starve others on the shared pool
+- [ ] GitHub App multi-org install flow — installation callback reliably saves `installation_id` per org; removes the manual workaround documented in Known Issues
+- [ ] Audit trail — queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id` and `org_id`
