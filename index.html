@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Helix — Autonomous Incident Response</title>
+  <title>Helix — Self-Healing Production Systems</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="description" content="Helix takes a production crash from Sentry or Rollbar all the way to a ready-to-merge pull request in under 10 minutes — with human approval via Slack before anything merges." />
+  <meta name="description" content="Helix gives your production system the ability to heal itself. A crash hits Sentry — Helix writes the test, fixes the bug, opens the PR, and waits for your approval. Auto-healing code, no on-call wake-up." />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -77,16 +77,33 @@
     <div class="max-w-4xl mx-auto">
       <div class="inline-flex items-center gap-2 text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-full mb-8">
         <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
-        v3.0.0 — open source
+        Coming soon &mdash; launching in <span id="countdown" class="font-mono font-bold text-white">5d 00h 00m 00s</span>
       </div>
+      <script>
+        (function() {
+          var target = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+          function update() {
+            var diff = target - Date.now();
+            if (diff <= 0) { document.getElementById('countdown').textContent = 'now'; return; }
+            var d = Math.floor(diff / 86400000);
+            var h = Math.floor((diff % 86400000) / 3600000);
+            var m = Math.floor((diff % 3600000) / 60000);
+            var s = Math.floor((diff % 60000) / 1000);
+            document.getElementById('countdown').textContent =
+              d + 'd ' + String(h).padStart(2,'0') + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+          }
+          update();
+          setInterval(update, 1000);
+        })();
+      </script>
 
       <h1 class="text-5xl sm:text-6xl font-extrabold leading-tight mb-6 tracking-tight">
-        Production crash to<br />
-        <span class="gradient-text">merged PR in 10 minutes</span>
+        Your codebase.<br />
+        <span class="gradient-text">Now self-healing.</span>
       </h1>
 
       <p class="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-        Helix is an autonomous incident response platform. It takes a crash from Sentry or Rollbar, writes a failing test, fixes the bug, opens a pull request, and waits for your Slack approval before merging.
+        Helix gives your production system the ability to fix itself. A crash hits Sentry — Helix diagnoses it, writes a failing test, fixes the root cause, and opens a pull request. Your team approves in Slack. Nothing merges without your sign-off.
       </p>
 
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -131,8 +148,8 @@
   <section id="how-it-works" class="py-24 px-6 border-t border-gray-800/60">
     <div class="max-w-5xl mx-auto">
       <div class="text-center mb-16">
-        <h2 class="text-3xl font-bold mb-4">How it works</h2>
-        <p class="text-gray-400 text-lg">Four agents. One human approval. Zero manual steps.</p>
+        <h2 class="text-3xl font-bold mb-4">How self-healing works</h2>
+        <p class="text-gray-400 text-lg">Four autonomous agents. One human approval. Your production system repairs itself.</p>
       </div>
 
       <!-- Agent cards — 2x2 grid, all equal height -->
@@ -211,8 +228,8 @@
   <section id="features" class="py-24 px-6 border-t border-gray-800/60">
     <div class="max-w-5xl mx-auto">
       <div class="text-center mb-16">
-        <h2 class="text-3xl font-bold mb-4">Built for real codebases</h2>
-        <p class="text-gray-400 text-lg">Not a toy. Every decision was made to handle production crashes reliably.</p>
+        <h2 class="text-3xl font-bold mb-4">Built for self-sustaining production systems</h2>
+        <p class="text-gray-400 text-lg">Not a toy. Every decision was made so your codebase can detect, fix, and recover from bugs on its own.</p>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -425,7 +442,7 @@ docker compose up --build</pre>
       <div class="flex items-center gap-6 text-sm text-gray-500">
         <span class="font-semibold text-gray-400">Helix</span>
         <a href="https://github.com/88hours/helix/blob/main/LICENSE" target="_blank" class="hover:text-gray-300 transition-colors">MIT License</a>
-        <a href="https://github.com/88hours/helix/releases" target="_blank" class="hover:text-gray-300 transition-colors">v4.0.0</a>
+        <span class="text-gray-600">v4.0.0</span>
         <a href="https://github.com/88hours/helix/blob/main/docs/features.md" target="_blank" class="hover:text-gray-300 transition-colors">Docs</a>
       </div>
       <a href="https://github.com/88hours/helix" target="_blank"
