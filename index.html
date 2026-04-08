@@ -39,27 +39,24 @@
       background: #0d1117;
       border: 1px solid #21262d;
     }
+    /* Mobile nav toggle */
+    #nav-menu { display: none; }
+    #nav-menu.open { display: flex; }
   </style>
 </head>
 <body class="bg-gray-950 text-gray-100 antialiased">
 
   <!-- Nav -->
   <nav class="fixed top-0 left-0 right-0 z-50 border-b border-gray-800/60 bg-gray-950/80 backdrop-blur-md">
-    <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
       <span class="font-bold text-lg tracking-tight">
         <span class="gradient-text">Helix</span>
       </span>
-      <div class="flex items-center gap-6 text-sm text-gray-400">
+
+      <!-- Desktop nav links -->
+      <div class="hidden md:flex items-center gap-6 text-sm text-gray-400">
         <a href="#how-it-works" class="hover:text-white transition-colors">How it works</a>
         <a href="#features" class="hover:text-white transition-colors">Features</a>
-        <a href="#getting-started" class="hover:text-white transition-colors">Getting started</a>
-        <a href="https://github.com/88hours/helix" target="_blank"
-           class="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
-          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-          </svg>
-          GitHub
-        </a>
         <a href="/app"
            class="flex items-center gap-2 text-white bg-brand hover:bg-brand-dark px-3 py-1.5 rounded-md transition-colors font-medium">
           Sign in
@@ -67,13 +64,47 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
           </svg>
         </a>
-        <span class="text-xs text-gray-600 hidden sm:block">GitHub · Google</span>
       </div>
+
+      <!-- Mobile: sign in + hamburger -->
+      <div class="flex md:hidden items-center gap-3">
+        <a href="/app"
+           class="flex items-center gap-1.5 text-white bg-brand hover:bg-brand-dark px-3 py-1.5 rounded-md transition-colors text-sm font-medium">
+          Sign in
+        </a>
+        <button id="nav-toggle" aria-label="Toggle menu"
+                class="p-1.5 text-gray-400 hover:text-white transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile dropdown menu -->
+    <div id="nav-menu"
+         class="md:hidden flex-col border-t border-gray-800/60 bg-gray-950/95 px-4 py-3 gap-1">
+      <a href="#how-it-works" class="block px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800/60 rounded-lg transition-colors">How it works</a>
+      <a href="#features" class="block px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800/60 rounded-lg transition-colors">Features</a>
+      <a href="#getting-started" class="block px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800/60 rounded-lg transition-colors">Getting started</a>
     </div>
   </nav>
 
+  <script>
+    document.getElementById('nav-toggle').addEventListener('click', function() {
+      var menu = document.getElementById('nav-menu');
+      menu.classList.toggle('open');
+    });
+    // Close menu when a link is clicked
+    document.querySelectorAll('#nav-menu a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        document.getElementById('nav-menu').classList.remove('open');
+      });
+    });
+  </script>
+
   <!-- Hero -->
-  <section class="pt-32 pb-24 px-6 text-center">
+  <section class="pt-28 sm:pt-32 pb-20 sm:pb-24 px-4 sm:px-6 text-center">
     <div class="max-w-4xl mx-auto">
       <div class="inline-flex items-center gap-2 text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-full mb-8">
         <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
@@ -97,47 +128,22 @@
         })();
       </script>
 
-      <h1 class="text-5xl sm:text-6xl font-extrabold leading-tight mb-6 tracking-tight">
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight mb-6 tracking-tight">
         Your codebase.<br />
         <span class="gradient-text">Now self-healing.</span>
       </h1>
 
-      <p class="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+      <p class="text-base sm:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
         Helix gives your production system the ability to fix itself. A crash hits Sentry — Helix diagnoses it, writes a failing test, fixes the root cause, and opens a pull request. Your team approves in Slack. Nothing merges without your sign-off.
       </p>
 
-      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-        <div class="flex flex-col items-center gap-2">
-          <a href="/app"
-             class="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-semibold px-6 py-3 rounded-lg transition-colors text-sm">
-            Sign in to your dashboard
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-            </svg>
-          </a>
-          <span class="flex items-center gap-2 text-xs text-gray-600">
-            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836a9.59 9.59 0 012.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-            GitHub
-            <span>·</span>
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Google
-          </span>
-        </div>
-        <a href="https://railway.com/new/template?template=https://github.com/88hours/helix"
-           target="_blank"
-           class="flex items-center gap-2 text-gray-300 hover:text-white border border-gray-700 hover:border-gray-500 px-6 py-3 rounded-lg transition-colors text-sm font-medium">
+      <div class="flex items-center justify-center">
+        <a href="/app"
+           class="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-semibold px-6 py-3 rounded-lg transition-colors text-sm">
+          Sign in to your dashboard
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
           </svg>
-          Deploy on Railway
-        </a>
-        <a href="https://github.com/88hours/helix"
-           target="_blank"
-           class="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm font-medium">
-          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-          </svg>
-          View on GitHub
         </a>
       </div>
 
@@ -145,18 +151,18 @@
   </section>
 
   <!-- Pipeline diagram -->
-  <section id="how-it-works" class="py-24 px-6 border-t border-gray-800/60">
+  <section id="how-it-works" class="py-16 sm:py-24 px-4 sm:px-6 border-t border-gray-800/60">
     <div class="max-w-5xl mx-auto">
-      <div class="text-center mb-16">
-        <h2 class="text-3xl font-bold mb-4">How self-healing works</h2>
-        <p class="text-gray-400 text-lg">Four autonomous agents. One human approval. Your production system repairs itself.</p>
+      <div class="text-center mb-12 sm:mb-16">
+        <h2 class="text-2xl sm:text-3xl font-bold mb-4">How self-healing works</h2>
+        <p class="text-gray-400 text-base sm:text-lg">Four autonomous agents. One human approval. Your production system repairs itself.</p>
       </div>
 
       <!-- Agent cards — 2x2 grid, all equal height -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
 
         <!-- Step 1 -->
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center mb-4">
             <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -168,7 +174,7 @@
         </div>
 
         <!-- Step 2 -->
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center mb-4">
             <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
@@ -180,7 +186,7 @@
         </div>
 
         <!-- Step 3 -->
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4">
             <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
@@ -192,7 +198,7 @@
         </div>
 
         <!-- Step 4 -->
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="w-8 h-8 bg-pink-500/20 rounded-lg flex items-center justify-center mb-4">
             <svg class="w-4 h-4 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
@@ -206,7 +212,7 @@
       </div>
 
       <!-- Human approval step — full width, visually distinct -->
-      <div class="card-glow bg-gray-900/60 border border-indigo-500/20 rounded-xl p-6 transition-all duration-200">
+      <div class="card-glow bg-gray-900/60 border border-indigo-500/20 rounded-xl p-5 sm:p-6 transition-all duration-200">
         <div class="flex items-start gap-4">
           <div class="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
             <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -216,7 +222,7 @@
           <div>
             <div class="text-xs text-indigo-400 font-mono font-medium mb-1">05 — Human approval</div>
             <h3 class="font-semibold mb-1">You approve or reject in Slack</h3>
-            <p class="text-sm text-gray-400 leading-relaxed">Click <span class="text-green-400 font-medium">Approve & Merge</span> to merge the PR automatically, or <span class="text-red-400 font-medium">Reject</span> to leave it open for manual review. Nothing reaches production without your sign-off.</p>
+            <p class="text-sm text-gray-400 leading-relaxed">Click <span class="text-green-400 font-medium">Approve &amp; Merge</span> to merge the PR automatically, or <span class="text-red-400 font-medium">Reject</span> to leave it open for manual review. Nothing reaches production without your sign-off.</p>
           </div>
         </div>
       </div>
@@ -225,94 +231,88 @@
   </section>
 
   <!-- Features -->
-  <section id="features" class="py-24 px-6 border-t border-gray-800/60">
+  <section id="features" class="py-16 sm:py-24 px-4 sm:px-6 border-t border-gray-800/60">
     <div class="max-w-5xl mx-auto">
-      <div class="text-center mb-16">
-        <h2 class="text-3xl font-bold mb-4">Built for self-sustaining production systems</h2>
-        <p class="text-gray-400 text-lg">Not a toy. Every decision was made so your codebase can detect, fix, and recover from bugs on its own.</p>
+      <div class="text-center mb-12 sm:mb-16">
+        <h2 class="text-2xl sm:text-3xl font-bold mb-4">Built for self-sustaining production systems</h2>
+        <p class="text-gray-400 text-base sm:text-lg">Not a toy. Every decision was made so your codebase can detect, fix, and recover from bugs on its own.</p>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🧪</div>
           <h3 class="font-semibold mb-2">Correct-behaviour tests</h3>
           <p class="text-sm text-gray-400 leading-relaxed">The QA Agent writes tests that assert what the function <em>should return</em>, not that the crash occurs. Validated and retried if wrong.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🌐</div>
           <h3 class="font-semibold mb-2">Multi-language</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Python, JavaScript, TypeScript, Ruby, Java, Kotlin, and Go. Stack trace parsing, test generation, and fix commands are all language-aware.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🔁</div>
           <h3 class="font-semibold mb-2">TDD loop with retries</h3>
           <p class="text-sm text-gray-400 leading-relaxed">The Dev Agent runs the failing test, writes a fix, runs the full suite, and retries up to 3 times. Each retry learns from previous failed attempts.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">✅</div>
           <h3 class="font-semibold mb-2">Human approval gate</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">Every fix requires a human to approve via Slack before the PR is merged. Approve & Merge or Reject — nothing reaches production automatically.</p>
+          <p class="text-sm text-gray-400 leading-relaxed">Every fix requires a human to approve via Slack before the PR is merged. Approve &amp; Merge or Reject — nothing reaches production automatically.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🎫</div>
           <h3 class="font-semibold mb-2">Smart deduplication</h3>
           <p class="text-sm text-gray-400 leading-relaxed">The QA Agent checks open GitHub Issues before running the pipeline. If the bug is known, it skips straight to a Slack notification and prompts you to approve any pending PR.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">📡</div>
           <h3 class="font-semibold mb-2">Sentry + Rollbar</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Receives webhooks from both Sentry and Rollbar. Signature-verified on every request. Demo mode skips verification for local testing.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🔔</div>
           <h3 class="font-semibold mb-2">Optional notifications</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Slack and email (SendGrid or SMTP) are fully optional. Missing config is logged as a warning — the pipeline never stops for a missing token.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">💾</div>
           <h3 class="font-semibold mb-2">Redis Streams</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Events are persisted in Redis Streams — messages survive agent restarts and are never silently lost. Falls back to Pub/Sub for legacy setups.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
-          <div class="text-2xl mb-3">🚀</div>
-          <h3 class="font-semibold mb-2">One-command deploy</h3>
-          <p class="text-sm text-gray-400 leading-relaxed">Deploy all four agents to Railway in one command. Sync your <code class="font-mono text-xs text-indigo-300">.env</code> file directly to Railway with <code class="font-mono text-xs text-indigo-300">--env-file</code>.</p>
-        </div>
-
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🔑</div>
           <h3 class="font-semibold mb-2">GitHub App integration</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Per-project GitHub App installation tokens — scoped to each repo, cached in Postgres, and threaded through all API calls. No more relying on a global personal access token.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">📊</div>
           <h3 class="font-semibold mb-2">Project dashboard</h3>
           <p class="text-sm text-gray-400 leading-relaxed">React dashboard with Auth0 login. Add projects, watch the pipeline run live with SSE streaming, and review crash reports, test cases, and PRs — all in one place.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🗂️</div>
           <h3 class="font-semibold mb-2">Per-project credentials</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Each project stores its own Anthropic key, Sentry secret, Rollbar token, Slack channel, and email settings in Postgres. Every project also gets a dedicated webhook URL scoped to its config.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">🔭</div>
           <h3 class="font-semibold mb-2">OpenTelemetry tracing</h3>
           <p class="text-sm text-gray-400 leading-relaxed">End-to-end distributed tracing across all four agents. Enable with <code class="font-mono text-xs text-indigo-300">OTEL_ENABLED=true</code> — exports to Datadog, Grafana Tempo, Jaeger, or any OTLP-compatible backend. Zero overhead when disabled.</p>
         </div>
 
-        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all duration-200">
+        <div class="card-glow bg-gray-900 border border-gray-800 rounded-xl p-5 sm:p-6 transition-all duration-200">
           <div class="text-2xl mb-3">📈</div>
           <h3 class="font-semibold mb-2">LangSmith observability</h3>
           <p class="text-sm text-gray-400 leading-relaxed">Every LLM call is traced with prompt, response, token usage, and latency. An automated eval suite covers all three agents — run on every deploy via GitHub Actions, fails CI if any agent scores below 80%.</p>
@@ -323,135 +323,78 @@
   </section>
 
   <!-- Language support table -->
-  <section class="py-24 px-6 border-t border-gray-800/60">
+  <section class="py-16 sm:py-24 px-4 sm:px-6 border-t border-gray-800/60">
     <div class="max-w-3xl mx-auto text-center">
-      <h2 class="text-3xl font-bold mb-4">Language support</h2>
-      <p class="text-gray-400 mb-12">Detected automatically from the Sentry or Rollbar payload.</p>
+      <h2 class="text-2xl sm:text-3xl font-bold mb-4">Language support</h2>
+      <p class="text-gray-400 mb-10 sm:mb-12">Detected automatically from the Sentry or Rollbar payload.</p>
 
-      <div class="code-block rounded-xl overflow-hidden text-left">
+      <div class="code-block rounded-xl overflow-hidden">
         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
           <div class="w-3 h-3 rounded-full bg-red-500/60"></div>
           <div class="w-3 h-3 rounded-full bg-yellow-500/60"></div>
           <div class="w-3 h-3 rounded-full bg-green-500/60"></div>
           <span class="ml-2 text-xs text-gray-500 font-mono">supported languages</span>
         </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left border-b border-gray-800">
-              <th class="px-6 py-3 text-gray-400 font-medium">Language</th>
-              <th class="px-6 py-3 text-gray-400 font-medium">Test framework</th>
-              <th class="px-6 py-3 text-gray-400 font-medium">Run command</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-800/60">
-            <tr>
-              <td class="px-6 py-3 font-medium">Python</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">pytest</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">pytest file::test -v</td>
-            </tr>
-            <tr>
-              <td class="px-6 py-3 font-medium">JavaScript</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">jest</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">npx jest --testNamePattern</td>
-            </tr>
-            <tr>
-              <td class="px-6 py-3 font-medium">TypeScript</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">jest</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">npx jest --testNamePattern</td>
-            </tr>
-            <tr>
-              <td class="px-6 py-3 font-medium">Ruby</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">rspec</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">bundle exec rspec --example</td>
-            </tr>
-            <tr>
-              <td class="px-6 py-3 font-medium">Java</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">junit</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">mvn test -Dtest</td>
-            </tr>
-            <tr>
-              <td class="px-6 py-3 font-medium">Kotlin</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">junit</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">mvn test -Dtest</td>
-            </tr>
-            <tr>
-              <td class="px-6 py-3 font-medium">Go</td>
-              <td class="px-6 py-3 text-gray-400 font-mono text-xs">go test</td>
-              <td class="px-6 py-3 text-gray-500 font-mono text-xs">go test ./... -run</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- Getting started -->
-  <section id="getting-started" class="py-24 px-6 border-t border-gray-800/60">
-    <div class="max-w-3xl mx-auto">
-      <div class="text-center mb-16">
-        <h2 class="text-3xl font-bold mb-4">Get started in minutes</h2>
-        <p class="text-gray-400 text-lg">Local Docker setup or one-command Railway deploy.</p>
-      </div>
-
-      <div class="space-y-6">
-
-        <div class="code-block rounded-xl overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
-            <span class="text-xs text-gray-500 font-mono">Local setup</span>
-            <span class="text-xs text-gray-600">requires Docker</span>
-          </div>
-          <pre class="px-6 py-5 text-sm font-mono text-gray-300 overflow-x-auto leading-relaxed"><span class="text-gray-500"># 1. Clone and install</span>
-git clone https://github.com/88hours/helix
-cd helix && uv sync --extra dev
-
-<span class="text-gray-500"># 2. Configure</span>
-cp .env.example .env
-<span class="text-gray-500"># fill in ANTHROPIC_API_KEY, GITHUB_TOKEN, SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN</span>
-
-<span class="text-gray-500"># 3. Run (Redis starts automatically)</span>
-docker compose up --build</pre>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left border-b border-gray-800">
+                <th class="px-4 sm:px-6 py-3 text-gray-400 font-medium whitespace-nowrap">Language</th>
+                <th class="px-4 sm:px-6 py-3 text-gray-400 font-medium whitespace-nowrap">Test framework</th>
+                <th class="px-4 sm:px-6 py-3 text-gray-400 font-medium whitespace-nowrap hidden sm:table-cell">Run command</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800/60">
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">Python</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">pytest</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">pytest file::test -v</td>
+              </tr>
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">JavaScript</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">jest</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">npx jest --testNamePattern</td>
+              </tr>
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">TypeScript</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">jest</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">npx jest --testNamePattern</td>
+              </tr>
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">Ruby</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">rspec</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">bundle exec rspec --example</td>
+              </tr>
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">Java</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">junit</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">mvn test -Dtest</td>
+              </tr>
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">Kotlin</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">junit</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">mvn test -Dtest</td>
+              </tr>
+              <tr>
+                <td class="px-4 sm:px-6 py-3 font-medium">Go</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-400 font-mono text-xs">go test</td>
+                <td class="px-4 sm:px-6 py-3 text-gray-500 font-mono text-xs hidden sm:table-cell">go test ./... -run</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-
-        <div class="flex items-center gap-4">
-          <div class="h-px flex-1 bg-gray-800"></div>
-          <span class="text-xs text-gray-600 font-medium">OR</span>
-          <div class="h-px flex-1 bg-gray-800"></div>
-        </div>
-
-        <div class="code-block rounded-xl overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
-            <span class="text-xs text-gray-500 font-mono">Railway deploy</span>
-            <span class="text-xs text-gray-600">requires Railway CLI</span>
-          </div>
-          <pre class="px-6 py-5 text-sm font-mono text-gray-300 overflow-x-auto leading-relaxed"><span class="text-gray-500"># Deploy all four agents with env vars in one command</span>
-./railway-deploy.sh --env-file .env</pre>
-        </div>
-
-        <div class="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-5 text-sm text-gray-400 leading-relaxed">
-          <span class="text-indigo-400 font-medium">Required:</span> ANTHROPIC_API_KEY · GITHUB_TOKEN · SENTRY_WEBHOOK_SECRET or ROLLBAR_ACCESS_TOKEN · REDIS_URL · DATABASE_URL<br/>
-          <span class="text-gray-600 font-medium">Optional:</span> GITHUB_APP_ID · GITHUB_APP_PRIVATE_KEY · GITHUB_APP_SLUG · SLACK_BOT_TOKEN · SLACK_SIGNING_SECRET · SLACK_APPROVAL_CHANNEL · SENDGRID_API_KEY · SMTP_HOST · LANGSMITH_API_KEY · OTEL_ENABLED · OTEL_EXPORTER_OTLP_ENDPOINT
-        </div>
-
       </div>
     </div>
   </section>
 
   <!-- Footer -->
-  <footer class="border-t border-gray-800/60 py-12 px-6">
-    <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-6 text-sm text-gray-500">
+  <footer class="border-t border-gray-800/60 py-10 sm:py-12 px-4 sm:px-6">
+    <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-4 text-sm text-gray-500">
         <span class="font-semibold text-gray-400">Helix</span>
-        <a href="https://github.com/88hours/helix/blob/main/LICENSE" target="_blank" class="hover:text-gray-300 transition-colors">MIT License</a>
         <span class="text-gray-600">v4.0.0</span>
-        <a href="https://github.com/88hours/helix/blob/main/docs/features.md" target="_blank" class="hover:text-gray-300 transition-colors">Docs</a>
       </div>
-      <a href="https://github.com/88hours/helix" target="_blank"
-         class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 transition-colors">
-        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-        </svg>
-        88hours/helix
-      </a>
+      <p class="text-xs text-gray-700">Self-healing production systems</p>
     </div>
   </footer>
 
