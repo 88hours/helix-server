@@ -321,6 +321,180 @@
       </div>
     </div>
   </section>
+  <!-- Community vs Cloud -->
+  <section id="community-vs-cloud" class="py-16 sm:py-24 px-4 sm:px-6 border-t border-gray-800/60">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-12 sm:mb-16">
+        <h2 class="text-2xl sm:text-3xl font-bold mb-4">Community vs Helix Cloud</h2>
+        <p class="text-gray-400 text-base sm:text-lg">
+          The community version is open source and self-hosted. Helix Cloud adds a managed dashboard,
+          per-project credentials, and enterprise observability on top.
+        </p>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="border-b border-gray-800">
+              <th class="text-left px-4 sm:px-6 py-4 text-gray-400 font-medium w-1/2">Feature</th>
+              <th class="text-center px-4 sm:px-6 py-4 font-semibold text-emerald-400 w-1/4">
+                Community
+                <div class="text-xs font-normal text-gray-500 mt-0.5">Open source · Self-hosted</div>
+              </th>
+              <th class="text-center px-4 sm:px-6 py-4 font-semibold text-indigo-400 w-1/4">
+                Helix Cloud
+                <div class="text-xs font-normal text-gray-500 mt-0.5">Managed · Multi-project</div>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/60">
+
+            <!-- Core pipeline -->
+            <tr class="bg-gray-900/30">
+              <td colspan="3" class="px-4 sm:px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Core pipeline</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Crash Handler Agent (Sentry + Rollbar)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">QA Agent — test generation &amp; deduplication</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Dev Agent — fix suggestion posted to GitHub Issue</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Notifier Agent — Slack approval &amp; escalation</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Multi-language support (Python, JS, Ruby, Java, Go)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Redis Pub/Sub event bus</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Redis Streams — durable event log with consumer groups &amp; replay</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">TDD loop — clone repo, run tests, iterate to passing suite</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Automated PR creation from passing fix</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Per-agent model configuration</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">OpenRouter &amp; multi-provider LLM support</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+
+            <!-- Hosting & config -->
+            <tr class="bg-gray-900/30">
+              <td colspan="3" class="px-4 sm:px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Hosting &amp; configuration</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Self-hosted (Docker Compose, Railway, Fly.io, ECS)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Global env var configuration</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Managed hosting (zero ops)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Per-project webhook URLs</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Per-project credentials (API keys, Slack, Rollbar)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">GitHub App integration (scoped installation tokens)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+
+            <!-- Dashboard & auth -->
+            <tr class="bg-gray-900/30">
+              <td colspan="3" class="px-4 sm:px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Dashboard &amp; authentication</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">React dashboard with live incident stream</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Auth0 authentication (GitHub OAuth)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Project wizard for onboarding new repos</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+
+            <!-- Observability -->
+            <tr class="bg-gray-900/30">
+              <td colspan="3" class="px-4 sm:px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Observability</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Structured JSON logging</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-emerald-400 text-lg">✓</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">OpenTelemetry distributed tracing</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">LangSmith LLM tracing &amp; eval suite</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+            <tr>
+              <td class="px-4 sm:px-6 py-3 text-gray-300">Automated CI evals (fails if agent score &lt; 80%)</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-gray-600 text-lg">—</td>
+              <td class="px-4 sm:px-6 py-3 text-center text-indigo-400 text-lg">✓</td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 
   <!-- Language support table -->
   <section class="py-16 sm:py-24 px-4 sm:px-6 border-t border-gray-800/60">
@@ -387,6 +561,7 @@
     </div>
   </section>
 
+  
   <!-- Footer -->
   <footer class="border-t border-gray-800/60 py-10 sm:py-12 px-4 sm:px-6">
     <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
