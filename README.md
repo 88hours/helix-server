@@ -378,6 +378,27 @@ redis-cli GET helix:incident:<incident_id>:status
 
 ## Scripts
 
+### Reset cloud data (Railway)
+
+Flush all Helix state from Redis and Postgres. Use `$REDIS_URL` and `$DATABASE_URL` from your Railway environment variables or `.env`.
+
+**Redis — nuke all Helix keys:**
+```bash
+redis-cli -u "$REDIS_URL" --scan --pattern "helix:*" | xargs redis-cli -u "$REDIS_URL" DEL
+```
+
+Or flush the entire Redis instance (if it's Helix-only):
+```bash
+redis-cli -u "$REDIS_URL" FLUSHALL
+```
+
+**Postgres — drop and recreate the public schema:**
+```bash
+psql "$DATABASE_URL" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+```
+
+---
+
 ### Close all open PRs and issues
 
 Useful for resetting a test repository between runs.
