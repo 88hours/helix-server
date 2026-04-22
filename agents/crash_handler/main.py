@@ -192,10 +192,23 @@ async def rollbar_webhook(project_id: str, request: Request):
     row = await _load_project_or_404(project_id)
     body = await request.body()
 
+    logger.debug(
+        "rollbar webhook raw headers: %s",
+        dict(request.headers),
+        extra={"project_id": project_id},
+    )
+
     try:
         raw = json.loads(body)
     except json.JSONDecodeError as exc:
+        logger.error("rollbar webhook invalid JSON: %s\nraw body: %s", exc, body.decode("utf-8", errors="replace"), extra={"project_id": project_id})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON: {exc}")
+
+    logger.info(
+        "rollbar webhook payload:\n%s",
+        json.dumps(raw, indent=2),
+        extra={"project_id": project_id},
+    )
 
     if raw.get("event_name") == "test":
         logger.info("rollbar connectivity test received — acknowledged", extra={"project_id": project_id})
@@ -205,6 +218,13 @@ async def rollbar_webhook(project_id: str, request: Request):
         logger.warning("demo mode enabled — skipping rollbar token verification", extra={"project_id": project_id})
     else:
         access_token = row.get("rollbar_access_token") or ""
+        logger.info(
+            "rollbar auth check — db_token_set=%s payload_token_path_item=%s payload_token_path_occurrence=%s",
+            bool(access_token),
+            bool(raw.get("data", {}).get("item", {}).get("last_occurrence", {}).get("metadata", {}).get("access_token")),
+            bool(raw.get("data", {}).get("occurrence", {}).get("metadata", {}).get("access_token")),
+            extra={"project_id": project_id},
+        )
         if not access_token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Rollbar access token not configured for this project")
         if not rollbar_integration.verify_token(raw, access_token):
