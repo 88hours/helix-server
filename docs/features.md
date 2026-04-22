@@ -204,7 +204,7 @@ The static landing page is served at `GET /` and includes a **Sign in** CTA that
 - Secret values are returned as `***` after being saved — the UI shows an "Already set" indicator so users know a field is configured without exposing the value
 - Typing a new value into a secret field replaces it; leaving it blank keeps the existing value
 - A **Ready** badge appears on a project card once all required credentials are set
-- Stored per Auth0 user in Redis at `helix:user:{sub}:projects` (no TTL — permanent user data)
+- Stored in Postgres (`projects` table) and per Auth0 user in Redis at `helix:user:{sub}:projects` (no TTL — permanent user data)
 - API: `GET /api/projects`, `POST /api/projects`, `PUT /api/projects/{owner}/{name}/settings`, `DELETE /api/projects/{owner}/{name}`
 
 ### Repo configuration (`/app/repos`)
@@ -217,7 +217,8 @@ The static landing page is served at `GET /` and includes a **Sign in** CTA that
 - On connect, the SSE endpoint sends a `snapshot` event with current incident state so the UI renders immediately
 - Subsequent `progress` events carry `UIProgressEvent` payloads (agent steps) and `ToolCallEvent` payloads (tool calls)
 - Each agent publishes to `helix:ui:{incident_id}` via Redis Pub/Sub; the SSE endpoint uses a dedicated Redis client per connection
-- Events are ephemeral — if the browser is not connected when an event fires, that event is lost; the snapshot on reconnect recovers the persistent state
+- Past events are persisted to Redis (`helix:ui:{id}:events`) and replayed on page load so the ToolTimeline and StreamPanel are not empty for completed incidents
+- `status_changed` SSE events trigger a full re-fetch of the incident so QA and PR sections populate in real-time without a page reload
 
 ---
 
@@ -231,7 +232,7 @@ The static landing page is served at `GET /` and includes a **Sign in** CTA that
 - Auth0 handles GitHub OAuth so users log in with their GitHub account; no separate GitHub OAuth flow is needed
 
 ### Roles (current)
-Single-user per deployment. Multi-tenant role-based access (developer, reviewer, manager) is planned for Phase 3.
+Single-user per deployment. Multi-tenant role-based access is planned for Phase 6.
 
 ### Frontend
 - `Auth0Provider` wraps the app in `main.tsx` only when `VITE_AUTH0_DOMAIN` is set
@@ -347,6 +348,43 @@ Lambda per agent + EventBridge (set `HELIX_EVENT_BACKEND=eventbridge`) + ElastiC
 
 ---
 
+## GitHub App Integration
+
+Helix uses a GitHub App to obtain per-installation access tokens rather than a single `GITHUB_TOKEN`. This allows Helix to operate on repos where a personal access token lacks write access.
+
+- Per-project installation tokens, JWT flow, and token caching in Postgres (`core/github_app.py`)
+- Token is injected into all Git push operations as `x-access-token:{token}` URL format
+- `GITHUB_TOKEN` is still used as a fallback if no installation token is available
+
+### GitHub page (`/github`)
+
+- Shows all repos accessible via the authenticated GitHub App installation
+- Displays Private/Public badge, default branch, and which Helix project monitors each repo
+- Handles the post-install `?installation_id=` redirect from GitHub and saves the installation ID
+- Manual ID entry field for cases where the redirect does not fire reliably
+
+---
+
+## Observability
+
+### LangSmith tracing and evals
+
+- Every LLM call in `core/llm.py` is traced with prompt, response, and token usage via LangSmith
+- Eval suite covers Crash Handler (4 examples), QA Agent (2 examples), Dev Agent (3 examples)
+- Evaluators are pure Python — no LLM-as-judge cost
+- CI runs evals on every push to `main` and on PRs (`evals.yml`); fails if any agent scores below 0.8
+- The eval step skips gracefully (exit 0) when `ANTHROPIC_API_KEY` or `LANGSMITH_API_KEY` is not set as a GitHub Actions secret
+
+### OpenTelemetry tracing
+
+- End-to-end distributed tracing across all four agents, disabled by default
+- One parent span per incident per agent; one child span per LLM call
+- Key attributes: `helix.agent`, `helix.incident_id`, `helix.provider`, `helix.model`, `helix.input_tokens`, `helix.output_tokens`
+- Enabled via `OTEL_ENABLED=true`; exports via OTLP/gRPC to Datadog, Grafana Tempo, Jaeger, or any compatible backend
+- Zero overhead when disabled — the OTel API's no-op tracer is used automatically
+
+---
+
 ## Scope
 
 Helix fixes **application-level bugs** only.
@@ -355,4 +393,4 @@ Out of scope for the current release:
 - Infrastructure failures (network, database connectivity, memory pressure)
 - Performance optimisation or refactoring
 - Mobile crash reports
-- Multi-tenant support (single-user per deployment; multi-tenant planned for Phase 3)
+- Multi-tenant support (single-user per deployment; multi-org planned for Phase 6)

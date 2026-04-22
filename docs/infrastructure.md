@@ -4,15 +4,17 @@ Proposed AWS architecture for taking Helix from Railway MVP to a production-grad
 
 ---
 
-## Current State (Railway MVP)
+## Current State (Railway — Phases 1–5)
 
 ```
-Internet → Railway (crash_handler) → Redis Cloud (Pub/Sub + state)
+Internet → Railway (crash_handler) → Redis Cloud (Streams + state)
                 ↓
-           Railway (qa, dev, notifier) — all polling Redis
+           Railway (qa, dev, notifier) — all polling Redis Streams
+                ↓
+           Railway (postgres) — projects, github_installations, per-project settings
 ```
 
-Four Railway services, one Redis Cloud instance, no VPC, no persistent database. Works for single-tenant early access. Does not scale to multi-tenant.
+Four Railway services + Redis Cloud + Postgres. Auth0 for optional JWT authentication. Deployed via one-click Railway template and `railway-deploy.sh`. Works for single-tenant and small multi-project use. Does not scale to multi-tenant SaaS (Phase 6 scope).
 
 ---
 
@@ -111,16 +113,16 @@ HTTPS only. HTTP redirects to HTTPS. TLS certificate from ACM (auto-renewed).
 
 Helix supports two event backends, switchable via `HELIX_EVENT_BACKEND`. The default is Redis — no code change is needed when migrating from Railway.
 
-#### Default: Redis Pub/Sub (recommended)
+#### Default: Redis Streams (recommended)
 
-Redis Pub/Sub is already implemented and running. It is the right choice until there is a concrete reason to add another system.
+Redis Streams (`XADD`/`XREAD`) is the default event backend. Messages persist until consumed and survive agent restarts.
 
 - Cost: included in the ElastiCache bill — effectively $0
 - No extra services, IAM rules, or Terraform modules
 - Works identically to the Railway deployment
-- Limitation: fire-and-forget — if an agent is not running when a message is published, the message is lost
+- Messages persist across agent restarts — no lost events if a worker is temporarily down
 
-**If durability is needed:** upgrade to Redis Streams (`XADD`/`XREAD`) on the same ElastiCache instance. Streams persist messages until consumed, survive agent restarts, and support replay. This is the right upgrade before reaching for EventBridge or Kafka.
+Redis Pub/Sub is still available via `redis_mode: pubsub` in `config.yaml` for backwards compatibility, but not recommended for production.
 
 #### Optional upgrade: EventBridge
 
@@ -147,15 +149,15 @@ SQS dead-letter queue on every rule. Failed events retry 3 times then land in DL
 
 Kafka solves high-throughput fan-out streaming at millions of events per second. Helix generates hundreds of events per day at most. MSK starts at ~$200/month idle regardless of usage. The ops overhead and cost are not justified.
 
-| | Redis Pub/Sub | Redis Streams | EventBridge | Kafka / MSK |
+| | Redis Streams | Redis Pub/Sub | EventBridge | Kafka / MSK |
 |---|---|---|---|---|
 | Cost | Included | Included | ~$0.15/mo | ~$200+/mo |
-| Durability | None | Yes | Yes (DLQ) | Yes |
-| Message replay | No | Yes | No | Yes |
+| Durability | Yes | None | Yes (DLQ) | Yes |
+| Message replay | Yes | No | No | Yes |
 | Ops overhead | None | None | Low | High |
-| Right for Helix | ✓ Default | ✓ If durability needed | ✓ AWS-native | ✗ |
+| Right for Helix | ✓ Default | Legacy only | ✓ AWS-native | ✗ |
 
-**Recommendation:** start with Redis Pub/Sub (already working). Add Redis Streams if agents missing messages becomes a real problem. Switch to EventBridge only if the audit trail or DLQ behaviour is specifically needed.
+**Recommendation:** Redis Streams is the default and should be kept for all Railway and ECS deployments. Switch to EventBridge only when deploying AWS-native and the built-in audit trail or DLQ is specifically required.
 
 ### Cache + State — ElastiCache (Redis)
 

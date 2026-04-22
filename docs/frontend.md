@@ -22,9 +22,12 @@ The Helix dashboard is a React single-page application served directly by the Cr
 
 ```
 /app/                          → redirects to /app/incidents
-/app/incidents                 Incident list (all incidents, newest first)
+/app/incidents                 Incident list (grouped by project, newest first)
 /app/incidents/:incidentId     Incident detail (live SSE stream)
+/app/projects                  Project management (create projects, configure per-project credentials)
+/app/projects/new              New project wizard (repo picker → GitHub App install → credentials → done)
 /app/repos                     Repo configuration (add / remove repos)
+/github                        GitHub page (repo list, App installation management)
 ```
 
 ---
@@ -34,13 +37,18 @@ The Helix dashboard is a React single-page application served directly by the Cr
 ### Incident List `/app/incidents`
 
 - Polls `GET /api/incidents` every 10 seconds
-- Table columns: incident ID (mono), status badge, severity badge, error type, affected component, timestamp
+- Incidents are **grouped by project** — each group shows the project name, repo slug, and incident count
+- Incidents without a matched project fall into an "Other" section
+- Table columns per incident: incident ID (mono), status badge, severity badge, error type, affected component, timestamp
 - Clicking a row navigates to the incident detail page
+- Projects whose GitHub repo is no longer accessible via the App show a yellow warning banner with a link to the GitHub page
 
 ### Incident Detail `/app/incidents/:incidentId`
 
 - Opens an SSE connection to `GET /api/stream/:incidentId` on mount
-- Sends a snapshot event on connect so the UI renders immediately, then streams live progress events
+- On connect, a `snapshot` event sends the current incident state so the UI renders immediately
+- Past events are replayed from Redis on connect — the ToolTimeline and StreamPanel are populated even for completed incidents
+- `status_changed` SSE events trigger a full re-fetch of incident state so QA and PR sections update in real-time
 - Sections (in order):
   1. **Back link + header** — incident ID, error type/message, severity and status badges
   2. **Pipeline tracker** — 4-step horizontal progress bar with checkmarks (Crash Analysed → Test Generated → PR Created → Merged)
@@ -49,6 +57,23 @@ The Helix dashboard is a React single-page application served directly by the Cr
   5. **Crash report** — error type, component, endpoint, language, source, stack trace (expandable `<details>`)
   6. **QA result** — issue link, test file path and name, test content (expandable)
   7. **PR result** — PR link, branch, fix summary, files changed, iterations taken
+
+### Projects `/app/projects`
+
+- Lists all projects the authenticated user has created
+- Each project card shows the repo slug, status badge, and per-project credential health
+- Projects whose GitHub repo is inaccessible show a yellow warning banner
+- Create project button opens the 4-step wizard (`/app/projects/new`):
+  1. Repo picker — paste any GitHub URL or `owner/name`; auto-fills project name and base branch
+  2. GitHub App install — links to the App install page; saves `installation_id` on return
+  3. Credential config — `ANTHROPIC_API_KEY`, `SENTRY_WEBHOOK_SECRET` / `ROLLBAR_ACCESS_TOKEN`, optional Slack + email
+  4. Done — project is ready; webhook URLs are shown
+
+### GitHub page `/github`
+
+- Shows all repos accessible via the authenticated GitHub App installation
+- Displays Private/Public badge, default branch, and which Helix project monitors each repo
+- Handles the post-install `?installation_id=` redirect and manual installation ID entry
 
 ### Repos `/app/repos`
 
@@ -63,13 +88,14 @@ The Helix dashboard is a React single-page application served directly by the Cr
 
 ```
 dashboard/src/
-  App.tsx                    Root: BrowserRouter, nav bar with Incidents + Repos links,
+  App.tsx                    Root: BrowserRouter, nav bar (Incidents, Projects, Repos, GitHub),
                              Auth0 token bridge, AuthGuard, Shell layout
   main.tsx                   Entry: wraps App in Auth0Provider when VITE_AUTH0_DOMAIN is set
   api.ts                     Typed fetch wrappers + EventSource helper + token injection
   pages/
-    IncidentList.tsx          10s polling incident table
-    IncidentDetail.tsx        SSE-driven detail view
+    IncidentList.tsx          10s polling, grouped by project
+    IncidentDetail.tsx        SSE-driven detail view with event replay
+    Projects.tsx              Project management — create, configure per-project credentials
     Repos.tsx                 Repo add/remove UI
   components/
     PipelineProgress.tsx      Horizontal 4-step tracker (Crash → Test → PR → Merged)

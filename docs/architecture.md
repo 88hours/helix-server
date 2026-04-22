@@ -1,38 +1,37 @@
-# Helix – Architecture Document (MVP)
+# Helix – Architecture Document
 
-**Version:** 1.0
-**Date:** March 2026
-**Scope:** Phase 1 – Core Agent Workflow
+**Version:** 2.0
+**Date:** April 2026
+**Scope:** Phases 1–5 (current production state)
 
 ---
 
 ## System Overview
 
-Helix is an event-driven, multi-agent system. Each agent is an independent Python process with a single responsibility. Agents do not call each other directly — they communicate exclusively through AWS EventBridge. This decouples agents, allows each to scale independently, and makes the system easy to debug and extend.
+Helix is an event-driven, multi-agent system. Each agent is an independent Python process with a single responsibility. Agents do not call each other directly — they communicate exclusively through Redis Streams (default) or AWS EventBridge. This decouples agents, allows each to scale independently, and makes the system easy to debug and extend.
 
 ```
-Sentry / App Monitor
+Sentry / Rollbar
         │
         ▼
 ┌───────────────────┐
-│  Crash Handler    │──── CrashAnalysed ────▶ EventBridge
+│  Crash Handler    │──── crash_analysed ────▶ Redis Streams
 │  Agent            │
 └───────────────────┘
                                 │
                                 ▼
                     ┌───────────────────┐
-                    │   QA Agent        │──── TestCaseGenerated ────▶ EventBridge
+                    │   QA Agent        │──── test_case_generated ────▶ Redis Streams
                     └───────────────────┘
                                 │
                                 ▼
-                    ┌───────────────────┐
-                    │   Dev Agent       │──── PRCreated ────▶ EventBridge
-                    └───────────────────┘
+                    ┌───────────────────┐       fix_suggested ──▶ Redis Streams
+                    │   Dev Agent       │──── pr_created ────────▶ Redis Streams
+                    └───────────────────┘       fix_failed ────▶ Redis Streams
                                 │
                                 ▼
                     ┌───────────────────┐
-                    │  Code Quality     │──── Slack notification
-                    │  Agent            │──── (or back to Dev Agent)
+                    │  Notifier Agent   │──── Slack + email notifications
                     └───────────────────┘
                                 │
                                 ▼
@@ -51,19 +50,21 @@ Sentry / App Monitor
 
 | Property | Detail |
 |---|---|
-| Trigger | Sentry webhook or API 500 error event |
-| Model | Claude Haiku |
+| Trigger | Sentry or Rollbar webhook (`POST /webhook/sentry`, `POST /webhook/rollbar`) |
+| Model | claude-haiku-4-5 (Anthropic) |
 | Input | Error message, stack trace, app state, screenshot (optional) |
-| Output | Structured crash report |
-| Emits | `CrashAnalysed` event |
+| Output | Structured `CrashReport` |
+| Emits | `helix:events:crash_analysed` |
 
 **Responsibilities:**
-- Receive and validate the incoming crash payload
-- Classify severity: `critical`, `high`, or `medium`
+- Receive and validate the incoming crash payload (HMAC-SHA256 for Sentry, access token for Rollbar)
+- Normalise Sentry and Rollbar payloads into the same internal format
+- Classify severity: `low`, `medium`, `high`, or `critical`
 - Identify affected endpoint, component, and service
 - Generate a plain-English summary of the failure
 - Persist the crash report to Redis
-- Emit `CrashAnalysed` to EventBridge
+- Publish `helix:events:crash_analysed` to Redis Streams
+- Also hosts the React dashboard at `/app`, the REST API (`/api/*`), and Slack action handler (`/slack/actions`)
 
 ---
 
@@ -71,20 +72,22 @@ Sentry / App Monitor
 
 | Property | Detail |
 |---|---|
-| Trigger | `CrashAnalysed` event |
-| Model | Claude Haiku |
+| Trigger | `helix:events:crash_analysed` |
+| Model | claude-haiku-4-5 (Anthropic) |
 | Input | Crash report from Redis |
-| Output | Bug ticket (created or updated) + TDD test case |
-| Emits | `TestCaseGenerated` event |
+| Output | GitHub Issue (created or updated) + TDD test case |
+| Emits | `helix:events:test_case_generated` |
 
 **Responsibilities:**
-- Query JIRA or GitHub Issues for similar open bugs
-- Create a new ticket or append to an existing one
-- Pull relevant source code for context
-- Reproduce the bug scenario from the crash data
-- Write a failing TDD test case that captures the exact failure
-- Persist the test case to Redis
-- Emit `TestCaseGenerated` to EventBridge
+- Search GitHub Issues for similar open bugs (deduplication)
+- Create a new issue or append to an existing one
+- Clone the target repo and read relevant source files from the stack trace
+- Generate a failing TDD test that asserts correct behaviour (not that the crash occurs)
+- Validate the test (reject `pytest.raises` misuse, retry up to 2 times)
+- Post the test case to the GitHub Issue
+- Persist `QAResult` to Redis
+- Publish `helix:events:test_case_generated`
+- Supports Python, JavaScript/TypeScript, Ruby, Java/Kotlin, Go
 
 ---
 
@@ -92,75 +95,66 @@ Sentry / App Monitor
 
 | Property | Detail |
 |---|---|
-| Trigger | `TestCaseGenerated` event |
-| Model | Claude Sonnet |
-| Input | Test case + relevant source code from Redis |
+| Trigger | `helix:events:test_case_generated` |
+| Model | claude-sonnet-4-6 via Claude Code CLI |
+| Input | `QAResult` + `CrashReport` from Redis |
 | Output | Code fix + passing test suite + pull request |
-| Emits | `PRCreated` event |
+| Emits | `helix:events:fix_suggested`, `helix:events:pr_created`, `helix:events:fix_failed` |
 | Max iterations | 3 |
 
 **Responsibilities:**
-- Run the test case and confirm it fails (prove the bug is real)
-- Write the minimum code change to make the test pass
-- Run the full test suite to check for regressions
-- Retry up to 3 times if tests do not pass
-- On success: open a pull request with the fix, test case, and plain-English description
-- On failure after 3 iterations: escalate to human developer with full context
-- Emit `PRCreated` to EventBridge
+- Fetch source files from GitHub and call the LLM for an initial fix suggestion; post to GitHub Issue
+- Publish `helix:events:fix_suggested` (Notifier Agent sends Slack/email on this)
+- Acquire per-repo Redis lock (`SET NX EX 600`) to prevent concurrent fixes on the same repo
+- Clone the repo, create a branch `helix/fix/{incident_id[:8]}-{iteration}`
+- Invoke the Claude Code CLI in the cloned repo: confirm test fails → write fix → run full suite
+- Retry up to 3 iterations; each retry passes summaries of prior failed attempts to the CLI
+- On success: commit, push, create PR, persist `PRResult`, publish `helix:events:pr_created`
+- On failure after 3 iterations: post failure summary to GitHub Issue, publish `helix:events:fix_failed`
+- Hard 8-minute timeout (`asyncio.wait_for`) — exceeded budget escalates the same as exhausted retries
 
 ---
 
-### Code Quality Agent
+### Notifier Agent
 
 | Property | Detail |
 |---|---|
-| Trigger | `PRCreated` event |
-| Model | Claude Sonnet |
-| Input | Pull request diff and metadata |
-| Output | Quality report + Slack notification or feedback to Dev Agent |
-| Emits | `QualityApproved` or `QualityRejected` |
+| Trigger | `helix:events:fix_suggested`, `helix:events:fix_failed` |
+| Model | None (no LLM calls) |
+| Input | Event payload + `CrashReport` from Redis |
+| Output | Slack messages, emails |
 
 **Responsibilities:**
-- Review the PR for test coverage, code standards, and design patterns
-- Flag security vulnerabilities or performance regressions
-- If approved: send fix summary and quality report to human reviewer via Slack
-- If rejected: send structured feedback back to Dev Agent (triggers retry cycle)
+- Run two concurrent subscriber loops (one per event channel)
+- On `fix_suggested`: send Slack message + email with issue link and error context
+- On `fix_failed`: send escalation Slack message + email with attempt summaries
+- Skip gracefully (WARNING log) if Slack or email credentials are not configured
+- Supports SendGrid (preferred) or SMTP fallback for email
 
 ---
 
 ## Event Schema
 
-All events are published to a single EventBridge event bus (`helix-mvp`). Each event follows this envelope:
+All events are published to Redis Streams (default) or AWS EventBridge. Each event is a JSON object serialised into the stream. The EventBridge envelope wraps the same payload under `detail`.
 
-```json
-{
-  "source": "helix.<agent-name>",
-  "detail-type": "<EventName>",
-  "detail": {
-    "incident_id": "uuid",
-    "timestamp": "ISO-8601",
-    "payload": { ... }
-  }
-}
-```
-
-### CrashAnalysed
+### crash_analysed (`helix:events:crash_analysed`)
 
 ```json
 {
   "incident_id": "uuid",
-  "severity": "critical | high | medium",
+  "severity": "critical | high | medium | low",
   "error_type": "string",
   "error_message": "string",
   "stack_trace": "string",
   "affected_component": "string",
   "affected_endpoint": "string",
   "summary": "string",
-  "raw_payload": { ... }
+  "source": "sentry | rollbar",
+  "source_item_id": "string"
 }
 ```
 
-### TestCaseGenerated
+### test_case_generated (`helix:events:test_case_generated`)
 
 ```json
 {
@@ -172,13 +166,23 @@ All events are published to a single EventBridge event bus (`helix-mvp`). Each e
     "file_path": "string",
     "test_name": "string",
     "content": "string",
-    "format": "pytest | unittest"
+    "format": "pytest | jest | rspec | junit"
   },
   "relevant_files": ["string"]
 }
 ```
 
-### PRCreated
+### fix_suggested (`helix:events:fix_suggested`)
+
+```json
+{
+  "incident_id": "uuid",
+  "issue_url": "string",
+  "fix_summary": "string"
+}
+```
+
+### pr_created (`helix:events:pr_created`)
 
 ```json
 {
@@ -192,29 +196,15 @@ All events are published to a single EventBridge event bus (`helix-mvp`). Each e
 }
 ```
 
-### QualityApproved
+### fix_failed (`helix:events:fix_failed`)
 
 ```json
 {
   "incident_id": "uuid",
-  "pr_url": "string",
-  "quality_report": {
-    "test_coverage": "string",
-    "standards_check": "passed | failed",
-    "security_check": "passed | failed",
-    "notes": "string"
-  }
-}
-```
-
-### QualityRejected
-
-```json
-{
   "incident_id": "uuid",
-  "pr_url": "string",
-  "feedback": "string",
-  "iteration": "integer"
+  "attempts": "integer",
+  "attempt_summaries": ["string"],
+  "crash_summary": "string"
 }
 ```
 
@@ -228,13 +218,18 @@ Redis is the shared state store. Agents read and write state keyed by `incident_
 
 | Key | Type | Content |
 |---|---|---|
-| `helix:incident:{id}:crash_report` | Hash | Full crash report |
-| `helix:incident:{id}:test_case` | Hash | Test case content and metadata |
-| `helix:incident:{id}:pr` | Hash | PR URL, branch, fix summary |
+| `helix:incident:{id}:crash_report` | String (JSON) | Serialised `CrashReport` |
+| `helix:incident:{id}:qa_result` | String (JSON) | Serialised `QAResult` (test case, ticket) |
+| `helix:incident:{id}:pr` | String (JSON) | Serialised `PRResult` (PR URL, branch, fix summary) |
 | `helix:incident:{id}:status` | String | Current pipeline stage |
-| `helix:incident:{id}:iterations` | Integer | Dev Agent retry count |
+| `helix:incident:{id}:iterations` | String (int) | Dev Agent retry count |
+| `helix:repo_lock:{repo}` | String | Dev Agent per-repo mutex (`SET NX EX 600`) |
+| `helix:ui:{id}` | Pub/Sub channel | Ephemeral dashboard progress events |
+| `helix:ui:{id}:events` | List | Persisted SSE events for replay on page load |
+| `helix:user:{sub}:repos` | String (JSON) | User repo config (no TTL) |
+| `helix:user:{sub}:projects` | String (JSON) | User project config (no TTL) |
 
-TTL: 7 days per incident key.
+TTL: 7 days per incident key. User config keys have no TTL.
 
 ---
 
@@ -260,54 +255,40 @@ Redis Cloud is a fully managed Redis service hosted by Redis Ltd. It works with 
 
 ---
 
-### Redis Pub/Sub as Event Bus
+### Redis Streams as Event Bus (default)
 
-EventBridge can be replaced with Redis Pub/Sub as the event routing mechanism. This is simpler to set up and removes the AWS dependency entirely — a good fit if hosting on Railway.
+The default event backend is Redis Streams (`XADD`/`XREAD`). Messages persist until consumed and survive agent restarts. Switch backends with `HELIX_EVENT_BACKEND=eventbridge`.
 
-#### How it works
+Within Redis, the transport mode is configurable in `config.yaml`:
 
-Each agent subscribes to a channel on startup. When an agent completes its work, it publishes an event to the next agent's channel. Redis delivers the message immediately to all active subscribers.
+| Mode | Behaviour |
+|---|---|
+| `streams` | Redis Streams — messages persist across restarts (default) |
+| `pubsub` | Redis Pub/Sub — fire-and-forget, messages lost if no subscriber is running |
 
-```
-Crash Handler publishes → channel: helix:events:crash_analysed
-QA Agent subscribes    → channel: helix:events:crash_analysed
-
-QA Agent publishes     → channel: helix:events:test_case_generated
-Dev Agent subscribes   → channel: helix:events:test_case_generated
-
-Dev Agent publishes    → channel: helix:events:pr_created
-Code Quality subscribes→ channel: helix:events:pr_created
-```
-
-#### Channel naming convention
+#### Channel names
 
 ```
-helix:events:<event_name>
+helix:events:crash_analysed
+helix:events:test_case_generated
+helix:events:fix_suggested
+helix:events:pr_created
+helix:events:fix_failed
 ```
 
-Examples:
-- `helix:events:crash_analysed`
-- `helix:events:test_case_generated`
-- `helix:events:pr_created`
-- `helix:events:quality_approved`
-- `helix:events:quality_rejected`
+#### Redis Streams vs EventBridge
 
-#### Pub/Sub vs EventBridge
-
-| | Redis Pub/Sub | AWS EventBridge |
+| | Redis Streams | AWS EventBridge |
 |---|---|---|
-| Setup complexity | Low — one Redis connection | Medium — AWS account, rules, targets |
+| Setup complexity | None — same Redis instance | Medium — AWS account, rules, targets |
 | Cost | Included in Redis plan | $1 per million events |
-| Delivery guarantee | At-most-once (no persistence) | At-least-once with retry |
-| Audit trail | None built-in | Full event history in CloudWatch |
+| Durability | Yes — persists until consumed | At-least-once with retry |
+| Message replay | Yes | No |
 | Dead letter handling | Manual | Built-in DLQ support |
-| Best for | Railway / simple deployments | AWS-native deployments |
+| Audit trail | None built-in | Full event history in CloudWatch |
+| Best for | Railway / non-AWS deployments (default) | AWS-native deployments |
 
-**Recommendation:** Use **Redis Pub/Sub** when hosting on Railway or a VPS. Use **EventBridge** when hosting on AWS (Lambda/ECS) where the audit trail and DLQ support are worth the setup cost.
-
-#### Important caveat
-
-Redis Pub/Sub is fire-and-forget. If an agent is not running when a message is published, the message is lost. For MVP this is acceptable — a Sentry alert will re-trigger the pipeline. For production, add a Redis Stream (`XADD` / `XREAD`) as a durable alternative that persists messages until consumed.
+**Recommendation:** Use **Redis Streams** (the default) for all Railway and Docker deployments. Switch to **EventBridge** only when deploying on AWS and the built-in audit trail or DLQ behaviour is specifically needed.
 
 ---
 
@@ -337,34 +318,55 @@ The approval webhook triggers PR merge via the GitHub API.
 helix/
 ├── agents/
 │   ├── crash_handler/
-│   │   ├── agent.py
-│   │   ├── parser.py
-│   │   └── classifier.py
+│   │   ├── agent.py           # LLM analysis → CrashReport
+│   │   ├── prompts.py         # System + user prompt templates
+│   │   ├── main.py            # FastAPI: webhooks, dashboard API, Slack actions
+│   │   └── railway.json
 │   ├── qa/
-│   │   ├── agent.py
-│   │   ├── issue_search.py
-│   │   └── test_generator.py
+│   │   ├── agent.py           # GitHub Issues dedup, repo clone, test generation + validation
+│   │   ├── prompts.py
+│   │   ├── main.py            # Subscriber loop
+│   │   └── railway.json
 │   ├── dev/
-│   │   ├── agent.py
-│   │   ├── fix_writer.py
-│   │   └── test_runner.py
-│   └── code_quality/
-│       ├── agent.py
-│       └── reviewer.py
+│   │   ├── agent.py           # Fix suggestion → GitHub comment → TDD loop → PR or escalate
+│   │   ├── prompts.py         # build_suggestion() and build_tdd()
+│   │   ├── main.py            # Subscriber loop
+│   │   └── railway.json
+│   └── notifier/
+│       ├── agent.py           # Slack + email for fix suggestions and escalations
+│       ├── main.py            # Two concurrent subscriber loops
+│       └── railway.json
 ├── core/
-│   ├── events.py          # EventBridge publish/subscribe helpers
-│   ├── state.py           # Redis read/write helpers
-│   ├── models.py          # Shared data models (Pydantic)
-│   └── llm.py             # Claude API wrapper (Haiku / Sonnet)
+│   ├── config.py              # Typed config loaders for all agents
+│   ├── events.py              # Redis Streams / Pub/Sub / EventBridge helpers
+│   ├── state.py               # Redis read/write helpers, keyed by incident_id
+│   ├── models.py              # Pydantic models: CrashReport, QAResult, PRResult, RepoConfig, Project
+│   ├── llm.py                 # Routes to Anthropic SDK, OpenRouter, or Claude Code CLI; LangSmith + OTel instrumentation
+│   ├── telemetry.py           # OpenTelemetry setup
+│   ├── permissions.py         # Per-agent tool access control
+│   ├── ui_events.py           # Dashboard event publishing (Redis Pub/Sub + persistence)
+│   ├── auth.py                # Auth0 JWT validation (RS256 via JWKS)
+│   ├── utils.py               # extract_json() — parses structured JSON from LLM output
+│   ├── db.py                  # Async Postgres helpers — projects, github_installations tables
+│   └── github_app.py          # GitHub App JWT generation, installation access token fetch/cache
 ├── integrations/
-│   ├── sentry.py
-│   ├── github.py
-│   ├── jira.py
-│   └── slack.py
+│   ├── sentry.py              # HMAC-SHA256 verification + payload parsing
+│   ├── rollbar.py             # Access token verification + payload parsing
+│   ├── github.py              # Git CLI wrappers + GitHub REST API
+│   ├── slack.py               # Slack Web API — notifications and approval buttons
+│   └── email.py               # SendGrid (preferred) or SMTP fallback
+├── dashboard/                 # React + TypeScript + Tailwind
+│   └── src/
+│       ├── App.tsx
+│       ├── api.ts
+│       ├── main.tsx
+│       ├── pages/             # IncidentList, IncidentDetail, Projects, Repos
+│       └── components/        # PipelineProgress, StreamPanel, ToolTimeline, StatusBadge, …
+├── evals/                     # LangSmith eval suite (datasets, evaluators, runner)
+├── config.yaml                # Source of truth for models, Redis, permissions, LangSmith
+├── index.html                 # Landing page
 ├── docs/
-│   ├── PRD.md
-│   └── architecture.md
-├── tests/
+├── scripts/
 ├── CLAUDE.md
 └── pyproject.toml
 ```
@@ -374,37 +376,41 @@ helix/
 ## Data Flow Summary
 
 ```
-1. Sentry webhook → Crash Handler Agent
-   - Parses and classifies crash
+1. Sentry / Rollbar webhook → Crash Handler Agent
+   - Verifies signature / access token
+   - Parses and classifies crash (LLM)
    - Writes crash_report to Redis
-   - Publishes CrashAnalysed to EventBridge
+   - Publishes helix:events:crash_analysed to Redis Streams
 
-2. EventBridge → QA Agent
+2. Redis Streams → QA Agent
    - Reads crash_report from Redis
-   - Searches JIRA/GitHub for duplicates
-   - Creates or updates ticket
-   - Generates failing test case
-   - Writes test_case to Redis
-   - Publishes TestCaseGenerated to EventBridge
+   - Searches GitHub Issues for duplicates
+   - Creates or updates issue
+   - Clones repo, reads source files
+   - Generates and validates failing TDD test (up to 3 LLM attempts)
+   - Posts test case to GitHub Issue
+   - Writes qa_result to Redis
+   - Publishes helix:events:test_case_generated
 
-3. EventBridge → Dev Agent
-   - Reads crash_report + test_case from Redis
-   - Clones target repo, runs failing test
-   - Writes fix, runs full suite
-   - Retries up to 3x
-   - Creates PR on GitHub
-   - Writes pr metadata to Redis
-   - Publishes PRCreated to EventBridge
+3. Redis Streams → Dev Agent
+   - Reads qa_result + crash_report from Redis
+   - Fetches source files from GitHub, generates fix suggestion (LLM)
+   - Posts fix suggestion to GitHub Issue
+   - Publishes helix:events:fix_suggested
+   - Acquires per-repo Redis lock
+   - Clones repo, creates branch, writes test, invokes Claude Code CLI
+   - CLI: confirm test fails → write fix → run full suite
+   - Retries up to 3 iterations
+   - On success: commit + push, create PR, write pr to Redis, publish helix:events:pr_created
+   - On failure: post failure summary to issue, publish helix:events:fix_failed
 
-4. EventBridge → Code Quality Agent
-   - Reads PR diff from GitHub
-   - Reviews quality
-   - If pass: notifies Slack reviewer
-   - If fail: publishes QualityRejected → Dev Agent retries
+4. Redis Streams → Notifier Agent (two concurrent loops)
+   - On fix_suggested: Slack message + email with issue link
+   - On fix_failed: escalation Slack message + email with attempt summaries
 
 5. Slack → Human Reviewer
-   - Reviewer clicks Approve
-   - Webhook triggers PR merge via GitHub API
+   - Reviewer clicks Approve button
+   - Slack action webhook → crash_handler → GitHub API → PR merged
 ```
 
 ---
@@ -531,14 +537,20 @@ Start with **Option C (Railway)** for MVP. It is the fastest path from code to a
 
 ## Key Design Decisions
 
-**Why EventBridge over direct agent calls?**
-Agents are fully decoupled. A failed agent does not cascade. Each agent can be redeployed independently. EventBridge also provides a built-in audit trail of every event in the pipeline.
+**Why Redis Streams over direct agent calls?**
+Agents are fully decoupled. A failed agent does not cascade. Each agent can be redeployed independently. Streams persist messages across restarts, so no events are lost if an agent is temporarily down.
 
-**Why Redis for state?**
+**Why Redis for incident state?**
 Agents are stateless processes. Redis provides fast, shared, ephemeral storage keyed by incident ID. No database migrations, no schema changes — just key-value reads and writes.
 
+**Why Postgres for project config?**
+Project credentials, GitHub App installation tokens, and per-project settings are long-lived and structured. Redis is unsuitable for relational queries (e.g. look up a project by GitHub repo slug). Postgres provides the right durability and query model for this data.
+
 **Why clone the repo at runtime?**
-Avoids the complexity of a persistent code sync mechanism in MVP. The target repo is cloned once per incident into a temp directory, used by the QA and Dev agents, then discarded.
+Avoids the complexity of a persistent code sync mechanism. The target repo is cloned once per incident into a temp directory by the QA and Dev agents, then discarded.
+
+**Why the Claude Code CLI for the Dev Agent?**
+The Dev Agent needs to read, understand, and modify a full codebase — not just a few pasted snippets. The Claude Code CLI runs inside the cloned repo directory with full file access and tool use (read, edit, run tests). This is significantly more capable than passing code snippets to the API.
 
 **Why separate models per agent?**
-Crash Handler and QA are structured analysis tasks — Haiku is fast and cheap. Dev Agent and Code Quality require deeper reasoning — Sonnet is worth the cost. This model routing is centralised in `core/llm.py`.
+Crash Handler and QA are structured analysis and pattern-matching tasks — claude-haiku-4-5 is fast and cheap. The Dev Agent requires deep reasoning over a full codebase — claude-sonnet-4-6 via the Claude Code CLI. This routing is centralised in `core/llm.py`.
