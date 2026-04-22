@@ -422,6 +422,7 @@ async def list_incidents(request: Request, _user: dict = Depends(get_current_use
         incidents.append(
             {
                 "incident_id": incident_id,
+                "project_id": report.project_id if report else None,
                 "status": status_val or "unknown",
                 "error_type": report.error_type if report else None,
                 "error_message": report.error_message if report else None,

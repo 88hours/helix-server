@@ -14,14 +14,13 @@
  */
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   createProject,
   deleteProject,
-  fetchGitHubInstallUrl,
   fetchGitHubRepos,
   fetchProjects,
   fetchWebhookUrls,
-  registerGitHubInstallation,
   updateProjectSettings,
   type CreateProjectPayload,
   type GitHubRepo,
@@ -206,7 +205,7 @@ function NavButtons({
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — Identity
+// Step 1 — Repository (replaces old Identity + GitHub steps)
 // ---------------------------------------------------------------------------
 
 function Step1({
@@ -215,194 +214,92 @@ function Step1({
   onNext,
 }: {
   state: WizardState
-  set: (k: keyof WizardState, v: string) => void
-  onNext: () => void
-}) {
-  return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-white">Project identity</h3>
-
-      <div>
-        <Label>Project name</Label>
-        <TextInput value={state.name} onChange={v => set('name', v)} placeholder="e.g. My Backend" />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Base branch</Label>
-          <TextInput value={state.base_branch} onChange={v => set('base_branch', v)} placeholder="main" />
-        </div>
-        <div>
-          <Label>Primary language</Label>
-          <select
-            value={state.language}
-            onChange={e => set('language', e.target.value)}
-            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-400"
-          >
-            {['python', 'javascript', 'typescript', 'ruby', 'java', 'kotlin', 'go'].map(l => (
-              <option key={l} value={l}>{l}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <NavButtons onNext={onNext} nextDisabled={!state.name.trim()} />
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Step 2 — GitHub App
-// ---------------------------------------------------------------------------
-
-function Step2({
-  state,
-  set,
-  onNext,
-  onBack,
-}: {
-  state: WizardState
   set: (k: keyof WizardState, v: string | null) => void
   onNext: () => void
-  onBack: () => void
 }) {
-  const [installUrl, setInstallUrl] = useState<string | null>(null)
   const [repos, setRepos] = useState<GitHubRepo[]>([])
-  const [checking, setChecking] = useState(true)
-  const [notInstalled, setNotInstalled] = useState(false)
-  const [repoError, setRepoError] = useState<string | null>(null)
-  const [manualId, setManualId] = useState('')
-  const [registering, setRegistering] = useState(false)
-  const [registerError, setRegisterError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [notConnected, setNotConnected] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  const loadRepos = () => {
-    return fetchGitHubRepos()
+  const loadRepos = () =>
+    fetchGitHubRepos()
       .then(data => {
         if (!state.github_installation_id) set('github_installation_id', data.installation_id)
         setRepos(data.repos)
-        if (data.repos.length === 1 && !state.repo) set('repo', data.repos[0].full_name)
-        setNotInstalled(false)
+        setNotConnected(false)
+        setError(null)
+        // Auto-select + auto-fill if only one repo and nothing selected yet
+        if (data.repos.length === 1 && !state.repo) {
+          const r = data.repos[0]
+          set('repo', r.full_name)
+          set('name', r.full_name.split('/')[1])
+          set('base_branch', r.default_branch || 'main')
+        }
       })
       .catch(err => {
         const msg = (err as Error).message
-        if (msg === 'GitHub App not installed' || msg.includes('500')) {
-          setNotInstalled(true)
+        if (msg === 'GitHub App not installed' || msg.includes('404')) {
+          setNotConnected(true)
         } else {
-          setRepoError(msg)
+          setError(msg)
         }
       })
-  }
 
   useEffect(() => {
-    fetchGitHubInstallUrl().then(setInstallUrl).catch(() => {})
-
-    // If the installation_id came from the GitHub App redirect (query param),
-    // register it first so the DB knows about it before we list repos.
-    const autoRegister = state.github_installation_id
-      ? registerGitHubInstallation(state.github_installation_id)
-          .then(() => set('github_installation_id', state.github_installation_id))
-          .catch(() => {}) // already registered — safe to ignore
-      : Promise.resolve()
-
-    autoRegister.then(() => loadRepos()).finally(() => setChecking(false))
+    loadRepos().finally(() => setLoading(false))
   }, [])
 
-  const handleManualRegister = async () => {
-    if (!manualId.trim()) return
-    setRegistering(true)
-    setRegisterError(null)
-    try {
-      await registerGitHubInstallation(manualId.trim())
-      set('github_installation_id', manualId.trim())
-      setNotInstalled(false)
-      setManualId('')
-      await loadRepos()
-    } catch (err) {
-      setRegisterError((err as Error).message)
-    } finally {
-      setRegistering(false)
+  const handleRepoChange = (fullName: string) => {
+    set('repo', fullName)
+    const r = repos.find(r => r.full_name === fullName)
+    if (r) {
+      set('name', fullName.split('/')[1])
+      set('base_branch', r.default_branch || 'main')
     }
   }
 
-  const connected = !!state.github_installation_id && !notInstalled
+  const handleRefresh = () => {
+    setRefreshing(true)
+    loadRepos().finally(() => setRefreshing(false))
+  }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-white">Connect GitHub</h3>
-      <p className="text-sm text-gray-400">
-        Helix uses a GitHub App to clone repos and open pull requests — no personal access token needed.
-      </p>
+      <h3 className="text-lg font-semibold text-white">Select repository</h3>
 
-      {checking ? (
-        <p className="text-sm text-gray-400">Checking GitHub connection…</p>
-      ) : !connected ? (
-        <div className="space-y-3">
-          <a
-            href={installUrl ?? '#'}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg font-medium"
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-            </svg>
-            Install GitHub App
-          </a>
-
-          <div className="text-xs text-gray-500">
-            Already installed?{' '}
-            Go to{' '}
-            <a href="https://github.com/settings/installations" target="_blank" rel="noreferrer" className="text-indigo-400 underline">
-              github.com/settings/installations
-            </a>
-            , click Configure, and paste the ID from the URL below.
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={manualId}
-              onChange={e => setManualId(e.target.value)}
-              placeholder="Installation ID (from URL)"
-              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400"
-            />
-            <button
-              onClick={handleManualRegister}
-              disabled={!manualId.trim() || registering}
-              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm rounded-lg font-medium"
-            >
-              {registering ? '…' : 'Connect'}
-            </button>
-          </div>
-          {registerError && <p className="text-xs text-red-400">{registerError}</p>}
+      {loading ? (
+        <p className="text-sm text-gray-400">Loading repositories…</p>
+      ) : notConnected ? (
+        <div className="rounded-lg bg-yellow-900/20 border border-yellow-700 px-4 py-3 space-y-2">
+          <p className="text-sm text-yellow-300 font-medium">GitHub not connected</p>
+          <p className="text-xs text-yellow-400">
+            Set up the GitHub App first, then come back to create a project.
+          </p>
+          <Link to="/github" className="inline-block text-xs text-indigo-400 underline">
+            Go to GitHub settings →
+          </Link>
         </div>
+      ) : error ? (
+        <p className="text-sm text-red-400">{error}</p>
       ) : (
-        <div className="flex items-center gap-2 text-sm text-green-400">
-          <span>✓</span>
-          <span>GitHub App connected</span>
-          <a href={installUrl ?? '#'} className="text-gray-400 hover:text-gray-200 underline text-xs ml-2">
-            Change installation
-          </a>
-        </div>
-      )}
-
-      {connected && (
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <Label>Select repository</Label>
-            <button
-              type="button"
-              onClick={() => {
-                setChecking(true)
-                loadRepos().finally(() => setChecking(false))
-              }}
-              className="text-xs text-indigo-400 hover:text-indigo-300"
-            >
-              ↻ Refresh
-            </button>
-          </div>
-          {repoError && <p className="text-sm text-red-400">{repoError}</p>}
-          {repos.length > 0 && (
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <Label>GitHub repository</Label>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40"
+              >
+                {refreshing ? '…' : '↻ Refresh'}
+              </button>
+            </div>
             <select
               value={state.repo}
-              onChange={e => set('repo', e.target.value)}
+              onChange={e => handleRepoChange(e.target.value)}
               className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-400"
             >
               <option value="">— choose a repository —</option>
@@ -412,21 +309,49 @@ function Step2({
                 </option>
               ))}
             </select>
-          )}
-          {repos.length === 0 && !repoError && (
-            <p className="text-sm text-gray-400">
-              No repositories found.{' '}
-              <a href={installUrl ?? '#'} className="underline text-indigo-400">Configure the GitHub App</a>
-              {' '}to grant access to repos, then click Refresh.
-            </p>
+          </div>
+
+          {state.repo && (
+            <>
+              <div>
+                <Label>Project name</Label>
+                <TextInput
+                  value={state.name}
+                  onChange={v => set('name', v)}
+                  placeholder="Auto-filled from repo name"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Base branch</Label>
+                  <TextInput
+                    value={state.base_branch}
+                    onChange={v => set('base_branch', v)}
+                    placeholder="main"
+                  />
+                </div>
+                <div>
+                  <Label>Primary language</Label>
+                  <select
+                    value={state.language}
+                    onChange={e => set('language', e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-400"
+                  >
+                    {['python', 'javascript', 'typescript', 'ruby', 'java', 'kotlin', 'go'].map(l => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
 
       <NavButtons
-        onBack={onBack}
         onNext={onNext}
-        nextDisabled={checking || !connected || !state.repo}
+        nextDisabled={loading || notConnected || !state.repo || !state.name.trim()}
       />
     </div>
   )
@@ -779,37 +704,35 @@ function ProjectWizard({ onProjectCreated }: { onProjectCreated: (p: Project) =>
 
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-lg w-full">
-      <StepBar step={step} total={5} />
+      <StepBar step={step} total={4} />
 
-      {step === 0 && <Step1 state={state} set={(k, v) => set(k, v as string)} onNext={() => setStep(1)} />}
-      {step === 1 && (
-        <Step2
+      {step === 0 && (
+        <Step1
           state={state}
           set={(k, v) => set(k, v as string | null)}
+          onNext={() => setStep(1)}
+        />
+      )}
+      {step === 1 && (
+        <Step3
+          state={state}
+          set={(k, v) => set(k, v as string | string[])}
           onNext={() => setStep(2)}
           onBack={() => setStep(0)}
         />
       )}
       {step === 2 && (
-        <Step3
+        <Step4
           state={state}
-          set={(k, v) => set(k, v as string | string[])}
+          set={(k, v) => set(k, v as string)}
           onNext={() => setStep(3)}
           onBack={() => setStep(1)}
         />
       )}
       {step === 3 && (
-        <Step4
-          state={state}
-          set={(k, v) => set(k, v as string)}
-          onNext={() => setStep(4)}
-          onBack={() => setStep(2)}
-        />
-      )}
-      {step === 4 && (
         <Step5
           state={state}
-          onBack={() => setStep(3)}
+          onBack={() => setStep(2)}
           onSubmit={submit}
           creating={creating}
           error={error}
@@ -826,10 +749,12 @@ function ProjectWizard({ onProjectCreated }: { onProjectCreated: (p: Project) =>
 
 function ProjectCard({
   project,
+  repoAvailable,
   onDelete,
   onUpdated,
 }: {
   project: Project
+  repoAvailable: boolean
   onDelete: (id: string) => void
   onUpdated: (p: Project) => void
 }) {
@@ -921,7 +846,17 @@ function ProjectCard({
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-xl p-5">
+    <div className={`bg-gray-900 rounded-xl p-5 border ${!repoAvailable ? 'border-yellow-700/60' : 'border-gray-700'}`}>
+      {/* Repo unavailable warning */}
+      {!repoAvailable && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-yellow-900/20 border border-yellow-700/40">
+          <span className="text-yellow-400 text-xs">⚠</span>
+          <p className="text-xs text-yellow-300">
+            Repository <span className="font-mono">{project.repo}</span> is no longer accessible via the GitHub App.{' '}
+            <Link to="/github" className="underline hover:text-yellow-200">Review GitHub access →</Link>
+          </p>
+        </div>
+      )}
       {/* Header row */}
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0">
@@ -1150,21 +1085,24 @@ function ProjectCard({
 
 export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [availableRepos, setAvailableRepos] = useState<Set<string> | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showWizard, setShowWizard] = useState(() => {
-    // Auto-open wizard if redirected back from GitHub App install
-    return !!new URLSearchParams(window.location.search).get('installation_id')
-  })
+  const [showWizard, setShowWizard] = useState(false)
   // Set to true once the wizard successfully creates a project — changes
   // the Cancel button to a Done button so the user can read the webhook URLs
   // before closing.
   const [wizardDone, setWizardDone] = useState(false)
 
   const load = () => {
-    fetchProjects()
-      .then(setProjects)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    Promise.all([
+      fetchProjects(),
+      fetchGitHubRepos().catch(() => null),
+    ]).then(([projs, installation]) => {
+      setProjects(projs)
+      if (installation) {
+        setAvailableRepos(new Set(installation.repos.map(r => r.full_name)))
+      }
+    }).catch(() => {}).finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
@@ -1237,6 +1175,7 @@ export default function Projects() {
             <ProjectCard
               key={p.project_id}
               project={p}
+              repoAvailable={availableRepos === null || availableRepos.has(p.repo)}
               onDelete={id => setProjects(ps => ps.filter(p => p.project_id !== id))}
               onUpdated={updated =>
                 setProjects(ps => ps.map(p => p.project_id === updated.project_id ? updated : p))

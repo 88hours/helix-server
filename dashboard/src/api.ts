@@ -30,6 +30,7 @@ async function _authHeaders(): Promise<Record<string, string>> {
 
 export interface IncidentSummary {
   incident_id: string
+  project_id: string | null
   status: string
   error_type: string | null
   error_message: string | null

@@ -15,6 +15,7 @@ import { useParams, Link } from 'react-router-dom'
 import {
   IncidentDetail as IncidentDetailType,
   UIProgressEvent,
+  fetchIncident,
   subscribeToIncident,
 } from '../api'
 import { StatusBadge } from '../components/StatusBadge'
@@ -100,9 +101,11 @@ export function IncidentDetail() {
       },
       (event) => {
         setEvents((prev) => [...prev, event])
-        // When a status_changed event arrives, refresh the snapshot fields.
+        // When a status_changed event arrives, re-fetch the full incident so
+        // qa_result / pr_result sections populate as soon as they are written.
         if (event.type === 'status_changed') {
           setDetail((prev) => prev ? { ...prev, status: event.message } : prev)
+          fetchIncident(incidentId).then(updated => setDetail(updated)).catch(() => {})
         }
       },
     ).then((cleanup) => {

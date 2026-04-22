@@ -685,11 +685,22 @@ None of these require changes to agent logic. The event-driven architecture is t
 - [x] Dev Agent timeout — hard 8-minute wall-clock budget per incident; exceeded budget escalates to human via Slack rather than holding a worker indefinitely
 - [x] Responsive landing page — mobile hamburger nav, scaled typography and padding, scrollable language table; self-healing product framing with countdown timer
 
-### Phase 5 — Multi-Tenancy and Production Scale (planned)
+### Phase 5 — UI, Ops, and Integration Polish
+- [x] Rollbar webhook auth — fixed 401 errors caused by missing `rollbar_access_token` in project settings; added payload + auth-check debug logging to diagnose token mismatches
+- [x] GitHub App Setup URL — redirect target changed to `/app/projects/new` (frontend); eliminates Auth0 session mismatch that broke the post-install callback
+- [x] GitHub page — dedicated `/github` section shows all accessible repos with Private/Public badge, default branch, and which Helix project monitors each repo; handles post-install `?installation_id=` redirect and manual ID entry
+- [x] Simplified project wizard — reduced from 5 steps to 4; first step is repo picker with auto-fill of project name and base branch from GitHub; GitHub connection management moved to the dedicated GitHub page
+- [x] Incident list grouped by project — incidents grouped under their project with repo slug and count; ungrouped incidents fall into an "Other" section
+- [x] Projects page — repo availability check on load; projects whose GitHub repo is no longer accessible via the App show a yellow warning banner with a link to the GitHub page
+- [x] Incident detail live refresh — `status_changed` SSE events now trigger a full re-fetch of the incident so QA and PR sections populate in real-time without a page reload
+- [x] Evals CI — eval step skips gracefully (exit 0) when `ANTHROPIC_API_KEY` or `LANGSMITH_API_KEY` secrets are not set; documented in README
+- [x] Dependency security — upgraded `pytest` and `langsmith` via `uv lock` to resolve two Moderate Dependabot alerts
+
+### Phase 6 — Multi-Tenancy and Production Scale (planned)
 - [ ] `organisations` Postgres table — org_id, name, plan tier, owner; foreign key on all projects
 - [ ] `org_id` threaded through event payloads — agents look up the correct `Project` at runtime from `org_id` + `repo`; removes the static `config.yaml` GitHub fallback entirely
 - [ ] Priority queues per plan tier — Free / Pro / Team incidents route to separate Redis Stream keys; workers poll high-priority streams first; Team orgs get dedicated worker pools
 - [ ] Worker pool per agent — multiple concurrent instances pulling from the same stream; ECS Fargate auto-scaling on queue depth eliminates the sequential processing bottleneck
 - [ ] Per-org noisy-neighbour protection — burst limiting so a single org with many crashes cannot starve others on the shared pool
-- [ ] GitHub App multi-org install flow — installation callback reliably saves `installation_id` per org; removes the manual workaround documented in Known Issues
+- [ ] GitHub App multi-org install flow — installation callback reliably saves `installation_id` per org
 - [ ] Audit trail — queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id` and `org_id`
