@@ -295,7 +295,16 @@ function Step2({
 
   useEffect(() => {
     fetchGitHubInstallUrl().then(setInstallUrl).catch(() => {})
-    loadRepos().finally(() => setChecking(false))
+
+    // If the installation_id came from the GitHub App redirect (query param),
+    // register it first so the DB knows about it before we list repos.
+    const autoRegister = state.github_installation_id
+      ? registerGitHubInstallation(state.github_installation_id)
+          .then(() => set('github_installation_id', state.github_installation_id))
+          .catch(() => {}) // already registered — safe to ignore
+      : Promise.resolve()
+
+    autoRegister.then(() => loadRepos()).finally(() => setChecking(false))
   }, [])
 
   const handleManualRegister = async () => {
@@ -376,7 +385,19 @@ function Step2({
 
       {connected && (
         <div>
-          <Label>Select repository</Label>
+          <div className="flex items-center justify-between mb-1">
+            <Label>Select repository</Label>
+            <button
+              type="button"
+              onClick={() => {
+                setChecking(true)
+                loadRepos().finally(() => setChecking(false))
+              }}
+              className="text-xs text-indigo-400 hover:text-indigo-300"
+            >
+              ↻ Refresh
+            </button>
+          </div>
           {repoError && <p className="text-sm text-red-400">{repoError}</p>}
           {repos.length > 0 && (
             <select
@@ -396,7 +417,7 @@ function Step2({
             <p className="text-sm text-gray-400">
               No repositories found.{' '}
               <a href={installUrl ?? '#'} className="underline text-indigo-400">Configure the GitHub App</a>
-              {' '}to grant access to repos.
+              {' '}to grant access to repos, then click Refresh.
             </p>
           )}
         </div>
