@@ -27,4 +27,9 @@ jobs:
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           LANGSMITH_PROJECT: helix
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: uv run python -m evals.run --experiment "ci-${{ github.sha }}"
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$LANGSMITH_API_KEY" ]; then
+            echo "Skipping evals: ANTHROPIC_API_KEY or LANGSMITH_API_KEY secret not set."
+            exit 0
+          fi
+          uv run python -m evals.run --experiment "ci-${{ github.sha }}"

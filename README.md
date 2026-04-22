@@ -451,7 +451,7 @@ uv run --env-file .env python -m evals.run --agent dev
 
 Evals also run automatically in CI on every push to `main` and on PRs targeting `main` (`.github/workflows/evals.yml`). The CI job tags each experiment with the commit SHA so any LangSmith run is traceable to the exact commit. The job exits non-zero if any agent scores below 0.8, failing the check.
 
-Requires `LANGSMITH_API_KEY` and `ANTHROPIC_API_KEY` (set as GitHub Actions secrets for CI).
+**The eval step is skipped automatically if `ANTHROPIC_API_KEY` or `LANGSMITH_API_KEY` is not set as a GitHub Actions secret** — the job exits 0 with a skip message rather than failing. To enable evals in CI, add both as repository secrets: GitHub → Settings → Secrets and variables → Actions.
 
 ## OpenTelemetry tracing
 

@@ -309,6 +309,8 @@ def no_new_imports_in_fix(run, example) -> dict:
     violates that constraint and may break the target environment.
     """
     output = _get_output(run)
+    if not output:
+        return {"key": "no_new_imports", "score": 0, "comment": "no output"}
     upper = output.upper()
     after_pos = upper.find("AFTER")
     if after_pos == -1:
