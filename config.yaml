@@ -303,6 +303,13 @@ pipeline:
   # Override: HELIX_DEV_MAX_ITERATIONS
   dev_max_iterations: 3
 
+  # Hard wall-clock budget in seconds for the entire TDD loop
+  # (environment setup → clone → fix → PR).  Increase for large repos or
+  # projects where the first dependency download takes a long time
+  # (e.g. Maven/Gradle cold cache).  Must be less than the repo lock TTL (600s).
+  # Override: HELIX_DEV_TDD_TIMEOUT
+  dev_tdd_timeout: 480
+
   # Maximum number of source files the QA Agent reads from the repo when
   # generating the test case (keeps LLM prompt size manageable).
   # Override: HELIX_QA_MAX_SOURCE_FILES

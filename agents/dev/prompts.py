@@ -146,7 +146,7 @@ def build_tdd(
             f"{fix_suggestion}\n"
         )
 
-    run_one, run_all = _test_commands(language, test_file_path, test_name)
+    hint_one, hint_all = _test_commands(language, test_file_path, test_name)
 
     return f"""\
 You are fixing a production bug for incident {incident_id} (attempt {iteration}/3).
@@ -166,12 +166,53 @@ Test function: {test_name}
 ## Your Task
 Follow these steps exactly:
 
-1. Run the failing test to confirm it currently fails:
-      {run_one}
+1. Discover the environment and install any missing dependencies.
 
-2. Read the relevant source files to understand the bug.
+   a. Read README.md (if it exists) for setup instructions.
 
-3. Write the minimal code change that makes the test pass.
+   b. Identify the build system and test runner by checking for these files
+      in order of priority:
+        build.gradle / build.gradle.kts  → Gradle
+        pom.xml                          → Maven
+        package.json                     → npm / yarn / pnpm
+        go.mod                           → go test
+        Cargo.toml                       → cargo test
+        pyproject.toml / setup.py /
+        requirements.txt                 → pytest / unittest
+        Makefile                         → check targets for "test"
+
+   c. If the required build tool is not installed, install it now without
+      asking. Use the appropriate method for the OS:
+        - Java/Kotlin (Gradle or Maven): install via SDKMAN if available
+          (`sdk install java`, `sdk install gradle`, `sdk install maven`),
+          otherwise use the system package manager (apt-get / brew).
+        - Node.js: install via nvm or system package manager.
+        - Go / Rust / Python: use the system package manager or official
+          installer scripts.
+
+   d. Install project dependencies:
+        Gradle  → ./gradlew dependencies  (use the wrapper if present)
+        Maven   → mvn dependency:resolve -q
+        npm     → npm install
+        yarn    → yarn install
+        pnpm    → pnpm install
+        Go      → go mod download
+        Rust    → cargo fetch
+        Python  → pip install -r requirements.txt  (or pip install -e .[dev]
+                  if pyproject.toml is present)
+
+   Hint (based on the reported language "{language}"):
+     single test : {hint_one}
+     full suite  : {hint_all}
+   These are hints only — if the actual build file points to a different
+   tool (e.g. Gradle instead of Maven), use the correct tool.
+
+2. Run the failing test to confirm it currently fails using the test runner
+   you identified in step 1.
+
+3. Read the relevant source files to understand the bug.
+
+4. Write the minimal code change that makes the test pass.
    - The test asserts correct behaviour (e.g. a return value) — not that an
      exception is raised. Your fix must make the function return the expected
      value rather than crash.
@@ -179,10 +220,9 @@ Follow these steps exactly:
    - Do not modify the test file.
    - Do not add new dependencies.
 
-4. Run the full test suite to check for regressions:
-      {run_all}
+5. Run the full test suite to check for regressions.
 
-5. Based on the results, output ONE of the following sentinel lines,
+6. Based on the results, output ONE of the following sentinel lines,
    followed by a short explanation:
 
    If all tests pass:
@@ -199,7 +239,12 @@ Do not output anything else after the sentinel line and explanation.
 
 def _test_commands(language: str, test_file_path: str, test_name: str) -> tuple[str, str]:
     """
-    Return (run_one_test_command, run_full_suite_command) for the given language.
+    Return hint commands (run_one, run_all) for the given language.
+
+    These are passed to build_tdd() as hints only. The TDD prompt instructs
+    the claude-code CLI to inspect the actual repo build files and override
+    these hints when the real build system differs (e.g. Gradle instead of
+    Maven for a Java repo).
 
     Args:
         language:       Application language, e.g. "python", "javascript".

@@ -30,7 +30,7 @@ import redis.asyncio as redis
 from agents.dev import prompts
 from typing import Optional
 
-from core.config import ProjectConfig, get_github_config
+from core.config import ProjectConfig, get_github_config, get_pipeline_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, PRResult, Project, QAResult
@@ -59,9 +59,9 @@ _REPO_LOCK_RETRIES = 12   # 12 × 30 s = up to 6 minutes of waiting
 _REPO_LOCK_RETRY_DELAY = 30  # seconds between lock-check retries
 
 # Hard wall-clock budget for the entire TDD loop (clone → fix → PR).
-# If exceeded the incident is escalated exactly like exhausted retries.
-# Must be less than _REPO_LOCK_TTL so the lock always expires after the timeout.
-_TDD_TIMEOUT = 480  # seconds (8 minutes)
+# Loaded from config.yaml / HELIX_DEV_TDD_TIMEOUT at runtime.
+# Must be less than _REPO_LOCK_TTL (600s) so the lock always expires after the timeout.
+_TDD_TIMEOUT: int = get_pipeline_config()["dev_tdd_timeout"]
 
 
 async def handle(

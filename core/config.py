@@ -476,6 +476,41 @@ def get_langsmith_config() -> LangSmithConfig:
     )
 
 
+def get_pipeline_config() -> dict:
+    """
+    Return pipeline behaviour settings with environment variable overrides.
+
+    Resolution order for each value:
+      1. Environment variable
+      2. config.yaml pipeline section
+      3. Hardcoded default
+
+    Returns:
+        dict with keys:
+          dev_max_iterations (int)  — max TDD fix attempts before escalation
+          dev_tdd_timeout    (int)  — TDD loop wall-clock budget in seconds
+          qa_max_source_files (int) — max source files read by QA Agent
+          qa_max_file_chars   (int) — max chars read per source file by QA Agent
+    """
+    raw = _load_yaml()
+    p = raw.get("pipeline", {})
+
+    def _int(env_var: str, yaml_key: str, default: int) -> int:
+        raw_val = os.environ.get(env_var, "").split("#")[0].strip()
+        try:
+            return int(raw_val)
+        except ValueError:
+            pass
+        return int(p.get(yaml_key, default))
+
+    return {
+        "dev_max_iterations": _int("HELIX_DEV_MAX_ITERATIONS", "dev_max_iterations", 3),
+        "dev_tdd_timeout": _int("HELIX_DEV_TDD_TIMEOUT", "dev_tdd_timeout", 480),
+        "qa_max_source_files": _int("HELIX_QA_MAX_SOURCE_FILES", "qa_max_source_files", 8),
+        "qa_max_file_chars": _int("HELIX_QA_MAX_FILE_CHARS", "qa_max_file_chars", 4000),
+    }
+
+
 def get_otel_config() -> OtelConfig:
     """
     Return OpenTelemetry tracing settings.
