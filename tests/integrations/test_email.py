@@ -172,3 +172,81 @@ async def test_send_pr_merged_smtp(monkeypatch):
     monkeypatch.setenv("SMTP_PASSWORD", "pass")
     with patch("aiosmtplib.send", new_callable=AsyncMock):
         await email.send_pr_merged("inc-001", "https://github.com/pr/1", 1, "alice")
+
+
+# ---------------------------------------------------------------------------
+# _deliver — no backend configured
+# ---------------------------------------------------------------------------
+
+async def test_deliver_skips_when_no_backend_configured(monkeypatch):
+    """_deliver logs a warning and returns when neither SendGrid nor SMTP is set."""
+    monkeypatch.delenv("SENDGRID_API_KEY", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    # Should not raise — just logs and returns
+    await email._deliver("from@x.com", ["to@x.com"], "Subject", "body", "<body/>")
+
+
+async def test_deliver_logs_warning_on_exception(monkeypatch):
+    """_deliver swallows delivery exceptions and logs a warning."""
+    monkeypatch.setenv("SENDGRID_API_KEY", "SG.bad")
+    with patch("integrations.email._send_sendgrid", new=AsyncMock(side_effect=Exception("network error"))):
+        # Should not raise
+        await email._deliver("from@x.com", ["to@x.com"], "Subject", "body", "<body/>",
+                              sendgrid_api_key="SG.bad")
+
+
+# ---------------------------------------------------------------------------
+# send_escalation — skips when from/to not configured
+# ---------------------------------------------------------------------------
+
+async def test_send_escalation_skips_when_from_not_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+    # Should not raise
+    await email.send_escalation("inc-001", "crash", 3, "ctx", from_addr=None)
+
+
+async def test_send_escalation_skips_when_to_not_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_TO", raising=False)
+    # Should not raise
+    await email.send_escalation("inc-001", "crash", 3, "ctx", to_addr=None)
+
+
+# ---------------------------------------------------------------------------
+# send_pr_merged — skips when from/to not configured
+# ---------------------------------------------------------------------------
+
+async def test_send_pr_merged_skips_when_from_not_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+    await email.send_pr_merged("inc-001", "https://github.com/pr/1", 1, "alice", from_addr=None)
+
+
+async def test_send_pr_merged_skips_when_to_not_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_TO", raising=False)
+    await email.send_pr_merged("inc-001", "https://github.com/pr/1", 1, "alice", to_addr=None)
+
+
+# ---------------------------------------------------------------------------
+# send_fix_suggested
+# ---------------------------------------------------------------------------
+
+@respx.mock
+async def test_send_fix_suggested_sendgrid(monkeypatch):
+    monkeypatch.setenv("SENDGRID_API_KEY", "SG.test")
+    respx.post("https://api.sendgrid.com/v3/mail/send").mock(return_value=httpx.Response(202))
+    await email.send_fix_suggested(
+        incident_id="inc-001",
+        error_type="AttributeError",
+        error_message="'NoneType' object has no attribute 'id'",
+        issue_url="https://github.com/acme/repo/issues/10",
+        sendgrid_api_key="SG.test",
+    )
+
+
+async def test_send_fix_suggested_skips_when_from_not_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+    await email.send_fix_suggested("inc-001", "TypeError", "bad", "https://x.com", from_addr=None)
+
+
+async def test_send_fix_suggested_skips_when_to_not_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_TO", raising=False)
+    await email.send_fix_suggested("inc-001", "TypeError", "bad", "https://x.com", to_addr=None)

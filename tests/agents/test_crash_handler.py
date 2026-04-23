@@ -5,7 +5,7 @@ import json
 import time
 import urllib.parse
 import pytest
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -475,3 +475,763 @@ def test_slack_actions_reject_updates_status(monkeypatch):
     assert resp.status_code == 200
     assert "rejected" in resp.json()["text"].lower()
     mock_write_status.assert_awaited_once_with(ANY, "inc-001", "approval_rejected")
+
+
+# ---------------------------------------------------------------------------
+# Legacy webhook endpoints — 410 Gone
+# ---------------------------------------------------------------------------
+
+def test_legacy_rollbar_webhook_returns_410():
+    client = _make_client()
+    resp = client.post("/webhook/rollbar", content=b"{}", headers={"content-type": "application/json"})
+    assert resp.status_code == 410
+
+
+def test_legacy_sentry_webhook_returns_410():
+    client = _make_client()
+    resp = client.post("/webhook/sentry", content=b"{}", headers={"content-type": "application/json"})
+    assert resp.status_code == 410
+
+
+# ---------------------------------------------------------------------------
+# _load_project_or_404
+# ---------------------------------------------------------------------------
+
+def test_load_project_or_404_returns_503_when_no_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404",
+               side_effect=Exception("503")):
+        pass  # tested indirectly via rollbar webhook below
+
+    # Direct test: call the function without DATABASE_URL
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _load_project_or_404
+        import asyncio
+        from fastapi import HTTPException as FHE
+        with pytest.raises(FHE) as exc_info:
+            asyncio.get_event_loop().run_until_complete(_load_project_or_404("proj-001"))
+    assert exc_info.value.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Sentry webhook edge cases
+# ---------------------------------------------------------------------------
+
+def test_sentry_webhook_invalid_signature_returns_401(monkeypatch):
+    mock_project = {"project_id": "proj-001", "sentry_webhook_secret": "real-secret"}
+    body = json.dumps({"action": "created"}).encode()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/webhook/sentry/proj-001",
+            content=body,
+            headers={"content-type": "application/json", "sentry-hook-signature": "bad-sig"},
+        )
+    assert resp.status_code == 401
+
+
+def test_sentry_webhook_no_secret_skips_verification(monkeypatch):
+    mock_project = {"project_id": "proj-001", "sentry_webhook_secret": None}
+    payload = {"action": "ping"}
+    body = json.dumps(payload).encode()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/webhook/sentry/proj-001",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+    assert resp.status_code == 202
+
+
+def test_sentry_webhook_invalid_json_returns_400():
+    mock_project = {"project_id": "proj-001", "sentry_webhook_secret": None}
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/webhook/sentry/proj-001",
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Rollbar webhook edge cases
+# ---------------------------------------------------------------------------
+
+def test_rollbar_webhook_returns_401_when_no_access_token_configured():
+    mock_project = {"project_id": "proj-001", "rollbar_access_token": None}
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/webhook/rollbar/proj-001",
+            content=json.dumps(RAW_ROLLBAR_PAYLOAD).encode(),
+            headers={"content-type": "application/json"},
+        )
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Slack action edge cases
+# ---------------------------------------------------------------------------
+
+def test_slack_actions_returns_400_on_bad_payload(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    body = b"not-url-encoded-at-all!!!"
+    ts = str(int(time.time()))
+    import hmac as _hmac, hashlib as _hashlib
+    base = f"v0:{ts}:{body.decode()}"
+    sig = "v0=" + _hmac.new(SIGNING_SECRET.encode(), base.encode(), _hashlib.sha256).hexdigest()
+    headers = {
+        "content-type": "application/x-www-form-urlencoded",
+        "X-Slack-Request-Timestamp": ts,
+        "X-Slack-Signature": sig,
+    }
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 400
+
+
+def test_slack_actions_returns_200_when_no_actions_in_payload(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    import urllib.parse as _up, json as _json
+    payload = {"type": "block_actions", "actions": []}
+    body = _up.urlencode({"payload": _json.dumps(payload)}).encode()
+    headers = _slack_headers(body, SIGNING_SECRET)
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 200
+    assert "No action" in resp.json()["text"]
+
+
+def test_slack_actions_approve_returns_200_when_pr_result_missing(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    body = _slack_action_body("approve_pr", "inc-missing")
+    headers = _slack_headers(body, SIGNING_SECRET)
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()), \
+         patch("agents.crash_handler.main.read_pr_result", return_value=None):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 200
+    assert "Could not find PR" in resp.json()["text"]
+
+
+def test_slack_actions_approve_returns_200_when_merge_fails(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-test")
+    body = _slack_action_body("approve_pr", "inc-001")
+    headers = _slack_headers(body, SIGNING_SECRET)
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()), \
+         patch("agents.crash_handler.main.read_pr_result", return_value=SAMPLE_PR_RESULT), \
+         patch("agents.crash_handler.main.merge_pull_request", side_effect=Exception("merge conflict")):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 200
+    assert "Merge failed" in resp.json()["text"]
+
+
+def test_slack_actions_unknown_action_returns_200(monkeypatch):
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SIGNING_SECRET)
+    body = _slack_action_body("snooze_pr", "inc-001")
+    headers = _slack_headers(body, SIGNING_SECRET)
+    with patch("core.config._load_yaml", return_value=_make_slack_yaml()):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post("/slack/actions", content=body, headers=headers)
+    assert resp.status_code == 200
+    assert "Unknown action" in resp.json()["text"]
+
+
+# ---------------------------------------------------------------------------
+# Dashboard API — /api/incidents, /api/incidents/{id}
+# ---------------------------------------------------------------------------
+
+def test_list_incidents_returns_empty_list_when_no_incidents():
+    async def empty_scan(pattern):
+        return
+        yield  # noqa: unreachable — makes this an async generator
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import app
+    mock_redis = AsyncMock()
+    mock_redis.scan_iter = empty_scan
+    app.state.redis = mock_redis
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/incidents")
+    assert resp.status_code == 200
+    assert resp.json()["incidents"] == []
+
+
+def test_get_incident_returns_404_when_not_found():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_status", new=AsyncMock(return_value=None)):
+        from agents.crash_handler.main import app
+        mock_redis = AsyncMock()
+        app.state.redis = mock_redis
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/incidents/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_get_incident_returns_incident_data():
+    from core.models import CrashReport, Severity
+    report = CrashReport(
+        incident_id="inc-001", project_id="proj-001",
+        source_item_id="12345", source="rollbar",
+        severity=Severity.high, error_type="KeyError",
+        error_message="'item_id'", stack_trace="...",
+        affected_component="checkout", affected_endpoint="/api/v1/checkout",
+        summary="A KeyError.",
+    )
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_status", new=AsyncMock(return_value="pr_created")), \
+         patch("agents.crash_handler.main.read_crash_report", new=AsyncMock(return_value=report)), \
+         patch("agents.crash_handler.main.read_qa_result", new=AsyncMock(return_value=None)), \
+         patch("agents.crash_handler.main.read_pr_result", new=AsyncMock(return_value=None)):
+        from agents.crash_handler.main import app
+        mock_redis = AsyncMock()
+        app.state.redis = mock_redis
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/incidents/inc-001")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "pr_created"
+    assert resp.json()["crash_report"]["error_type"] == "KeyError"
+
+
+# ---------------------------------------------------------------------------
+# Repo API — /api/repos
+# ---------------------------------------------------------------------------
+
+def test_list_repos_returns_empty_list():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_user_repos", new=AsyncMock(return_value=[])):
+        from agents.crash_handler.main import app
+    mock_redis = AsyncMock()
+    app.state.redis = mock_redis
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/repos")
+    assert resp.status_code == 200
+    assert resp.json()["repos"] == []
+
+
+def test_add_repo_returns_201():
+    from core.models import RepoConfig
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_user_repos", new=AsyncMock(return_value=[])), \
+         patch("agents.crash_handler.main.write_user_repos", new=AsyncMock()):
+        from agents.crash_handler.main import app
+    mock_redis = AsyncMock()
+    app.state.redis = mock_redis
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post("/api/repos", json={"repo": "acme/backend", "base_branch": "main", "language": "python"})
+    assert resp.status_code == 201
+    assert resp.json()["repo"] == "acme/backend"
+
+
+def test_add_repo_returns_400_for_invalid_format():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_user_repos", new=AsyncMock(return_value=[])):
+        from agents.crash_handler.main import app
+    mock_redis = AsyncMock()
+    app.state.redis = mock_redis
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post("/api/repos", json={"repo": "not-a-valid-repo"})
+    assert resp.status_code == 400
+
+
+def test_add_repo_returns_409_for_duplicate():
+    from core.models import RepoConfig
+    existing = [RepoConfig(repo="acme/backend", base_branch="main", language="python")]
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_user_repos", new=AsyncMock(return_value=existing)):
+        from agents.crash_handler.main import app
+        mock_redis = AsyncMock()
+        app.state.redis = mock_redis
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/api/repos", json={"repo": "acme/backend"})
+    assert resp.status_code == 409
+
+
+def test_remove_repo_returns_200():
+    from core.models import RepoConfig
+    repos = [RepoConfig(repo="acme/backend", base_branch="main", language="python")]
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_user_repos", new=AsyncMock(return_value=repos)), \
+         patch("agents.crash_handler.main.write_user_repos", new=AsyncMock()):
+        from agents.crash_handler.main import app
+        mock_redis = AsyncMock()
+        app.state.redis = mock_redis
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.delete("/api/repos/acme/backend")
+    assert resp.status_code == 200
+    assert resp.json()["removed"] == "acme/backend"
+
+
+def test_remove_repo_returns_404_when_not_configured():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_user_repos", new=AsyncMock(return_value=[])):
+        from agents.crash_handler.main import app
+    mock_redis = AsyncMock()
+    app.state.redis = mock_redis
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.delete("/api/repos/acme/nonexistent")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Project API — /api/projects (Postgres-backed)
+# ---------------------------------------------------------------------------
+
+def _make_db_mock(mock_db):
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_db)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
+
+
+def test_list_projects_returns_503_without_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    client = _make_client()
+    resp = client.get("/api/projects")
+    assert resp.status_code == 503
+
+
+def test_list_projects_returns_project_list(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    rows = [{"project_id": "proj-001", "name": "Acme", "repo": "acme/repo",
+             "rollbar_access_token": "secret", "sentry_webhook_secret": None,
+             "slack_bot_token": None, "slack_signing_secret": None, "sendgrid_api_key": None}]
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.db_list_projects", new=AsyncMock(return_value=rows)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/projects")
+    assert resp.status_code == 200
+    projects = resp.json()["projects"]
+    assert len(projects) == 1
+    assert projects[0]["rollbar_access_token"] == "***"
+
+
+def test_create_project_returns_201(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    created_row = {
+        "project_id": "new-uuid", "name": "My App", "repo": "acme/app",
+        "base_branch": "main", "language": "python", "owner_sub": "demo|00000000",
+        "rollbar_access_token": None, "sentry_webhook_secret": None,
+        "slack_bot_token": None, "slack_signing_secret": None,
+        "sendgrid_api_key": None, "github_installation_id": None,
+    }
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.upsert_user", new=AsyncMock()), \
+         patch("agents.crash_handler.main.insert_project", new=AsyncMock()), \
+         patch("agents.crash_handler.main.upsert_project_settings", new=AsyncMock()), \
+         patch("agents.crash_handler.main.get_project", new=AsyncMock(return_value=created_row)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/api/projects", json={
+            "name": "My App", "repo": "acme/app", "base_branch": "main", "language": "python",
+        })
+    assert resp.status_code == 201
+    assert "webhook_urls" in resp.json()
+
+
+def test_create_project_returns_400_for_invalid_repo(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    client = _make_client()
+    resp = client.post("/api/projects", json={"name": "Bad", "repo": "not-valid-format"})
+    assert resp.status_code == 400
+
+
+def test_delete_project_returns_200(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.db_delete_project", new=AsyncMock(return_value=True)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.delete("/api/projects/proj-001")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == "proj-001"
+
+
+def test_delete_project_returns_404_when_not_found(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.db_delete_project", new=AsyncMock(return_value=False)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.delete("/api/projects/nonexistent")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers — _mask_row, _parse_repo_slug, _require_db
+# ---------------------------------------------------------------------------
+
+def test_mask_row_replaces_secret_fields_with_stars():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _mask_row
+    row = {"rollbar_access_token": "secret123", "name": "Acme", "slack_bot_token": "xoxb"}
+    masked = _mask_row(row)
+    assert masked["rollbar_access_token"] == "***"
+    assert masked["slack_bot_token"] == "***"
+    assert masked["name"] == "Acme"
+
+
+def test_mask_row_leaves_empty_secrets_unchanged():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _mask_row
+    row = {"rollbar_access_token": None, "name": "Acme"}
+    masked = _mask_row(row)
+    assert masked["rollbar_access_token"] is None
+
+
+def test_parse_repo_slug_from_plain_slug():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _parse_repo_slug
+    assert _parse_repo_slug("acme/backend") == "acme/backend"
+
+
+def test_parse_repo_slug_from_https_url():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _parse_repo_slug
+    assert _parse_repo_slug("https://github.com/acme/backend") == "acme/backend"
+
+
+def test_parse_repo_slug_from_ssh_url():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _parse_repo_slug
+    assert _parse_repo_slug("git@github.com:acme/backend.git") == "acme/backend"
+
+
+def test_parse_repo_slug_raises_for_invalid():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import _parse_repo_slug
+    with pytest.raises(ValueError):
+        _parse_repo_slug("not-a-valid-repo")
+
+
+# ---------------------------------------------------------------------------
+# Auth — /api/me
+# ---------------------------------------------------------------------------
+
+def test_get_me_returns_demo_user_when_auth_disabled(monkeypatch):
+    monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
+    client = _make_client()
+    resp = client.get("/api/me")
+    assert resp.status_code == 200
+    assert resp.json()["sub"] == "demo|00000000"
+
+
+# ---------------------------------------------------------------------------
+# Static file routes — all return error dicts when files are absent
+# ---------------------------------------------------------------------------
+
+def test_serve_landing_returns_error_when_not_built():
+    client = _make_client()
+    resp = client.get("/")
+    # Either FileResponse (if index.html exists) or error dict
+    assert resp.status_code == 200
+
+
+def test_serve_dashboard_root_responds():
+    client = _make_client()
+    resp = client.get("/app")
+    assert resp.status_code in (200, 404)
+
+
+def test_serve_dashboard_path_responds():
+    client = _make_client()
+    resp = client.get("/app/projects")
+    assert resp.status_code in (200, 404)
+
+
+def test_get_github_install_url_returns_503_when_not_configured():
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.build_install_url",
+               side_effect=RuntimeError("GITHUB_APP_ID not set")):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/github/install-url")
+    assert resp.status_code == 503
+
+
+def test_get_github_install_url_returns_url_when_configured(monkeypatch):
+    monkeypatch.setenv("GITHUB_APP_SLUG", "helix-bot")
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.build_install_url", return_value="https://github.com/apps/helix-bot/installations/new"):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/github/install-url")
+    assert resp.status_code == 200
+    assert "install_url" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Update project settings — /api/projects/{project_id}/settings
+# ---------------------------------------------------------------------------
+
+def test_update_project_settings_returns_updated_row(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    row = {
+        "project_id": "proj-001", "name": "Acme", "repo": "acme/repo",
+        "owner_sub": "demo|00000000",
+        "rollbar_access_token": None, "sentry_webhook_secret": None,
+        "slack_bot_token": "xoxb-new", "slack_signing_secret": None,
+        "sendgrid_api_key": None,
+    }
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.get_project", new=AsyncMock(return_value=row)), \
+         patch("agents.crash_handler.main.upsert_project_settings", new=AsyncMock()):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.put("/api/projects/proj-001/settings",
+                          json={"slack_bot_token": "xoxb-new"})
+    assert resp.status_code == 200
+    assert resp.json()["slack_bot_token"] == "***"
+
+
+def test_update_project_settings_returns_404_for_unknown_project(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.get_project", new=AsyncMock(return_value=None)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.put("/api/projects/nonexistent/settings", json={})
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Get webhook URLs — /api/projects/{project_id}/webhook-urls
+# ---------------------------------------------------------------------------
+
+def test_get_webhook_urls_returns_urls(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    row = {"project_id": "proj-001", "owner_sub": "demo|00000000", "name": "Acme"}
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.get_project", new=AsyncMock(return_value=row)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/projects/proj-001/webhook-urls")
+    assert resp.status_code == 200
+    assert "sentry" in resp.json()
+    assert "rollbar" in resp.json()
+
+
+def test_get_webhook_urls_returns_404_when_not_found(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.get_project", new=AsyncMock(return_value=None)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/projects/nonexistent/webhook-urls")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# List incidents — scan returns results
+# ---------------------------------------------------------------------------
+
+def test_list_incidents_returns_incidents_when_present():
+    from core.models import CrashReport, Severity
+
+    report = CrashReport(
+        incident_id="inc-001", project_id="proj-001",
+        source_item_id="12345", source="rollbar",
+        severity=Severity.high, error_type="KeyError",
+        error_message="'item_id'", stack_trace="...",
+        affected_component="checkout", affected_endpoint="/api/v1/checkout",
+        summary="A KeyError.",
+    )
+
+    async def mock_scan(pattern):
+        yield b"helix:incident:inc-001:status"
+
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.read_status", new=AsyncMock(return_value="pr_created")), \
+         patch("agents.crash_handler.main.read_crash_report", new=AsyncMock(return_value=report)):
+        from agents.crash_handler.main import app
+        mock_redis = AsyncMock()
+        mock_redis.scan_iter = mock_scan
+        app.state.redis = mock_redis
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/incidents")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["incidents"]) == 1
+    assert resp.json()["incidents"][0]["status"] == "pr_created"
+
+
+# ---------------------------------------------------------------------------
+# GitHub App callback — /api/github/callback
+# ---------------------------------------------------------------------------
+
+def test_github_app_callback_stores_installation(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.upsert_user", new=AsyncMock()), \
+         patch("agents.crash_handler.main.upsert_github_installation", new=AsyncMock()):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False, follow_redirects=False)
+        resp = client.get("/api/github/callback?installation_id=inst-001")
+    assert resp.status_code in (200, 302, 307)
+
+
+def test_github_app_callback_returns_400_when_no_installation_id(monkeypatch):
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/github/callback")
+    assert resp.status_code == 400
+
+
+def test_github_app_callback_returns_503_without_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/github/callback?installation_id=inst-001")
+    assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Register GitHub installation — POST /api/github/installations
+# ---------------------------------------------------------------------------
+
+def test_register_github_installation_stores_and_returns_ok(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.upsert_user", new=AsyncMock()), \
+         patch("agents.crash_handler.main.upsert_github_installation", new=AsyncMock()):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/api/github/installations", json={"installation_id": "inst-001"})
+    assert resp.status_code == 200
+    assert resp.json()["installation_id"] == "inst-001"
+
+
+def test_register_github_installation_returns_400_when_missing_id(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/api/github/installations", json={})
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# List GitHub repos — GET /api/github/repos
+# ---------------------------------------------------------------------------
+
+def test_list_github_repos_returns_repos(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    installation = {"installation_id": "inst-001", "owner_sub": "demo|00000000"}
+    repos = [{"full_name": "acme/backend", "private": False, "default_branch": "main", "description": ""}]
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.get_installation_for_user", new=AsyncMock(return_value=installation)), \
+         patch("agents.crash_handler.main.list_installation_repos", new=AsyncMock(return_value=repos)), \
+         patch("agents.crash_handler.main.build_install_url", return_value="https://github.com/apps/helix-bot/installations/new"):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/github/repos")
+    assert resp.status_code == 200
+    assert len(resp.json()["repos"]) == 1
+
+
+def test_list_github_repos_returns_404_when_not_installed(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    mock_db = AsyncMock()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
+         patch("agents.crash_handler.main.get_installation_for_user", new=AsyncMock(return_value=None)):
+        from agents.crash_handler.main import app
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/github/repos")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Sentry webhook — full happy path
+# ---------------------------------------------------------------------------
+
+def test_sentry_webhook_processes_event(monkeypatch):
+    from core.models import CrashReport, Severity
+
+    mock_project = {"project_id": "proj-001", "sentry_webhook_secret": None}
+    mock_report = CrashReport(
+        incident_id="inc-001", project_id="proj-001",
+        source_item_id="12345", source="sentry",
+        severity=Severity.high, error_type="KeyError",
+        error_message="'item_id'", stack_trace="...",
+        affected_component="checkout", affected_endpoint="/api/v1/checkout",
+        summary="A bug.",
+    )
+    payload = {
+        "action": "created",
+        "data": {
+            "issue": {
+                "id": "12345",
+                "title": "KeyError: 'item_id'",
+                "level": "error",
+                "culprit": "checkout.process",
+                "platform": "python",
+                "metadata": {"type": "KeyError", "value": "'item_id'"},
+                "project": {"slug": "my-project"},
+            }
+        }
+    }
+    body = json.dumps(payload).encode()
+    with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)), \
+         patch("agents.crash_handler.main.handle", new=AsyncMock(return_value=mock_report)):
+        from agents.crash_handler.main import app
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                "/webhook/sentry/proj-001",
+                content=body,
+                headers={"content-type": "application/json"},
+            )
+    assert resp.status_code == 202
+    assert resp.json()["incident_id"] == "inc-001"

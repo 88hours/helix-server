@@ -155,3 +155,87 @@ def test_api_headers_missing_token_raises(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     with pytest.raises(EnvironmentError, match="GITHUB_TOKEN"):
         github._api_headers()
+
+
+def test_api_headers_with_explicit_token():
+    headers = github._api_headers("ghp_explicit")
+    assert headers["Authorization"] == "Bearer ghp_explicit"
+
+
+async def test_clone_repo_with_explicit_token(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    proc = _make_proc()
+    with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
+        await github.clone_repo("https://github.com/acme/repo.git", "/tmp/repo", token="ghp_direct")
+    args = " ".join(str(a) for a in mock_exec.call_args[0])
+    assert "ghp_direct@" in args
+
+
+# ---------------------------------------------------------------------------
+# find_existing_issue
+# ---------------------------------------------------------------------------
+
+@respx.mock
+async def test_find_existing_issue_returns_number_and_url(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    respx.get("https://api.github.com/search/issues").mock(
+        return_value=httpx.Response(200, json={
+            "items": [{"number": 7, "html_url": "https://github.com/acme/repo/issues/7"}]
+        })
+    )
+    result = await github.find_existing_issue("acme/repo", "KeyError in checkout")
+    assert result is not None
+    number, url = result
+    assert number == "7"
+    assert "issues/7" in url
+
+
+@respx.mock
+async def test_find_existing_issue_returns_none_when_not_found(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    respx.get("https://api.github.com/search/issues").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+    result = await github.find_existing_issue("acme/repo", "NoSuchError")
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# create_issue
+# ---------------------------------------------------------------------------
+
+@respx.mock
+async def test_create_issue_returns_number_and_url(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    respx.post("https://api.github.com/repos/acme/repo/issues").mock(
+        return_value=httpx.Response(201, json={
+            "number": 99,
+            "html_url": "https://github.com/acme/repo/issues/99"
+        })
+    )
+    number, url = await github.create_issue("acme/repo", "Bug: KeyError", "Details here")
+    assert number == "99"
+    assert "issues/99" in url
+
+
+@respx.mock
+async def test_create_issue_with_labels(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    respx.post("https://api.github.com/repos/acme/repo/issues").mock(
+        return_value=httpx.Response(201, json={"number": 100, "html_url": "https://github.com/acme/repo/issues/100"})
+    )
+    number, url = await github.create_issue("acme/repo", "Bug", "Body", labels=["bug", "critical"])
+    assert number == "100"
+
+
+# ---------------------------------------------------------------------------
+# add_issue_comment
+# ---------------------------------------------------------------------------
+
+@respx.mock
+async def test_add_issue_comment(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    respx.post("https://api.github.com/repos/acme/repo/issues/42/comments").mock(
+        return_value=httpx.Response(201, json={"id": 1})
+    )
+    await github.add_issue_comment("acme/repo", "42", "PR is ready for review.")

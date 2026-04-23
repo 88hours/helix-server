@@ -178,3 +178,73 @@ async def test_read_iterations(redis):
 async def test_read_iterations_missing(redis):
     redis.get.return_value = None
     assert await read_iterations(redis, "inc-001") == 0
+
+
+# ---------------------------------------------------------------------------
+# read_user_repos / write_user_repos
+# ---------------------------------------------------------------------------
+
+async def test_read_user_repos_returns_empty_list_when_not_found(redis):
+    redis.get.return_value = None
+    from core.state import read_user_repos
+    assert await read_user_repos(redis, "github|123") == []
+
+
+async def test_read_user_repos_returns_repos_when_found(redis):
+    import json
+    from core.models import RepoConfig
+    repos = [RepoConfig(repo="acme/backend", base_branch="main", language="python")]
+    redis.get.return_value = json.dumps([r.model_dump(mode="json") for r in repos]).encode()
+    from core.state import read_user_repos
+    result = await read_user_repos(redis, "github|123")
+    assert len(result) == 1
+    assert result[0].repo == "acme/backend"
+
+
+async def test_read_user_repos_returns_empty_on_corrupt_data(redis):
+    redis.get.return_value = b"not valid json"
+    from core.state import read_user_repos
+    assert await read_user_repos(redis, "github|123") == []
+
+
+async def test_write_user_repos(redis):
+    from core.models import RepoConfig
+    from core.state import write_user_repos
+    repos = [RepoConfig(repo="acme/backend", base_branch="main", language="python")]
+    await write_user_repos(redis, "github|123", repos)
+    redis.set.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# read_user_projects / write_user_projects
+# ---------------------------------------------------------------------------
+
+async def test_read_user_projects_returns_empty_list_when_not_found(redis):
+    redis.get.return_value = None
+    from core.state import read_user_projects
+    assert await read_user_projects(redis, "github|123") == []
+
+
+async def test_read_user_projects_returns_projects_when_found(redis):
+    import json
+    from core.models import Project
+    projects = [Project(project_id="proj-001", name="Acme", repo="acme/backend", base_branch="main", language="python")]
+    redis.get.return_value = json.dumps([p.model_dump(mode="json") for p in projects]).encode()
+    from core.state import read_user_projects
+    result = await read_user_projects(redis, "github|123")
+    assert len(result) == 1
+    assert result[0].project_id == "proj-001"
+
+
+async def test_read_user_projects_returns_empty_on_corrupt_data(redis):
+    redis.get.return_value = b"not valid json"
+    from core.state import read_user_projects
+    assert await read_user_projects(redis, "github|123") == []
+
+
+async def test_write_user_projects(redis):
+    from core.models import Project
+    from core.state import write_user_projects
+    projects = [Project(project_id="proj-001", name="Acme", repo="acme/backend", base_branch="main", language="python")]
+    await write_user_projects(redis, "github|123", projects)
+    redis.set.assert_awaited_once()

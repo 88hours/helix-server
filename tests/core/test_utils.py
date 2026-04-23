@@ -39,3 +39,16 @@ def test_extract_json_raises_when_no_json():
 def test_extract_json_raises_on_empty_string():
     with pytest.raises(ValueError):
         extract_json("")
+
+
+def test_extract_json_raises_when_code_block_json_is_invalid():
+    # Code block contains {}, but JSON is syntactically invalid.
+    # The fallback also can't salvage it (spans entire text), so ValueError is raised.
+    with pytest.raises(ValueError, match="No valid JSON"):
+        extract_json('```json\n{"broken":}\n```')
+
+
+def test_extract_json_raises_when_bare_braces_contain_invalid_json():
+    # Fallback finds {}, but it is not valid JSON — should raise ValueError.
+    with pytest.raises(ValueError, match="No valid JSON"):
+        extract_json("some text {not: valid json} more text")

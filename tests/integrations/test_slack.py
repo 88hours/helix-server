@@ -94,6 +94,14 @@ async def test_post_message_missing_channel_skips(monkeypatch, caplog):
     assert "SLACK_APPROVAL_CHANNEL" in caplog.text
 
 
+async def test_post_message_missing_token_skips(monkeypatch, caplog):
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="integrations.slack"):
+        await slack.post_message("Hello", token=None)
+    assert "SLACK_BOT_TOKEN" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # post_escalation
 # ---------------------------------------------------------------------------
@@ -109,6 +117,22 @@ async def test_post_escalation():
         attempts=3,
         context="Tried A, B, and C.",
     )
+
+
+async def test_post_escalation_missing_token_skips(monkeypatch, caplog):
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="integrations.slack"):
+        await slack.post_escalation("inc-001", "crash", 3, "ctx", token=None)
+    assert "SLACK_BOT_TOKEN" in caplog.text
+
+
+async def test_post_escalation_missing_channel_skips(monkeypatch, caplog):
+    monkeypatch.delenv("SLACK_APPROVAL_CHANNEL", raising=False)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="integrations.slack"):
+        await slack.post_escalation("inc-001", "crash", 3, "ctx", channel=None)
+    assert "SLACK_APPROVAL_CHANNEL" in caplog.text
 
 
 # ---------------------------------------------------------------------------
