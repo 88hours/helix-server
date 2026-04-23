@@ -1,6 +1,7 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/88hours/helix/tree/main.svg?style=svg&circle-token=CCIPRJ_Ep6waV9SHZqBRZGvT3jMRw_67ae3a13933cdc72c40be855fe2fc8b931f54f1c)](https://dl.circleci.com/status-badge/redirect/gh/88hours/helix/tree/main)
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/88hours/helix)
 [![Website](https://img.shields.io/badge/website-live-brightgreen)](https://helix-production-3b95.up.railway.app/)
+[![codecov](https://codecov.io/github/88hours/helix-cloud/branch/main/graph/badge.svg?token=KSOHW3E365)](https://codecov.io/github/88hours/helix-cloud)
 # Helix
 
 Helix is an autonomous incident response platform. It takes a production crash from Sentry or Rollbar all the way to a ready-to-merge pull request in under 10 minutes — no human involvement required until the PR review.
