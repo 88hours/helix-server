@@ -27,6 +27,7 @@ def redis():
 def crash_report():
     return CrashReport(
         incident_id="inc-001",
+        project_id="proj-001",
         source_item_id="12345", source="rollbar",
         severity=Severity.high,
         error_type="KeyError",

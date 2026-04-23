@@ -265,12 +265,14 @@ def test_healthz():
 
 def test_webhook_rollbar_test_ping_returns_202():
     client = _make_client()
+    mock_project = {"project_id": "proj-001", "rollbar_access_token": ROLLBAR_TOKEN}
     payload = {"event_name": "test", "data": {"message": "This is a test payload from Rollbar."}}
-    resp = client.post(
-        "/webhook/rollbar",
-        content=json.dumps(payload).encode(),
-        headers={"content-type": "application/json"},
-    )
+    with patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        resp = client.post(
+            "/webhook/rollbar/proj-001",
+            content=json.dumps(payload).encode(),
+            headers={"content-type": "application/json"},
+        )
     assert resp.status_code == 202
     assert resp.json() == {"status": "ok"}
 
@@ -278,20 +280,24 @@ def test_webhook_rollbar_test_ping_returns_202():
 def test_webhook_wrong_token_returns_401():
     import copy
     client = _make_client()
+    mock_project = {"project_id": "proj-001", "rollbar_access_token": ROLLBAR_TOKEN}
     payload = copy.deepcopy(RAW_ROLLBAR_PAYLOAD)
     payload["data"]["item"]["last_occurrence"]["metadata"]["access_token"] = "wrong"
     body = json.dumps(payload).encode()
-    resp = client.post("/webhook/rollbar", content=body, headers={"content-type": "application/json"})
+    with patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        resp = client.post("/webhook/rollbar/proj-001", content=body, headers={"content-type": "application/json"})
     assert resp.status_code == 401
 
 
 def test_webhook_invalid_json_returns_400():
     client = _make_client()
-    resp = client.post(
-        "/webhook/rollbar",
-        content=b"not-json",
-        headers={"content-type": "application/json"},
-    )
+    mock_project = {"project_id": "proj-001", "rollbar_access_token": ROLLBAR_TOKEN}
+    with patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
+        resp = client.post(
+            "/webhook/rollbar/proj-001",
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
     assert resp.status_code == 400
 
 
@@ -300,15 +306,17 @@ def test_sentry_webhook_demo_mode_skips_verification():
     SENTRY_WEBHOOK_SECRET is set and the signature header is wrong."""
     payload = {"action": "ping"}
     body = json.dumps(payload).encode()
+    mock_project = {"project_id": "proj-001", "sentry_webhook_secret": None}
 
     sample_yaml = {**SAMPLE_YAML, "demo": True, "sentry": {"webhook_secret_env": "SENTRY_WEBHOOK_SECRET"}}
 
     with patch("core.config._load_yaml", return_value=sample_yaml), \
-         patch.dict("os.environ", {"SENTRY_WEBHOOK_SECRET": "real-secret", "HELIX_DEMO": "true"}):
+         patch.dict("os.environ", {"SENTRY_WEBHOOK_SECRET": "real-secret", "HELIX_DEMO": "true"}), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)):
         from agents.crash_handler.main import app
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post(
-                "/webhook/sentry",
+                "/webhook/sentry/proj-001",
                 content=body,
                 headers={
                     "content-type": "application/json",
@@ -323,9 +331,11 @@ def test_sentry_webhook_demo_mode_skips_verification():
 
 def test_webhook_valid_request_returns_202():
     body = json.dumps(RAW_ROLLBAR_PAYLOAD).encode()
+    mock_project = {"project_id": "proj-001", "rollbar_access_token": ROLLBAR_TOKEN}
 
     mock_report = CrashReport(
         incident_id="inc-001",
+        project_id="proj-001",
         source_item_id="12345", source="rollbar",
         severity=Severity.high,
         error_type="KeyError",
@@ -337,11 +347,12 @@ def test_webhook_valid_request_returns_202():
     )
 
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
+         patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)), \
          patch("agents.crash_handler.main.handle", new=AsyncMock(return_value=mock_report)):
         from agents.crash_handler.main import app
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post(
-                "/webhook/rollbar",
+                "/webhook/rollbar/proj-001",
                 content=body,
                 headers={"content-type": "application/json"},
             )

@@ -55,6 +55,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
     "respx>=0.22",            # mock httpx calls in integration tests
 ]
 
@@ -65,6 +66,18 @@ include = ["agents*", "core*", "integrations*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["agents", "core", "integrations"]
+omit = [
+    "tests/*",
+    ".venv/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 0          # raise this over time as coverage improves
 
 [tool.pyright]
 pythonVersion = "3.12"
