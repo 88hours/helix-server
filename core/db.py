@@ -128,6 +128,14 @@ CREATE TABLE IF NOT EXISTS github_installations (
     access_token        TEXT,
     token_expires_at    TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    sub                 TEXT PRIMARY KEY REFERENCES users(sub) ON DELETE CASCADE,
+    anthropic_api_key   TEXT,
+    openrouter_api_key  TEXT,
+    ollama_base_url     TEXT,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -425,3 +433,65 @@ async def get_installation_for_user(db: AsyncConnection, owner_sub: str) -> dict
     )
     row = result.mappings().first()
     return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# User settings helpers
+# ---------------------------------------------------------------------------
+
+async def get_user_settings(db: AsyncConnection, sub: str) -> dict:
+    """
+    Fetch the user-level LLM key settings for a user.
+
+    Returns a dict with anthropic_api_key, openrouter_api_key, ollama_base_url.
+    All values are None if not set. Returns an empty dict structure if the row
+    does not exist yet.
+
+    Args:
+        db:  Open database connection.
+        sub: Auth0 subject claim of the user.
+    """
+    result = await db.execute(
+        text("SELECT * FROM user_settings WHERE sub = :sub"),
+        {"sub": sub},
+    )
+    row = result.mappings().first()
+    if row:
+        return dict(row)
+    return {"sub": sub, "anthropic_api_key": None, "openrouter_api_key": None, "ollama_base_url": None}
+
+
+async def upsert_user_settings(db: AsyncConnection, sub: str, settings: dict) -> dict:
+    """
+    Insert or update user-level LLM key settings.
+
+    Only non-None values in the settings dict are written; existing values are
+    preserved for keys not present in the dict (via COALESCE). Pass an explicit
+    None value to clear a field.
+
+    Args:
+        db:       Open database connection.
+        sub:      Auth0 subject claim of the user.
+        settings: Dict with any of: anthropic_api_key, openrouter_api_key, ollama_base_url.
+
+    Returns:
+        The updated settings row as a dict.
+    """
+    await db.execute(
+        text("""
+            INSERT INTO user_settings (sub, anthropic_api_key, openrouter_api_key, ollama_base_url, updated_at)
+            VALUES (:sub, :anthropic_api_key, :openrouter_api_key, :ollama_base_url, now())
+            ON CONFLICT (sub) DO UPDATE SET
+                anthropic_api_key  = CASE WHEN :anthropic_api_key  IS NOT NULL THEN :anthropic_api_key  ELSE user_settings.anthropic_api_key  END,
+                openrouter_api_key = CASE WHEN :openrouter_api_key IS NOT NULL THEN :openrouter_api_key ELSE user_settings.openrouter_api_key END,
+                ollama_base_url    = CASE WHEN :ollama_base_url    IS NOT NULL THEN :ollama_base_url    ELSE user_settings.ollama_base_url    END,
+                updated_at         = now()
+        """),
+        {
+            "sub": sub,
+            "anthropic_api_key": settings.get("anthropic_api_key"),
+            "openrouter_api_key": settings.get("openrouter_api_key"),
+            "ollama_base_url": settings.get("ollama_base_url"),
+        },
+    )
+    return await get_user_settings(db, sub)

@@ -1,8 +1,8 @@
 # Helix – Architecture Document
 
-**Version:** 2.0
+**Version:** 3.0
 **Date:** April 2026
-**Scope:** Phases 1–5 (current production state)
+**Scope:** Phases 1–6 (Phases 1–5 complete; Phase 6 in progress)
 
 ---
 
@@ -231,6 +231,18 @@ Redis is the shared state store. Agents read and write state keyed by `incident_
 
 TTL: 7 days per incident key. User config keys have no TTL.
 
+### Postgres tables
+
+| Table | Purpose |
+|---|---|
+| `users` | Auth0 user profiles (`sub` as PK) |
+| `projects` | Per-user projects (`project_id` UUID, `owner_sub` FK) |
+| `project_settings` | Per-project credentials — Sentry/Rollbar secrets, Slack, email, `agent_overrides` JSON |
+| `github_installations` | GitHub App installation tokens, cached with expiry |
+| `user_settings` | Account-level LLM keys — `anthropic_api_key`, `openrouter_api_key`, `ollama_base_url` |
+
+Key resolution order for LLM API keys: project-level override → user-level settings → global env var.
+
 ---
 
 ## Redis Options
@@ -337,17 +349,17 @@ helix/
 │       ├── main.py            # Two concurrent subscriber loops
 │       └── railway.json
 ├── core/
-│   ├── config.py              # Typed config loaders for all agents
+│   ├── config.py              # Typed config loaders for all agents; AgentConfig.base_url for Ollama
 │   ├── events.py              # Redis Streams / Pub/Sub / EventBridge helpers
 │   ├── state.py               # Redis read/write helpers, keyed by incident_id
-│   ├── models.py              # Pydantic models: CrashReport, QAResult, PRResult, RepoConfig, Project
-│   ├── llm.py                 # Routes to Anthropic SDK, OpenRouter, or Claude Code CLI; LangSmith + OTel instrumentation
+│   ├── models.py              # Pydantic models: CrashReport, QAResult, PRResult, RepoConfig, Project, AgentOverride
+│   ├── llm.py                 # Routes to Anthropic SDK, OpenRouter, Ollama, or Claude Code CLI; LangSmith + OTel instrumentation
 │   ├── telemetry.py           # OpenTelemetry setup
 │   ├── permissions.py         # Per-agent tool access control
 │   ├── ui_events.py           # Dashboard event publishing (Redis Pub/Sub + persistence)
 │   ├── auth.py                # Auth0 JWT validation (RS256 via JWKS)
 │   ├── utils.py               # extract_json() — parses structured JSON from LLM output
-│   ├── db.py                  # Async Postgres helpers — projects, github_installations tables
+│   ├── db.py                  # Async Postgres helpers — projects, github_installations, user_settings tables
 │   └── github_app.py          # GitHub App JWT generation, installation access token fetch/cache
 ├── integrations/
 │   ├── sentry.py              # HMAC-SHA256 verification + payload parsing
@@ -360,12 +372,18 @@ helix/
 │       ├── App.tsx
 │       ├── api.ts
 │       ├── main.tsx
-│       ├── pages/             # IncidentList, IncidentDetail, Projects, Repos
+│       ├── pages/             # IncidentList, IncidentDetail, Projects, Repos, Settings
 │       └── components/        # PipelineProgress, StreamPanel, ToolTimeline, StatusBadge, …
 ├── evals/                     # LangSmith eval suite (datasets, evaluators, runner)
 ├── config.yaml                # Source of truth for models, Redis, permissions, LangSmith
 ├── index.html                 # Landing page
 ├── docs/
+│   ├── architecture.md        # This file
+│   ├── PRD.md                 # Product requirements
+│   ├── features.md            # Feature reference
+│   ├── SAAS.md                # SaaS architecture — tenant isolation, scaling, delivery phases
+│   ├── TECHDECISIONS.md       # Technical decision log
+│   └── plans/                 # Implementation plans for in-progress work
 ├── scripts/
 ├── CLAUDE.md
 └── pyproject.toml
