@@ -1,0 +1,127 @@
+# Helix Pro – Technical Decisions
+
+A living record of architectural decisions, the reasoning behind them, and what was rejected.
+
+---
+
+## TD-001 — Redis Streams: Shared stream over per-project streams
+
+**Date:** April 2026
+**Status:** Decided
+
+### Decision
+
+Use a single shared Redis Stream per event type, with `project_id` embedded in every message payload. Do not create per-project streams.
+
+```
+helix:stream:crash_analysed        → all projects
+helix:stream:test_case_generated   → all projects
+helix:stream:pr_created            → all projects
+```
+
+Each message carries:
+```python
+{
+    "incident_id": "...",
+    "project_id":  "...",   # tenant scoping lives in the payload
+    "data":        "...",
+}
+```
+
+### Rejected alternative: per-project streams
+
+```
+helix:stream:proj_A:crash_analysed
+helix:stream:proj_B:crash_analysed
+...
+```
+
+### Reasons
+
+**1. Redis consumer groups handle fan-out natively on a shared stream.**
+One consumer group, one stream cursor, delivery-once guarantee, automatic retries — all built in. With per-project streams, agents would need to discover and subscribe to N streams dynamically. Redis has no native pattern-subscribe for streams, so we'd have to poll for new stream keys on startup, re-scan when a new project is created, and maintain a live list of active streams in memory or Postgres. That is complexity we build and maintain ourselves with no benefit at our scale.
+
+**2. Redis Streams are fast enough that shared streams will never be the bottleneck.**
+Redis handles 100k–500k messages/second on modest hardware. At 500 customers × 20 incidents/day, Helix generates ~0.1 incidents/second. A single shared stream handles tens of thousands of paying customers without saturation. We will hit LLM API rate limits, GitHub rate limits, or Claude call costs long before Redis stream throughput is a concern.
+
+**3. Lower memory footprint.**
+Redis has per-stream metadata overhead. One shared stream with `MAXLEN 50000` uses less total memory than 500 per-project streams each with `MAXLEN 1000`.
+
+**4. Rate limiting is cleaner at ingress.**
+The main argument for per-project streams is backpressure — stop reading a stream to pause a customer. Instead, we enforce rate limits at webhook ingress: if a project is over its daily limit, return 429 and never write the event. The stream stays clean regardless of topology.
+
+### When to revisit
+
+If a single customer generates enough volume that their events measurably delay other customers' processing — visible in per-project processing latency metrics — split that customer onto a dedicated stream. This is a good problem to have and will be obvious in monitoring before it causes harm.
+
+---
+
+## TD-002 — Dev Agent TDD loop requires an Anthropic API key; skipped otherwise
+
+**Date:** April 2026
+**Status:** Decided
+
+### Decision
+
+Dev Agent's TDD loop only runs when an Anthropic API key is available for the project (`project_settings.anthropic_api_key` or the global `ANTHROPIC_API_KEY` env var). Without it, the agent logs a warning, publishes a `pr_skipped` event with `reason: no_anthropic_key`, and moves on. No exception is raised.
+
+### Rejected alternative: fail loudly / raise an exception
+
+Crashing mid-incident with an unhandled `EnvironmentError` leaves the incident in an ambiguous state in Redis and gives the customer no actionable signal. A clean skip with a published event is recoverable — the Notifier can catch `pr_skipped` and send the customer a message explaining what to do.
+
+### Reasons
+
+**1. The TDD loop is fundamentally Anthropic-dependent.**
+Dev Agent calls `claude -p` via Claude Code CLI (provider `claude-code`) or the Anthropic SDK directly (provider `anthropic`). Both require an Anthropic API key. There is no equivalent substitute — other providers do not support the tool-use and agentic code-editing behaviour that makes the TDD loop work.
+
+**2. Failing silently or crashing is worse than a clear gate.**
+Customers who haven't added their Anthropic key should get a clear message, not a silent no-op or a 500 error buried in logs.
+
+**3. Consistent with BYOK model.**
+Helix is BYOK (bring your own key). It is expected and valid for a customer to use OpenRouter or Ollama for Crash Handler and QA but not have an Anthropic key. The gate makes this a first-class supported configuration rather than an accidental failure mode.
+
+### What this enables
+
+A customer can run Crash Handler and QA on cheap open-weight models (via OpenRouter or self-hosted Ollama) and only pay for Anthropic when they want automated PRs. Helix degrades gracefully rather than refusing to run at all.
+
+---
+
+## TD-003 — Ollama supported as BYOK (customer self-hosted); never hosted by Helix
+
+**Date:** April 2026
+**Status:** Decided
+
+### Decision
+
+Ollama is a supported LLM provider for Crash Handler and QA agents. Customers configure it via `project_settings.agent_overrides`:
+
+```json
+{
+  "qa": { "provider": "ollama", "model": "qwen2.5", "base_url": "http://my-server:11434/v1" }
+}
+```
+
+Helix calls it as an OpenAI-compatible endpoint. No Ollama binary, model weights, or GPU is provisioned by Helix. Dev Agent cannot use Ollama (see TD-002).
+
+### Rejected alternatives
+
+**Bundle Ollama in the Dockerfile:** Model weights are 4–6 GB per model. The Docker image becomes 6–8 GB, Railway rebuild times exceed 10 minutes, and cold starts are unusable. Rejected.
+
+**Run Ollama as a separate Railway service:** Railway has no GPU instances. CPU inference on a 7B model yields ~1–5 tokens/second. A QA agent generating 800 tokens takes 3–15 minutes — longer than the Dev Agent timeout. Rejected.
+
+### Reasons
+
+**1. GPU is required for usable inference speed.**
+At CPU speeds (1–5 tok/s), a single QA completion blocks the pipeline for minutes. Customers who want self-hosted Ollama already have a GPU server or a cloud GPU instance (RunPod, Vast.ai, ~$0.30/hr). Helix does not need to provide this.
+
+**2. OpenRouter is the better managed alternative.**
+OpenRouter already supports Qwen, Mistral, DeepSeek, GLM, and Llama via a single API key. It is already implemented in `core/llm.py`. Customers who want open-weight models without self-hosting should use OpenRouter — adding Ollama to our Railway infrastructure would duplicate that capability at significant operational cost.
+
+**3. Consistent with BYOK model.**
+Helix charges for platform access, not LLM inference. Customers own their inference costs and infrastructure. This keeps Helix's operating costs predictable regardless of model size or usage volume.
+
+### Implementation
+
+- `core/models.py` — `AgentOverride.base_url: Optional[str]` added
+- `core/config.py` — `AgentConfig.base_url: Optional[str]` added; `ProjectConfig.agent()` passes it through
+- `core/llm.py` — `_complete_ollama()` added; `complete()` accepts optional pre-resolved `config` param for per-project routing
