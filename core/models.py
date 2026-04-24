@@ -101,9 +101,14 @@ class AgentOverride(BaseModel):
 
     When set, these values take precedence over config.yaml for that agent.
     Either field can be None to inherit the global default.
+
+    base_url is required when provider is "ollama" — it points to the
+    customer's self-hosted Ollama instance, e.g. "http://my-server:11434/v1".
+    Helix never hosts Ollama itself.
     """
-    provider: Optional[str] = None   # e.g. "anthropic", "openrouter"
-    model: Optional[str] = None      # e.g. "claude-sonnet-4-6"
+    provider: Optional[str] = None   # e.g. "anthropic", "openrouter", "ollama"
+    model: Optional[str] = None      # e.g. "claude-sonnet-4-6", "qwen2.5"
+    base_url: Optional[str] = None   # required when provider = "ollama"
 
 
 class PipelineSettings(BaseModel):

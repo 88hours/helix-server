@@ -101,6 +101,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       DATABASE_URL: ${DATABASE_URL:-postgresql://helix:helix@postgres:5432/helix}
     command: python -m agents.dev.main
+    deploy:
+      replicas: 1
 
   notifier:
     build: .

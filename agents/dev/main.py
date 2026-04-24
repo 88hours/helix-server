@@ -16,10 +16,10 @@ import os
 import redis.asyncio as aioredis
 
 from agents.dev.agent import handle
-from core.config import get_redis_url
+from core.config import get_redis_url, get_agent_config, ProjectConfig
 from core.telemetry import get_tracer, setup_tracing
 from core.db import get_db, get_project
-from core.events import subscribe
+from core.events import subscribe, publish
 from core.github_app import get_installation_token
 from core.models import CrashReport, Project, ProjectSettings, QAResult
 from core.state import read_crash_report, read_qa_result
@@ -110,6 +110,27 @@ async def main() -> None:
                         "failed to load project config — using env var fallback",
                         extra={"incident_id": incident_id, "project_id": crash_report.project_id, "error": str(proj_exc)},
                     )
+
+            # Gate: Dev Agent requires an Anthropic API key. If the project has
+            # no key configured and none is set globally, skip the TDD loop and
+            # notify via event so the Notifier can inform the customer.
+            pc = ProjectConfig(project) if project else None
+            dev_cfg = pc.agent("dev") if pc else get_agent_config("dev")
+            anthropic_key = (
+                project.settings.anthropic_api_key if project else None
+            ) or os.environ.get("ANTHROPIC_API_KEY")
+
+            if dev_cfg.provider in ("anthropic", "claude-code") and not anthropic_key:
+                logger.warning(
+                    "skipping TDD loop — no Anthropic API key for project",
+                    extra={"incident_id": incident_id, "project_id": crash_report.project_id},
+                )
+                await publish(redis_client, "pr_skipped", incident_id, {
+                    "incident_id": incident_id,
+                    "project_id": crash_report.project_id,
+                    "reason": "no_anthropic_key",
+                })
+                continue
 
             with _tracer.start_as_current_span("dev.handle_incident") as span:
                 span.set_attribute("helix.incident_id", incident_id)

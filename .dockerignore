@@ -27,3 +27,5 @@ process.yml
 # Docs / misc
 docs/
 *.md
+
+.coverage*

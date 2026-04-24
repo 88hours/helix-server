@@ -63,9 +63,10 @@ _CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 @dataclass
 class AgentConfig:
     """Model and provider settings for a single agent."""
-    agent: str      # agent name as it appears in config.yaml, e.g. "dev"
-    provider: str   # "anthropic" | "openrouter" | "claude-code"
-    model: str      # model identifier, e.g. "claude-sonnet-4-6"
+    agent: str                      # agent name as it appears in config.yaml, e.g. "dev"
+    provider: str                   # "anthropic" | "openrouter" | "claude-code" | "ollama"
+    model: str                      # model identifier, e.g. "claude-sonnet-4-6"
+    base_url: Optional[str] = None  # required when provider = "ollama" (customer-provided)
 
 
 @dataclass
@@ -661,6 +662,7 @@ class ProjectConfig:
             agent=name,
             provider=overrides.provider or global_cfg.provider,
             model=overrides.model or global_cfg.model,
+            base_url=overrides.base_url or global_cfg.base_url,
         )
 
     def anthropic_api_key(self) -> str:
