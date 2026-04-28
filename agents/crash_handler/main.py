@@ -52,6 +52,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from agents.crash_handler.agent import handle
+from core.preflight import check_required_env
 from core.auth import get_current_user
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
 from core.telemetry import get_tracer, setup_tracing
@@ -106,6 +107,7 @@ _tracer = get_tracer("helix.crash_handler")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create the Redis client and initialise Postgres tables on startup."""
+    check_required_env()
     setup_tracing()
     redis_url = get_redis_url()
     logger.info("=== Crash Handler starting ===")

@@ -163,6 +163,7 @@
         <a href="#how-it-works" class="hover:text-white transition-colors">How it works</a>
         <a href="#features" class="hover:text-white transition-colors">Features</a>
         <a href="#community-vs-cloud" class="hover:text-white transition-colors">Community vs Cloud</a>
+        <a href="#self-host" class="hover:text-white transition-colors">Self-Host</a>
         <a href="/app"
            class="btn-shine flex items-center gap-2 text-white bg-brand hover:bg-brand-dark px-3 py-1.5 rounded-md transition-colors font-medium">
           Sign in
@@ -184,6 +185,7 @@
       <a href="#how-it-works" class="block px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors">How it works</a>
       <a href="#features" class="block px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors">Features</a>
       <a href="#community-vs-cloud" class="block px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors">Community vs Cloud</a>
+      <a href="#self-host" class="block px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors">Self-Host</a>
       <a href="/app" class="block px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors">Sign in</a>
     </div>
   </nav>
@@ -643,6 +645,84 @@
           </tbody>
         </table>
       </div>
+    </div>
+  </section>
+
+  <!-- ─── SELF-HOST / HELIX SERVER ────────────────────────── -->
+  <section id="self-host" class="py-20 sm:py-28 px-4 sm:px-6 bg-[#0c0c14] border-t border-white/10 relative overflow-hidden">
+    <div class="hero-glow orb-a" style="width:500px;height:500px;background:rgba(99,102,241,0.10);top:-80px;right:-100px;"></div>
+    <div class="hero-glow orb-b" style="width:350px;height:350px;background:rgba(168,85,247,0.08);bottom:-60px;left:-60px;"></div>
+
+    <div class="relative max-w-5xl mx-auto">
+      <div class="text-center mb-14 reveal">
+        <span class="section-eyebrow" style="color:#818cf8;">Helix Server</span>
+        <h2 class="text-3xl sm:text-4xl font-black text-white mb-4">Your infrastructure.<br/>Your keys. Your data.</h2>
+        <p class="text-white/50 text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
+          Run Helix on your own servers with <code class="font-mono text-indigo-400 text-sm">docker compose up</code>.
+          Your API keys and source code never leave your machine — no SaaS trust required.
+          Bring your own Anthropic key, GitHub token, and Sentry webhook.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-14">
+
+        <div class="reveal reveal-delay-1 bg-white/5 border border-white/10 rounded-2xl p-6">
+          <div class="w-10 h-10 bg-indigo-500/15 border border-indigo-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          </div>
+          <h3 class="font-bold text-white mb-2">Zero data egress</h3>
+          <p class="text-sm text-white/45 leading-relaxed">Your credentials, code, and incident data stay entirely on your infrastructure. Helix's servers never see them.</p>
+        </div>
+
+        <div class="reveal reveal-delay-2 bg-white/5 border border-white/10 rounded-2xl p-6">
+          <div class="w-10 h-10 bg-purple-500/15 border border-purple-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+          </div>
+          <h3 class="font-bold text-white mb-2">One-command setup</h3>
+          <p class="text-sm text-white/45 leading-relaxed">Download the release archive, fill in <code class="font-mono text-purple-400 text-xs">.env</code>, and run <code class="font-mono text-purple-400 text-xs">docker compose up</code>. Redis and Postgres are included.</p>
+        </div>
+
+        <div class="reveal reveal-delay-3 bg-white/5 border border-white/10 rounded-2xl p-6">
+          <div class="w-10 h-10 bg-pink-500/15 border border-pink-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          </div>
+          <h3 class="font-bold text-white mb-2">Full Helix pipeline</h3>
+          <p class="text-sm text-white/45 leading-relaxed">All four agents, the React dashboard, GitHub App integration, and Slack approvals — everything in the managed version, on your own infra.</p>
+        </div>
+
+      </div>
+
+      <!-- Beta CTA card -->
+      <div class="reveal max-w-2xl mx-auto">
+        <div class="relative bg-gradient-to-br from-indigo-600/20 via-purple-600/10 to-pink-600/10 border border-indigo-500/30 rounded-2xl p-8 sm:p-10 text-center overflow-hidden">
+          <div class="hero-glow" style="width:300px;height:300px;background:rgba(99,102,241,0.12);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;"></div>
+          <div class="relative">
+            <div class="inline-flex items-center gap-2 text-xs font-bold text-indigo-400 bg-indigo-500/15 border border-indigo-500/25 px-3 py-1.5 rounded-full mb-5">
+              <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
+              Beta — limited spots
+            </div>
+            <h3 class="text-2xl sm:text-3xl font-black text-white mb-3">Join the beta for free</h3>
+            <p class="text-white/50 text-sm sm:text-base leading-relaxed mb-8">
+              Get early access to Helix Server and Helix Pro at no cost during the beta.
+              In exchange, we ask for honest feedback to help shape the product.
+            </p>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <a href="mailto:hello@88hours.io?subject=Helix%20Server%20Beta"
+                 class="btn-shine flex items-center gap-2 bg-brand hover:bg-brand-dark text-white font-bold px-7 py-3.5 rounded-xl transition-colors text-sm shadow-lg shadow-indigo-900/40 w-full sm:w-auto justify-center">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                Request beta access
+              </a>
+              <a href="https://github.com/88hours/helix-server/releases"
+                 class="flex items-center gap-2 border border-white/20 hover:border-white/40 text-white/70 hover:text-white font-medium px-7 py-3.5 rounded-xl transition-all text-sm w-full sm:w-auto justify-center">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Download release
+              </a>
+            </div>
+            <p class="mt-5 text-xs text-white/25">Community edition is free and open-source forever.</p>
+          </div>
+        </div>
+      </div>
+
     </div>
   </section>
 
