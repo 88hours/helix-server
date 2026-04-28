@@ -7,6 +7,7 @@
 *.pfx
 *.key
 
+.coverage*
 # Python
 __pycache__/
 *.py[cod]

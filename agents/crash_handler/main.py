@@ -26,6 +26,8 @@ Exposes per-project webhook endpoints plus the streaming dashboard API:
     PUT  /api/projects/{project_id}/settings  — update project settings.
     DELETE /api/projects/{project_id}         — delete a project.
     GET  /api/projects/{project_id}/webhook-urls — return webhook URLs for copy.
+    GET  /api/settings                           — get user-level LLM key settings.
+    PUT  /api/settings                           — update user-level LLM key settings.
 
   Dashboard SPA:
     GET /app  and  GET /app/*       — serve the built React frontend from dashboard/dist/.
@@ -58,12 +60,14 @@ from core.db import (
     get_db,
     get_installation_for_user,
     get_project,
+    get_user_settings,
     init_db,
     insert_project,
     list_projects as db_list_projects,
     upsert_github_installation,
     upsert_project_settings,
     upsert_user,
+    upsert_user_settings,
 )
 from core.github_app import build_install_url, get_app_slug, list_installation_repos
 from core.models import Project, ProjectSettings, RepoConfig
@@ -953,6 +957,72 @@ async def get_webhook_urls(
         "project_id": project_id,
         "sentry": f"{base}/webhook/sentry/{project_id}",
         "rollbar": f"{base}/webhook/rollbar/{project_id}",
+    }
+
+
+@app.get("/api/settings", tags=["settings"])
+async def get_settings(current_user: dict = Depends(get_current_user)):
+    """
+    Return the calling user's account-level LLM key settings.
+
+    Secret values are masked as '***' if set so they are never sent to the
+    browser in plain text.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        return {"anthropic_api_key": None, "openrouter_api_key": None, "ollama_base_url": None}
+    async with get_db() as db:
+        row = await get_user_settings(db, current_user["sub"])
+    return {
+        "anthropic_api_key": "***" if row.get("anthropic_api_key") else None,
+        "openrouter_api_key": "***" if row.get("openrouter_api_key") else None,
+        "ollama_base_url": row.get("ollama_base_url") or None,
+    }
+
+
+@app.put("/api/settings", tags=["settings"])
+async def update_settings(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Update the calling user's account-level LLM key settings.
+
+    Pass '***' for any secret to leave it unchanged.
+    Pass an empty string to clear a value.
+    Omit a field entirely to leave it unchanged.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    body: dict = await request.json()
+
+    updates: dict = {}
+    for field in ("anthropic_api_key", "openrouter_api_key"):
+        val = body.get(field)
+        if val is None:
+            continue
+        if val == "***":
+            continue  # sentinel — leave existing value in place
+        updates[field] = val or None  # empty string → clear (store NULL)
+
+    # ollama_base_url is not secret — store as-is
+    if "ollama_base_url" in body:
+        updates["ollama_base_url"] = body["ollama_base_url"] or None
+
+    async with get_db() as db:
+        await upsert_user(
+            db,
+            sub=current_user["sub"],
+            name=current_user.get("name", ""),
+            email=current_user.get("email", ""),
+            picture=current_user.get("picture", ""),
+        )
+        row = await upsert_user_settings(db, current_user["sub"], updates)
+
+    return {
+        "anthropic_api_key": "***" if row.get("anthropic_api_key") else None,
+        "openrouter_api_key": "***" if row.get("openrouter_api_key") else None,
+        "ollama_base_url": row.get("ollama_base_url") or None,
     }
 
 

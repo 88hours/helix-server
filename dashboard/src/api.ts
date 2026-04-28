@@ -394,6 +394,43 @@ export async function fetchWebhookUrls(projectId: string): Promise<{ sentry: str
 }
 
 // ---------------------------------------------------------------------------
+// User settings (account-level LLM keys)
+// ---------------------------------------------------------------------------
+
+export interface UserSettings {
+  anthropic_api_key: string | null   // '***' when set, null when not set
+  openrouter_api_key: string | null  // '***' when set, null when not set
+  ollama_base_url: string | null     // plain URL — not a secret
+}
+
+/** Return the calling user's account-level LLM key settings. */
+export async function fetchUserSettings(): Promise<UserSettings> {
+  const headers = await _authHeaders()
+  const res = await fetch('/api/settings', { headers })
+  if (!res.ok) throw new Error(`Failed to fetch settings: ${res.status}`)
+  return res.json() as Promise<UserSettings>
+}
+
+/**
+ * Update the calling user's account-level LLM key settings.
+ *
+ * Pass '***' to leave a secret unchanged. Pass null or '' to clear it.
+ */
+export async function updateUserSettings(settings: Partial<UserSettings>): Promise<UserSettings> {
+  const headers = { ...(await _authHeaders()), 'Content-Type': 'application/json' }
+  const res = await fetch('/api/settings', {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(settings),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail ?? `Failed to update settings: ${res.status}`)
+  }
+  return res.json() as Promise<UserSettings>
+}
+
+// ---------------------------------------------------------------------------
 // Auth / identity
 // ---------------------------------------------------------------------------
 

@@ -169,6 +169,63 @@ async def _complete_openrouter(
 
 
 # ---------------------------------------------------------------------------
+# Ollama backend (customer self-hosted, BYOK)
+# ---------------------------------------------------------------------------
+
+async def _complete_ollama(
+    config: AgentConfig, prompt: str, system: str
+) -> tuple[str, dict]:
+    """
+    Call a customer-provided Ollama instance using the OpenAI-compatible API.
+
+    Ollama is never hosted by Helix. The customer runs their own Ollama server
+    (requires a GPU for usable speed) and provides the base_url in their
+    project's agent_overrides. For managed open-weight models with no
+    self-hosting, customers should use OpenRouter instead.
+
+    Args:
+        config:   Resolved agent config — must have base_url set.
+        prompt:   User-turn message.
+        system:   System prompt. Prepended as a system message when non-empty.
+
+    Returns:
+        Tuple of (response text, usage dict with input_tokens and output_tokens).
+
+    Raises:
+        ValueError: If base_url is not set on the config.
+    """
+    import openai  # lazy import — only required for this backend
+
+    if not config.base_url:
+        raise ValueError(
+            f"Agent '{config.agent}' is configured with provider 'ollama' but "
+            "base_url is not set. Add base_url to the project's agent_overrides "
+            "for this agent, e.g. 'http://my-server:11434/v1'."
+        )
+
+    client = openai.AsyncOpenAI(
+        base_url=config.base_url,
+        api_key="ollama",  # Ollama ignores the key; placeholder required by the SDK
+    )
+
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    response = await client.chat.completions.create(
+        model=config.model,
+        messages=messages,
+        max_tokens=_MAX_TOKENS,
+    )
+    usage = {
+        "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+        "output_tokens": response.usage.completion_tokens if response.usage else 0,
+    }
+    return response.choices[0].message.content, usage
+
+
+# ---------------------------------------------------------------------------
 # Claude Code CLI backend
 # ---------------------------------------------------------------------------
 
@@ -241,6 +298,7 @@ async def complete(
     prompt: str,
     system: str = "",
     cwd: Optional[str] = None,
+    config: Optional[AgentConfig] = None,
 ) -> str:
     """
     Run a completion for the given agent, routed to the correct LLM backend.
@@ -258,6 +316,9 @@ async def complete(
         cwd:    Working directory for the claude-code subprocess. Only
                 relevant when the agent's provider is "claude-code".
                 Typically the root of the cloned target repository.
+        config: Optional pre-resolved AgentConfig. When provided, skips the
+                global config lookup — use this to pass per-project overrides
+                (e.g. ollama base_url resolved via ProjectConfig.agent()).
 
     Returns:
         The model's text response as a plain string.
@@ -268,27 +329,29 @@ async def complete(
         RuntimeError:      claude-code subprocess failed.
         ValueError:        Unknown provider in config.
     """
-    config: AgentConfig = get_agent_config(agent)
+    resolved: AgentConfig = config or get_agent_config(agent)
     logger.info(
         "llm call",
-        extra={"agent": agent, "provider": config.provider, "model": config.model},
+        extra={"agent": agent, "provider": resolved.provider, "model": resolved.model},
     )
 
     with _tracer.start_as_current_span("llm.complete") as span:
         span.set_attribute("helix.agent", agent)
-        span.set_attribute("helix.provider", config.provider)
-        span.set_attribute("helix.model", config.model)
+        span.set_attribute("helix.provider", resolved.provider)
+        span.set_attribute("helix.model", resolved.model)
 
-        if config.provider == "anthropic":
-            response, usage = await _complete_anthropic(config, prompt, system)
-        elif config.provider == "openrouter":
-            response, usage = await _complete_openrouter(config, prompt, system)
-        elif config.provider == "claude-code":
+        if resolved.provider == "anthropic":
+            response, usage = await _complete_anthropic(resolved, prompt, system)
+        elif resolved.provider == "openrouter":
+            response, usage = await _complete_openrouter(resolved, prompt, system)
+        elif resolved.provider == "ollama":
+            response, usage = await _complete_ollama(resolved, prompt, system)
+        elif resolved.provider == "claude-code":
             response, usage = await _complete_claude_code(prompt, cwd)
         else:
             raise ValueError(
-                f"Unknown provider '{config.provider}' for agent '{agent}'. "
-                "Must be 'anthropic', 'openrouter', or 'claude-code'."
+                f"Unknown provider '{resolved.provider}' for agent '{agent}'. "
+                "Must be 'anthropic', 'openrouter', 'ollama', or 'claude-code'."
             )
 
         span.set_attribute("helix.input_tokens", usage.get("input_tokens", 0))
@@ -300,8 +363,8 @@ async def complete(
             rt = _get_run_tree()
             if rt is not None:
                 rt.add_metadata({
-                    "provider": config.provider,
-                    "model": config.model,
+                    "provider": resolved.provider,
+                    "model": resolved.model,
                     **usage,
                 })
         except Exception:

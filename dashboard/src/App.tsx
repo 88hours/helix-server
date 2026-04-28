@@ -22,6 +22,7 @@ import { IncidentDetail } from './pages/IncidentDetail'
 import { IncidentList } from './pages/IncidentList'
 import Projects from './pages/Projects'
 import GitHub from './pages/GitHub'
+import Settings from './pages/Settings'
 
 const authEnabled = Boolean(import.meta.env.VITE_AUTH0_DOMAIN)
 
@@ -57,6 +58,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <NavLink to="/incidents">Incidents</NavLink>
             <NavLink to="/projects">Projects</NavLink>
             <NavLink to="/github">GitHub</NavLink>
+            <NavLink to="/settings">Settings</NavLink>
           </div>
           {authEnabled && <NavUserChip />}
         </div>
@@ -86,6 +88,7 @@ export default function App() {
             <Route path="/incidents/:incidentId" element={<IncidentDetail />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/github" element={<GitHub />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/incidents" replace />} />
           </Routes>
         </Shell>
