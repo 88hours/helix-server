@@ -65,3 +65,35 @@
 - [ ] Audit trail — queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id`
 
 > **Organisation/team support** (org table, org_id in payloads, per-org noisy-neighbour limits) is deferred until a customer explicitly requires it. The current single-user-per-account model handles 100+ customers on a single Railway deployment without it.
+
+---
+
+### Phase 7 — Axon (planned)
+
+Axon is the event-driven, distributed agent infrastructure extracted from Helix's `core/` and open-sourced as a standalone Python package. It gives other teams the event bus, shared state, and LLM routing layer without requiring them to build it from scratch — the gap that LangChain leaves unfilled for distributed, multi-process agent pipelines.
+
+See `docs/TECHDECISIONS.md` TD-004 for why LangChain was not used and what architectural gap Axon fills.
+
+#### Extraction — rename and parameterise (low effort)
+- [ ] `events.py` — generalise `helix:stream:` prefix → configurable; rename `incident_id` → `job_id`; remove `helix-mvp` EventBridge bus hardcoding
+- [ ] `llm.py` — make LangSmith run name and OTel span attribute prefix configurable; strip `helix.*` hardcoding
+- [ ] `telemetry.py` — parameterise tracer scope names; no logic changes
+
+#### Rewrites — make generic (medium effort)
+- [ ] `state.py` — remove Helix-specific typed accessors (`CrashReport`, `QAResult`, `PRResult`); replace with generic `read(job_id, key)` / `write(job_id, key, value, ttl)`; users define typed wrappers on top in their own codebase
+- [ ] `config.py` — extract `AgentConfig`, env override pattern, OTel/LangSmith config loading into Axon; GitHub, Sentry, Rollbar, Slack, Jira configs remain in Helix
+
+#### New framework code
+- [ ] Agent base class — `class Agent` with `subscribe_to`, `handle`, `emit` contract; each agent is an independent process triggered by an event
+- [ ] `pyproject.toml` — standalone package, publish to PyPI
+- [ ] One working example pipeline — independent from Helix; demonstrates the framework without requiring knowledge of the Helix product
+
+#### Quality gate before publishing
+- [ ] Tests for framework primitives — events (publish/subscribe/ack), state (read/write/TTL/lock), LLM routing
+- [ ] README — architecture overview, quickstart, comparison with LangChain/Temporal
+
+#### Post-v1 (deferred)
+- [ ] CLI — `axon init`, `axon add-agent`, `axon run` for project scaffolding
+- [ ] LangGraph adapter — drop-in compatibility for teams already using LangGraph agents who want durable event routing
+
+> **When to start:** After Helix Server v1.0 ships and has paying customers. Axon is a developer acquisition channel for Helix, not a separate product — launch it once Helix has credibility behind it.

@@ -86,6 +86,49 @@ A customer can run Crash Handler and QA on cheap open-weight models (via OpenRou
 
 ---
 
+## TD-004 — LangChain not used
+
+**Date:** April 2026
+**Status:** Decided (rejected)
+
+### Decision
+
+Do not introduce LangChain (or `langchain-core`, `langchain-community`) as a dependency. All LLM routing, agent orchestration, and provider abstraction is handled by `core/llm.py` and the existing agent architecture.
+
+### Rejected alternative: adopt LangChain for agent orchestration and LLM routing
+
+### Reasons
+
+**1. Conflicts with the codebase philosophy.**
+`CLAUDE.md` requires simple, readable, old-school Python — functions and classes only, no clever abstractions. LangChain is decorator-heavy, uses deep inheritance chains, and stacks abstractions on abstractions. It would actively fight the style of every file in this repo.
+
+**2. `core/llm.py` already does what LangChain's model layer provides.**
+Multi-provider routing across Anthropic, OpenRouter, Ollama, and Claude Code CLI is already implemented. LangChain's `ChatModel` abstraction would be a redundant layer on top of working code with no added capability.
+
+**3. The Dev Agent's core mechanism is outside LangChain's scope.**
+The Dev Agent invokes the Claude Code CLI via subprocess inside a cloned repo directory. LangChain has no abstraction for shell-invoked agentic tools with full file access. That code would still need to be written from scratch regardless.
+
+**4. The event-driven architecture does not fit LangChain's agent loop model.**
+LangChain agents assume a synchronous request-response or internal tool loop. Helix agents are decoupled processes that communicate via Redis Streams. LangChain would add an abstraction layer that conflicts with this model rather than supporting it.
+
+**5. Versioning instability is a production liability.**
+LangChain has a history of breaking changes between minor versions and mid-flight package splits (`langchain` → `langchain-core` → `langchain-community`). Adding it as a dependency introduces ongoing maintenance cost with no offsetting benefit.
+
+**6. Competing abstractions with Pydantic models.**
+All shared data models (`CrashReport`, `QAResult`, `PRResult`) are Pydantic. LangChain has its own message and document types. Any integration point would require translation between them.
+
+### What LangChain would offer (and why it does not apply here)
+
+- **Community integrations** (GitHub, Slack, document loaders): Helix already has thin wrappers in `integrations/` covering the same ground.
+- **LCEL prompt chains**: Neither Crash Handler nor QA Agent requires complex branching chains — each makes 1–2 direct LLM calls.
+- **LangSmith native tracing**: LangSmith tracing is already wired in `core/llm.py` via the SDK directly. It does not require LangChain.
+
+### When to revisit
+
+If a future agent requires a complex multi-step tool loop that the Claude Code CLI cannot handle and that would take significant custom code to build, evaluate LangChain's LCEL + tool-use primitives at that point. For the current four-agent pipeline this threshold is not met.
+
+---
+
 ## TD-003 — Ollama supported as BYOK (customer self-hosted); never hosted by Helix
 
 **Date:** April 2026
