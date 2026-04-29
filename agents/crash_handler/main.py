@@ -65,6 +65,7 @@ from core.db import (
     init_db,
     insert_project,
     list_projects as db_list_projects,
+    list_all_projects as db_list_all_projects,
     upsert_github_installation,
     upsert_project_settings,
     upsert_user,
@@ -87,8 +88,9 @@ from integrations import sentry as sentry_integration
 from integrations import slack as slack_integration
 from integrations.github import merge_pull_request
 
-# Path to the built React dashboard (populated by: cd dashboard && npm run build).
+# Dashboard — zero-dependency CDN React, no build step required.
 _DASHBOARD_DIST = Path(__file__).parent.parent.parent / "dashboard" / "dist"
+_DASHBOARD_INDEX = "index.html"
 
 # Landing page — static HTML served at /.
 _LANDING_PAGE = Path(__file__).parent.parent.parent / "index.html"
@@ -817,7 +819,11 @@ async def list_projects(request: Request, current_user: dict = Depends(get_curre
     """
     _require_db()
     async with get_db() as db:
-        rows = await db_list_projects(db, current_user["sub"])
+        from core.auth import auth_enabled
+        if auth_enabled():
+            rows = await db_list_projects(db, current_user["sub"])
+        else:
+            rows = await db_list_all_projects(db)
     return {"projects": [_mask_row(r) for r in rows]}
 
 
@@ -1079,29 +1085,29 @@ async def serve_favicon():
 
 @app.get("/app", include_in_schema=False)
 async def serve_dashboard_root():
-    """Redirect the bare /app path to the SPA index."""
-    index = _DASHBOARD_DIST / "index.html"
+    """Serve the new UI console at /app."""
+    index = _DASHBOARD_DIST / _DASHBOARD_INDEX
     if index.exists():
         return FileResponse(str(index))
-    return {"error": "Dashboard not built. Run: cd dashboard && npm run build"}
+    return {"error": "Dashboard not found. Check Helix-new-ui/Helix Console.html exists."}
 
 
 @app.get("/app/{path:path}", include_in_schema=False)
 async def serve_dashboard(path: str):
     """
-    Serve the React SPA for all /app/* routes.
+    Serve the new UI for all /app/* routes.
 
-    Asset requests (JS, CSS, images) are served directly from dashboard/dist/.
-    All other paths return index.html so React Router handles client-side routing.
+    Static assets (JS, CSS) are served directly from Helix-new-ui/.
+    All other paths fall back to the console index so client-side routing works.
     """
-    # Try to serve the file directly first (assets: JS, CSS, images, fonts).
     asset = _DASHBOARD_DIST / path
     if asset.is_file():
         return FileResponse(str(asset))
 
-    # Fall back to SPA index for all other paths (React Router handles them).
-    index = _DASHBOARD_DIST / "index.html"
+    index = _DASHBOARD_DIST / _DASHBOARD_INDEX
     if index.exists():
         return FileResponse(str(index))
 
-    return {"error": "Dashboard not built. Run: cd dashboard && npm run build"}
+    return {"error": "Dashboard not found. Check Helix-new-ui/Helix Console.html exists."}
+
+

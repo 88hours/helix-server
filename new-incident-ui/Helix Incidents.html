@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Helix — Incidents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: oklch(0.985 0.004 85);
+    --bg-2: oklch(0.975 0.005 85);
+    --bg-3: oklch(0.955 0.006 85);
+    --ink: oklch(0.22 0.012 260);
+    --ink-2: oklch(0.42 0.012 260);
+    --ink-3: oklch(0.62 0.012 260);
+    --line: oklch(0.91 0.006 260);
+    --line-2: oklch(0.86 0.008 260);
+
+    /* Agent personas */
+    --handler: oklch(0.68 0.17 50);   /* amber */
+    --qa:      oklch(0.62 0.18 295);  /* violet */
+    --dev:     oklch(0.62 0.16 155);  /* green  */
+    --human:   oklch(0.56 0.12 230);  /* blue   */
+
+    /* Status */
+    --crash: oklch(0.6 0.2 25);
+    --warn:  oklch(0.72 0.15 70);
+    --ok:    oklch(0.62 0.16 155);
+
+    /* Terminal */
+    --term-bg: oklch(0.18 0.012 260);
+    --term-bg-2: oklch(0.22 0.012 260);
+    --term-ink: oklch(0.86 0.01 260);
+    --term-ink-dim: oklch(0.58 0.01 260);
+    --term-green: oklch(0.82 0.18 155);
+
+    --accent: var(--handler);
+
+    --r-sm: 4px;
+    --r-md: 6px;
+    --r-lg: 10px;
+
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --serif: 'Instrument Serif', Georgia, serif;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background: var(--bg); color: var(--ink); }
+  body{
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01","cv11";
+  }
+  #root{ min-height: 100vh; }
+
+  /* Utility */
+  .mono{ font-family: var(--mono); font-feature-settings: "zero","ss01"; }
+  .serif{ font-family: var(--serif); }
+  .muted{ color: var(--ink-3); }
+  .dim{ color: var(--ink-2); }
+  button{ font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  a{ color: inherit; text-decoration: none; }
+  hr{ border: 0; border-top: 1px solid var(--line); margin: 0; }
+
+  /* Focus */
+  :focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{ width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb{ background: var(--line-2); border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover{ background: var(--ink-3); }
+
+  /* Tweaks panel */
+  .tweaks{
+    position: fixed; right: 16px; bottom: 16px; z-index: 80;
+    width: 260px;
+    background: var(--bg); border: 1px solid var(--line-2);
+    border-radius: 8px; box-shadow: 0 10px 30px oklch(0.22 0.01 260 / 0.08);
+    font-family: var(--mono); font-size: 11px;
+    overflow: hidden;
+  }
+  .tweaks header{ padding: 8px 10px; display:flex; align-items:center; justify-content:space-between; border-bottom: 1px solid var(--line); background: var(--bg-2); }
+  .tweaks h4{ margin:0; font-size:11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+  .tweaks .row{ display:flex; align-items:center; justify-content:space-between; padding: 8px 10px; gap: 10px; }
+  .tweaks .row + .row{ border-top: 1px solid var(--line); }
+  .tweaks label{ color: var(--ink-2); }
+  .tweaks select, .tweaks input[type="range"]{ font: inherit; color: inherit; background: transparent; border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 6px; }
+
+  /* ---- Blinking cursor ---- */
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+  .cursor{ display:inline-block; width:7px; height:12px; background: currentColor; vertical-align:-1px; animation: blink 1s steps(1) infinite; }
+
+  @keyframes pulse-dot { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
+</style>
+
+<script type="application/json" id="speaker-notes">[]</script>
+
+<!-- React -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+  // Tweak defaults (editable via the toolbar toggle)
+  window.__TWEAKS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "accent": "ink",
+    "density": "compact",
+    "pipeline": "horizontal",
+    "showActivityRail": true
+  }/*EDITMODE-END*/;
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="text/babel" src="src/data.jsx"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/pipeline.jsx"></script>
+<script type="text/babel" src="src/toolcalls.jsx"></script>
+<script type="text/babel" src="src/activity.jsx"></script>
+<script type="text/babel" src="src/screens.jsx"></script>
+<script type="text/babel" src="src/app.jsx"></script>
+</body>
+</html>

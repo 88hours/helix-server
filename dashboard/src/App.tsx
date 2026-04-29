@@ -1,98 +1,156 @@
-/**
- * Root application component.
- *
- * Routes:
- *   /app/incidents              → IncidentList
- *   /app/incidents/:incidentId  → IncidentDetail
- *   /app/projects               → Projects (project + repo configuration)
- *
- * When VITE_AUTH0_DOMAIN is set, renders TokenProviderBridge (registers the
- * Auth0 token-getter with the API client) and NavUserChip (avatar + sign-out).
- * All routes are wrapped in AuthGuard which redirects unauthenticated users.
- *
- * When VITE_AUTH0_DOMAIN is not set (demo mode), no auth components are
- * mounted and all routes are accessible without login.
- */
+import { useState, useEffect } from 'react';
+import { Tweaks, Incident, useIncidents } from './constants';
+import { Header, Page } from './components/Header';
+import { useWalkthrough, WalkthroughOverlay } from './components/Walkthrough';
+import { IncidentsPage } from './pages/IncidentsPage';
+import { IncidentDetailPage } from './pages/IncidentDetailPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { GitHubPage } from './pages/GitHubPage';
+import { AgentsPage } from './pages/AgentsPage';
+import { SettingsPage } from './pages/SettingsPage';
 
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { AuthGuard } from './components/AuthGuard'
-import { NavUserChip } from './components/NavUserChip'
-import { TokenProviderBridge } from './components/TokenProviderBridge'
-import { IncidentDetail } from './pages/IncidentDetail'
-import { IncidentList } from './pages/IncidentList'
-import Projects from './pages/Projects'
-import GitHub from './pages/GitHub'
-import Settings from './pages/Settings'
-
-const authEnabled = Boolean(import.meta.env.VITE_AUTH0_DOMAIN)
-
-// ---------------------------------------------------------------------------
-// Nav link — highlights the active section
-// ---------------------------------------------------------------------------
-
-function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
-  const location = useLocation()
-  const active = location.pathname.startsWith(to)
+function TweaksPanel({ tweaks, onUpdate, onClose }: {
+  tweaks: Tweaks;
+  onUpdate: (k: keyof Tweaks, v: string | boolean) => void;
+  onClose: () => void;
+}) {
   return (
-    <Link
-      to={to}
-      className={`text-sm transition-colors ${active ? 'text-gray-900 font-medium' : 'text-gray-400 hover:text-gray-600'}`}
-    >
-      {children}
-    </Link>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Shell layout
-// ---------------------------------------------------------------------------
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14">
-          <div className="flex items-center gap-4">
-            <span className="text-lg font-bold tracking-tight text-gray-900">helix</span>
-            <span className="text-gray-200">|</span>
-            <NavLink to="/incidents">Incidents</NavLink>
-            <NavLink to="/projects">Projects</NavLink>
-            <NavLink to="/github">GitHub</NavLink>
-            <NavLink to="/settings">Settings</NavLink>
-          </div>
-          {authEnabled && <NavUserChip />}
-        </div>
-      </nav>
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
+    <div className="tweaks">
+      <header>
+        <h4>tweaks</h4>
+        <button onClick={onClose} style={{ color: 'var(--ink-3)', cursor: 'pointer' }}>×</button>
+      </header>
+      <div className="row">
+        <label>theme</label>
+        <select value={tweaks.theme} onChange={e => onUpdate('theme', e.target.value)}>
+          <option>light</option>
+          <option>dark</option>
+        </select>
+      </div>
+      <div className="row">
+        <label>density</label>
+        <select value={tweaks.density} onChange={e => onUpdate('density', e.target.value)}>
+          <option>compact</option>
+          <option>comfortable</option>
+        </select>
+      </div>
+      <div className="row">
+        <label>pipeline</label>
+        <select value={tweaks.pipeline} onChange={e => onUpdate('pipeline', e.target.value)}>
+          <option>horizontal</option>
+          <option>vertical</option>
+        </select>
+      </div>
+      <div className="row">
+        <label>activity rail</label>
+        <input
+          type="range" min={0} max={1} step={1}
+          value={tweaks.showActivityRail ? 1 : 0}
+          onChange={e => onUpdate('showActivityRail', e.target.value === '1')}
+        />
+      </div>
     </div>
-  )
+  );
 }
-
-// ---------------------------------------------------------------------------
-// App
-// ---------------------------------------------------------------------------
 
 export default function App() {
-  return (
-    <BrowserRouter basename="/app">
-      {/* Register Auth0 token-getter with the API client when auth is active. */}
-      {authEnabled && <TokenProviderBridge />}
+  const [page, setPage] = useState<Page>('list');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [tour, setTour] = useState(false);
+  const [tweaks, setTweaks] = useState<Tweaks>(window.__TWEAKS ?? {
+    theme: 'light', accent: 'ink', density: 'compact', pipeline: 'horizontal', showActivityRail: true,
+  });
 
-      <AuthGuard>
-        <Shell>
-          <Routes>
-            <Route path="/" element={<Navigate to="/incidents" replace />} />
-            <Route path="/incidents" element={<IncidentList />} />
-            <Route path="/incidents/:incidentId" element={<IncidentDetail />} />
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/github" element={<GitHub />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/incidents" replace />} />
-          </Routes>
-        </Shell>
-      </AuthGuard>
-    </BrowserRouter>
-  )
+  const { incidents, loading } = useIncidents();
+
+  const updateTweak = (k: keyof Tweaks, v: string | boolean) => {
+    setTweaks(prev => {
+      const next = { ...prev, [k]: v };
+      window.__TWEAKS = next;
+      return next;
+    });
+  };
+
+  // Apply theme CSS variable updates
+  useEffect(() => {
+    const root = document.documentElement;
+    if (tweaks.theme === 'dark') {
+      root.style.setProperty('--bg',   'oklch(0.12 0.01 260)');
+      root.style.setProperty('--bg-2', 'oklch(0.16 0.01 260)');
+      root.style.setProperty('--bg-3', 'oklch(0.20 0.01 260)');
+      root.style.setProperty('--ink',   'oklch(0.92 0.005 85)');
+      root.style.setProperty('--ink-2', 'oklch(0.72 0.008 260)');
+      root.style.setProperty('--ink-3', 'oklch(0.52 0.008 260)');
+      root.style.setProperty('--line',  'oklch(0.24 0.01 260)');
+      root.style.setProperty('--line-2','oklch(0.28 0.01 260)');
+    } else {
+      root.style.removeProperty('--bg');
+      root.style.removeProperty('--bg-2');
+      root.style.removeProperty('--bg-3');
+      root.style.removeProperty('--ink');
+      root.style.removeProperty('--ink-2');
+      root.style.removeProperty('--ink-3');
+      root.style.removeProperty('--line');
+      root.style.removeProperty('--line-2');
+    }
+  }, [tweaks.theme]);
+
+  const selectedIncident: Incident | null = openId
+    ? incidents.find(i => i.id === openId) ?? null
+    : null;
+
+  const go = (p: Page) => setPage(p);
+
+  const walkthrough = useWalkthrough({
+    go: (p: string) => setPage(p as Page),
+    setOpenId: (id) => { setOpenId(id); },
+    setEditMode,
+    setTour,
+  });
+
+  const handleOpenIncident = (id: string) => {
+    setOpenId(id);
+    setPage('detail');
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      <Header
+        page={page}
+        go={go}
+        walkthroughRunning={walkthrough.running}
+        onWalkthrough={walkthrough.running ? walkthrough.stop : walkthrough.run}
+        onEditMode={() => setEditMode(e => !e)}
+      />
+
+      {page === 'list' && (
+        <IncidentsPage
+          incidents={incidents}
+          loading={loading}
+          onOpen={handleOpenIncident}
+        />
+      )}
+
+      {page === 'detail' && (
+        <IncidentDetailPage
+          incident={selectedIncident}
+          onBack={() => setPage('list')}
+          showActivityRail={tweaks.showActivityRail}
+          pipelineLayout={tweaks.pipeline as 'horizontal' | 'vertical'}
+        />
+      )}
+
+      {page === 'projects' && <ProjectsPage />}
+      {page === 'github'   && <GitHubPage onGo={(p: string) => go(p as Page)} />}
+      {page === 'agents'   && <AgentsPage />}
+      {page === 'settings' && <SettingsPage />}
+
+      {editMode && (
+        <TweaksPanel tweaks={tweaks} onUpdate={updateTweak} onClose={() => setEditMode(false)} />
+      )}
+
+      <WalkthroughOverlay caption={walkthrough.caption} running={tour && walkthrough.running} onStop={walkthrough.stop} />
+    </div>
+  );
 }
