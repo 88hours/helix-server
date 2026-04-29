@@ -65,16 +65,28 @@ function MiniStat({ v, l, c }: { v: number | string; l: string; c?: string }) {
 
 // ---- Secret field ----
 
-function SecretField({ label, set, preview, placeholder }: {
+function SecretField({ label, set, preview, placeholder, onSave }: {
   label: string; set: boolean; preview?: string; placeholder: string;
+  onSave?: (val: string) => Promise<boolean>;
 }) {
   const [show, setShow] = useState(false);
   const [val, setVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = async () => {
+    if (!onSave || !val.trim()) return;
+    setSaving(true);
+    const ok = await onSave(val.trim());
+    setSaving(false);
+    if (ok) { setSaved(true); setVal(''); setTimeout(() => setSaved(false), 2000); }
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
         <span style={{ fontSize: 12, color: 'var(--ink)' }}>{label}</span>
-        {set && <Badge tone="ok">set</Badge>}
+        {saved ? <Badge tone="ok">saved!</Badge> : set ? <Badge tone="ok">set</Badge> : null}
       </div>
       <div style={{
         display: 'flex', alignItems: 'center',
@@ -84,6 +96,7 @@ function SecretField({ label, set, preview, placeholder }: {
           type={show ? 'text' : 'password'}
           value={val}
           onChange={e => setVal(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSave()}
           placeholder={set ? '••••••••••' : placeholder}
           className="mono"
           style={{ flex: 1, border: 0, outline: 'none', background: 'transparent', fontSize: 12, color: 'var(--ink)', padding: '7px 0' }}
@@ -92,6 +105,12 @@ function SecretField({ label, set, preview, placeholder }: {
           fontSize: 10.5, color: 'var(--ink-3)', padding: '4px 10px',
           borderLeft: '1px solid var(--line-2)', cursor: 'pointer',
         }}>{show ? 'hide' : 'show'}</button>
+        {val.trim() && (
+          <button onClick={handleSave} disabled={saving} className="mono" style={{
+            fontSize: 10.5, color: saving ? 'var(--ink-3)' : 'var(--ok)', padding: '4px 10px',
+            borderLeft: '1px solid var(--line-2)', cursor: 'pointer', fontWeight: 600,
+          }}>{saving ? '…' : 'save'}</button>
+        )}
       </div>
       {set && preview && <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 4 }}>{preview}</div>}
     </div>
@@ -226,9 +245,12 @@ function ProjectSettings({ p, onSave }: { p: Project; onSave: (s: Record<string,
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
         <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Secrets</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          <SecretField label="Anthropic API key"     set={p.secrets.anthropic.set} placeholder="sk-ant-… (falls back to env var)" />
-          <SecretField label="Sentry webhook secret" set={p.secrets.sentry.set}    preview={p.secrets.sentry.preview}   placeholder="whsec_…" />
-          <SecretField label="Rollbar access token"  set={p.secrets.rollbar.set}   preview={p.secrets.rollbar.preview}  placeholder="rtp_…" />
+          <SecretField label="Anthropic API key"     set={p.secrets.anthropic.set} placeholder="sk-ant-… (falls back to env var)"
+            onSave={v => onSave({ anthropic_api_key: v })} />
+          <SecretField label="Sentry webhook secret" set={p.secrets.sentry.set}   preview={p.secrets.sentry.preview}   placeholder="whsec_…"
+            onSave={v => onSave({ sentry_webhook_secret: v })} />
+          <SecretField label="Rollbar access token"  set={p.secrets.rollbar.set}  preview={p.secrets.rollbar.preview}  placeholder="rtp_…"
+            onSave={v => onSave({ rollbar_access_token: v })} />
         </div>
       </div>
 
