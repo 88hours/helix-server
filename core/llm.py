@@ -229,6 +229,71 @@ async def _complete_ollama(
 # Claude Code CLI backend
 # ---------------------------------------------------------------------------
 
+async def _complete_opencode(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
+    """
+    Invoke the OpenCode CLI as a subprocess: opencode run "<prompt>"
+
+    Drop-in alternative to the Claude Code CLI. OpenCode supports Ollama and
+    other LLM backends, so no Anthropic API key is required. Configure the
+    model via OpenCode's own config or the --model flag.
+
+    Args:
+        prompt: The full prompt to pass to the CLI.
+        cwd:    Working directory for the subprocess. Should be the root of
+                the cloned target repo.
+
+    Returns:
+        Tuple of (CLI stdout output, empty dict — token usage not available
+        for subprocess invocations).
+
+    Raises:
+        RuntimeError: If the CLI exits with a non-zero status.
+        asyncio.TimeoutError: If the subprocess exceeds _SUBPROCESS_TIMEOUT seconds.
+    """
+    cmd = ["opencode", "run", "--dangerously-skip-permissions"]
+    model = os.environ.get("HELIX_DEV_OPENCODE_MODEL")
+    if model:
+        cmd += ["--model", model]
+    cmd.append(prompt)
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
+    logger.info("opencode subprocess started", extra={"pid": process.pid, "cwd": cwd, "model": model or "opencode-default"})
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=_SUBPROCESS_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        raise asyncio.TimeoutError(
+            f"opencode subprocess timed out after {_SUBPROCESS_TIMEOUT}s"
+        )
+
+    stderr_text = stderr.decode().strip()
+    stdout_text = stdout.decode().strip()
+
+    logger.info(
+        "opencode subprocess finished",
+        extra={"pid": process.pid, "returncode": process.returncode},
+    )
+    if stderr_text:
+        logger.debug("opencode stderr", extra={"stderr": stderr_text})
+    logger.debug("opencode stdout", extra={"stdout": stdout_text})
+
+    if process.returncode != 0:
+        raise RuntimeError(
+            f"opencode exited with code {process.returncode}: {stderr_text}"
+        )
+
+    return stdout_text, {}
+
+
 async def _complete_claude_code(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
     """
     Invoke the Claude Code CLI as a subprocess: claude -p "<prompt>"
@@ -348,10 +413,12 @@ async def complete(
             response, usage = await _complete_ollama(resolved, prompt, system)
         elif resolved.provider == "claude-code":
             response, usage = await _complete_claude_code(prompt, cwd)
+        elif resolved.provider == "opencode":
+            response, usage = await _complete_opencode(prompt, cwd)
         else:
             raise ValueError(
                 f"Unknown provider '{resolved.provider}' for agent '{agent}'. "
-                "Must be 'anthropic', 'openrouter', 'ollama', or 'claude-code'."
+                "Must be 'anthropic', 'openrouter', 'ollama', 'claude-code', or 'opencode'."
             )
 
         span.set_attribute("helix.input_tokens", usage.get("input_tokens", 0))

@@ -56,7 +56,7 @@ core/
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
   state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo/project configs)
   models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig, Project, ProjectSettings)
-  llm.py               Routes to Anthropic SDK, OpenRouter, or Claude Code CLI; instruments every call with LangSmith tracing and OTel spans
+  llm.py               Routes to Anthropic SDK, OpenRouter, Ollama, Claude Code CLI, or OpenCode CLI; instruments every call with LangSmith tracing and OTel spans
   telemetry.py         OpenTelemetry setup — call setup_tracing() once at startup; no-op when OTEL_ENABLED is not true
   permissions.py       Per-agent tool access control — declare and enforce at runtime
   ui_events.py         Dashboard event publishing — agent progress + tool call events persisted to Redis + forwarded via Pub/Sub
@@ -120,7 +120,7 @@ docs/
 - [uv](https://docs.astral.sh/uv/) — Python package manager
 - [pnpm](https://pnpm.io) — Node.js package manager (dashboard only)
 - Redis (local or cloud — see Docker section)
-- Claude Code CLI — required for the Dev Agent (`claude-code` provider)
+- Claude Code CLI **or** [OpenCode CLI](https://opencode.ai) — required for the Dev Agent (`claude-code` or `opencode` provider)
 
 ## Setup
 
@@ -511,8 +511,34 @@ Per-project overrides are set in `project_settings.agent_overrides`. Account-lev
 | `openrouter` | Crash Handler, QA | Account settings → OpenRouter API key |
 | `ollama` | Crash Handler, QA | Project `agent_overrides.base_url` (customer self-hosted, GPU required) |
 | `claude-code` | Dev Agent only | Anthropic API key (CLI subprocess) |
+| `opencode` | Dev Agent only | No API key required — uses OpenCode CLI with any configured backend (Ollama, GitHub Copilot, etc.) |
 
-> Dev Agent requires an Anthropic API key. Without one, the TDD loop is skipped and a `pr_skipped` event is published. Crash Handler and QA can use OpenRouter or Ollama as a cheaper alternative.
+> Dev Agent requires either an Anthropic API key or the `opencode` / `claude-code` provider. Without any of these, the TDD loop is skipped and a `pr_skipped` event is published. Crash Handler and QA can use OpenRouter or Ollama as a cheaper alternative.
+
+**Using OpenCode with Ollama (no Anthropic key required):**
+
+```bash
+# 1. Set the Dev Agent provider
+HELIX_DEV_PROVIDER=opencode
+
+# 2. Optional: override the model (otherwise uses OpenCode's configured default)
+HELIX_DEV_OPENCODE_MODEL=ollama/gemma4
+
+# 3. Configure Ollama in OpenCode's config (~/.config/opencode/opencode.json)
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": { "baseURL": "http://localhost:11434/v1" },
+      "models": {
+        "gemma4": { "name": "Gemma 4" }
+      }
+    }
+  }
+}
+```
 
 ## Agent permissions
 

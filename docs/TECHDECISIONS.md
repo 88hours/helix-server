@@ -63,7 +63,9 @@ If a single customer generates enough volume that their events measurably delay 
 
 ### Decision
 
-Dev Agent's TDD loop only runs when an Anthropic API key is available for the project (`project_settings.anthropic_api_key` or the global `ANTHROPIC_API_KEY` env var). Without it, the agent logs a warning, publishes a `pr_skipped` event with `reason: no_anthropic_key`, and moves on. No exception is raised.
+Dev Agent's TDD loop only runs when an Anthropic API key is available for the project (`project_settings.anthropic_api_key` or the global `ANTHROPIC_API_KEY` env var) **or** when the Dev Agent is configured to use the `opencode` or `claude-code` provider. Without an Anthropic key and without one of these CLI providers, the agent logs a warning, publishes a `pr_skipped` event with `reason: no_anthropic_key`, and moves on. No exception is raised.
+
+**Update (April 2026):** `opencode` provider (OpenCode CLI) is now supported as an alternative to `claude-code`. OpenCode supports Ollama and other backends, so no Anthropic key is required when using this provider. The `pr_skipped` gate applies only when the Dev Agent provider is neither `anthropic`, `claude-code`, nor `opencode`.
 
 ### Rejected alternative: fail loudly / raise an exception
 

@@ -29,6 +29,10 @@ demo: false
 #   anthropic   — uses ANTHROPIC_API_KEY, direct Anthropic API
 #   openrouter  — uses OPENROUTER_API_KEY, OpenAI-compatible API
 #   claude-code — invokes the Claude Code CLI via subprocess (Dev Agent only)
+#   opencode    — invokes the OpenCode CLI via subprocess (Dev Agent only)
+#                 supports Ollama and other backends; configure the model in
+#                 OpenCode's own config or via HELIX_DEV_OPENCODE_MODEL
+#                 (no Anthropic key required)
 #
 # Per-agent overrides: HELIX_<AGENT>_PROVIDER and HELIX_<AGENT>_MODEL
 #   e.g. HELIX_DEV_PROVIDER=anthropic, HELIX_DEV_MODEL=claude-sonnet-4-6
