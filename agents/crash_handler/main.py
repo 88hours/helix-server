@@ -222,6 +222,11 @@ async def rollbar_webhook(project_id: str, request: Request):
         logger.info("rollbar connectivity test received — acknowledged", extra={"project_id": project_id})
         return {"status": "ok"}
 
+    event_name = raw.get("event_name", "")
+    if event_name in ("resolved_item", "muted_item"):
+        logger.info("rollbar %s event — skipping", event_name, extra={"project_id": project_id})
+        return {"status": "ignored", "reason": event_name}
+
     if is_demo_mode():
         logger.warning("demo mode enabled — skipping rollbar token verification", extra={"project_id": project_id})
     else:
