@@ -50,6 +50,17 @@ except ImportError:
         """Returns None when langsmith is not installed."""
         return None
 
+# Langfuse tracing — gracefully disabled when not installed or keys not set.
+try:
+    from langfuse import Langfuse as _LangfuseClient
+    _langfuse = (
+        _LangfuseClient()
+        if os.environ.get("LANGFUSE_SECRET_KEY")
+        else None
+    )
+except ImportError:
+    _langfuse = None
+
 logger = logging.getLogger(__name__)
 
 # Maximum tokens to request from the API. Agents that need longer responses
@@ -436,5 +447,22 @@ async def complete(
                 })
         except Exception:
             pass
+
+        # Log a Langfuse generation. Silently skipped when not configured.
+        if _langfuse is not None:
+            try:
+                _langfuse.generation(
+                    name=f"helix.{agent}",
+                    model=resolved.model,
+                    input={"prompt": prompt, "system": system},
+                    output=response,
+                    usage={
+                        "input": usage.get("input_tokens", 0),
+                        "output": usage.get("output_tokens", 0),
+                    },
+                    metadata={"provider": resolved.provider, "agent": agent},
+                )
+            except Exception:
+                pass
 
     return response

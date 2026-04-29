@@ -353,7 +353,7 @@ helix/
 │   ├── events.py              # Redis Streams / Pub/Sub / EventBridge helpers
 │   ├── state.py               # Redis read/write helpers, keyed by incident_id
 │   ├── models.py              # Pydantic models: CrashReport, QAResult, PRResult, RepoConfig, Project, AgentOverride
-│   ├── llm.py                 # Routes to Anthropic SDK, OpenRouter, Ollama, or Claude Code CLI; LangSmith + OTel instrumentation
+│   ├── llm.py                 # Routes to Anthropic SDK, OpenRouter, Ollama, Claude Code CLI, or OpenCode CLI; LangSmith + Langfuse + OTel instrumentation
 │   ├── telemetry.py           # OpenTelemetry setup
 │   ├── permissions.py         # Per-agent tool access control
 │   ├── ui_events.py           # Dashboard event publishing (Redis Pub/Sub + persistence)
@@ -377,7 +377,7 @@ helix/
 │       ├── pages/             # IncidentsPage, IncidentDetailPage, ProjectsPage, AgentsPage, SettingsPage, GitHubPage, LoginPage
 │       └── components/        # Pipeline, ActivityRail, ToolCalls, Header, Walkthrough, primitives, AuthGuard
 ├── evals/                     # LangSmith eval suite (datasets, evaluators, runner)
-├── config.yaml                # Source of truth for models, Redis, permissions, LangSmith
+├── config.yaml                # Source of truth for models, Redis, permissions, LangSmith, Langfuse
 ├── index.html                 # Landing page
 ├── docs/
 │   ├── architecture.md        # This file

@@ -43,6 +43,7 @@ dependencies = [
     "openai>=1.55",           # openrouter backend (OpenAI-compatible)
     "boto3>=1.35",            # eventbridge backend (optional; AWS deployments only)
     "langsmith>=0.2",         # LLM call tracing and eval suite
+    "langfuse>=2.0",          # LLM observability — traces, generations, costs (optional)
 
     # OpenTelemetry — end-to-end distributed tracing (enabled via OTEL_ENABLED=true)
     "opentelemetry-api>=1.20",                        # core API; no-op by default when SDK not configured

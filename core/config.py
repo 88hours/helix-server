@@ -124,6 +124,15 @@ class LangSmithConfig:
 
 
 @dataclass
+class LangfuseConfig:
+    """Langfuse LLM observability settings."""
+    secret_key: str | None   # LANGFUSE_SECRET_KEY; None → tracing disabled
+    public_key: str | None   # LANGFUSE_PUBLIC_KEY; None → tracing disabled
+    host: str                # LANGFUSE_HOST; default: https://cloud.langfuse.com
+    enabled: bool            # True when both keys are set
+
+
+@dataclass
 class OtelConfig:
     """OpenTelemetry distributed tracing settings."""
     enabled: bool       # True when OTEL_ENABLED=true
@@ -475,6 +484,39 @@ def get_langsmith_config() -> LangSmithConfig:
         project=project,
         endpoint=endpoint,
         tracing_enabled=tracing_enabled,
+    )
+
+
+def get_langfuse_config() -> LangfuseConfig:
+    """
+    Return Langfuse observability settings.
+
+    Tracing is enabled when both LANGFUSE_SECRET_KEY and LANGFUSE_PUBLIC_KEY
+    are set. If either is absent, tracing is disabled.
+
+    Resolution order for each field:
+      1. Environment variable (LANGFUSE_SECRET_KEY, LANGFUSE_PUBLIC_KEY,
+         LANGFUSE_HOST)
+      2. config.yaml (langfuse.secret_key_env, langfuse.public_key_env,
+         langfuse.host_env)
+      3. Defaults: host → "https://cloud.langfuse.com"
+    """
+    raw = _load_yaml()
+    lf = raw.get("langfuse", {})
+
+    secret_key_env = lf.get("secret_key_env", "LANGFUSE_SECRET_KEY")
+    public_key_env = lf.get("public_key_env", "LANGFUSE_PUBLIC_KEY")
+    host_env = lf.get("host_env", "LANGFUSE_HOST")
+
+    secret_key = os.environ.get(secret_key_env) or None
+    public_key = os.environ.get(public_key_env) or None
+    host = os.environ.get(host_env) or "https://cloud.langfuse.com"
+
+    return LangfuseConfig(
+        secret_key=secret_key,
+        public_key=public_key,
+        host=host,
+        enabled=secret_key is not None and public_key is not None,
     )
 
 

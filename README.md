@@ -56,7 +56,7 @@ core/
   events.py            Redis Streams / Pub/Sub / EventBridge publish and subscribe helpers
   state.py             Redis read/write helpers, keyed by incident_id (incidents + user repo/project configs)
   models.py            Pydantic models shared across all agents (CrashReport, QAResult, PRResult, RepoConfig, Project, ProjectSettings)
-  llm.py               Routes to Anthropic SDK, OpenRouter, Ollama, Claude Code CLI, or OpenCode CLI; instruments every call with LangSmith tracing and OTel spans
+  llm.py               Routes to Anthropic SDK, OpenRouter, Ollama, Claude Code CLI, or OpenCode CLI; instruments every call with LangSmith + Langfuse tracing and OTel spans
   telemetry.py         OpenTelemetry setup — call setup_tracing() once at startup; no-op when OTEL_ENABLED is not true
   permissions.py       Per-agent tool access control — declare and enforce at runtime
   ui_events.py         Dashboard event publishing — agent progress + tool call events persisted to Redis + forwarded via Pub/Sub
@@ -171,6 +171,9 @@ Required variables:
 | `LANGSMITH_API_KEY` | LangSmith API key — enables LLM call tracing and the eval suite (optional; tracing disabled if unset) |
 | `LANGSMITH_PROJECT` | LangSmith project name (default: `helix`) |
 | `LANGSMITH_TRACING` | Set to `true` to enable LangSmith tracing in `core/llm.py` (requires `LANGSMITH_API_KEY`) |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key — enables Langfuse LLM observability (optional) |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key (required alongside `LANGFUSE_SECRET_KEY`) |
+| `LANGFUSE_HOST` | Langfuse server URL (default: `https://cloud.langfuse.com`; set for self-hosted) |
 | `OTEL_ENABLED` | Set to `true` to enable OpenTelemetry distributed tracing across all agents |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/gRPC endpoint to export traces to (default: `http://localhost:4317`) |
 | `OTEL_SERVICE_NAME` | OTel service name tag on all spans (default: `helix`) |
@@ -458,6 +461,20 @@ uv run --env-file .env python -m evals.run --agent dev
 Evals also run automatically in CI on every push to `main` and on PRs targeting `main` (`.github/workflows/evals.yml`). The CI job tags each experiment with the commit SHA so any LangSmith run is traceable to the exact commit. The job exits non-zero if any agent scores below 0.8, failing the check.
 
 **The eval step is skipped automatically if `ANTHROPIC_API_KEY` or `LANGSMITH_API_KEY` is not set as a GitHub Actions secret** — the job exits 0 with a skip message rather than failing. To enable evals in CI, add both as repository secrets: GitHub → Settings → Secrets and variables → Actions.
+
+## Langfuse observability
+
+LLM call tracing via [Langfuse](https://langfuse.com) — traces, generations, token costs, and latency. Disabled by default; runs alongside LangSmith if both are configured.
+
+**Enable:**
+
+```bash
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+# LANGFUSE_HOST=https://your-self-hosted-langfuse.com  # omit for cloud
+```
+
+Every call to `complete()` in `core/llm.py` logs a `helix.<agent>` generation with model, provider, prompt, response, and token usage.
 
 ## OpenTelemetry tracing
 

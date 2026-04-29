@@ -337,6 +337,12 @@ pipeline:
 # Optional project name:   LANGSMITH_PROJECT (default: "helix")
 # Sign up at:              https://smith.langchain.com
 
+langfuse:
+  secret_key_env: LANGFUSE_SECRET_KEY     # required to enable tracing
+  public_key_env: LANGFUSE_PUBLIC_KEY     # required to enable tracing
+  host_env: LANGFUSE_HOST                 # default: https://cloud.langfuse.com
+                                          # set to your self-hosted URL if applicable
+
 langsmith:
   api_key_env: LANGSMITH_API_KEY
   project_env: LANGSMITH_PROJECT    # LangSmith project — default: "helix"
