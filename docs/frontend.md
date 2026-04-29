@@ -26,7 +26,8 @@ The Helix dashboard is a React single-page application served directly by the Cr
 /app/incidents/:incidentId     Incident detail (live SSE stream)
 /app/projects                  Project management (create projects, configure per-project credentials)
 /app/projects/new              New project wizard (repo picker → GitHub App install → credentials → done)
-/app/repos                     Repo configuration (add / remove repos)
+/app/agents                    Agent status overview
+/app/settings                  Account-level settings (LLM keys, Slack, email)
 /github                        GitHub page (repo list, App installation management)
 ```
 
@@ -47,14 +48,14 @@ The Helix dashboard is a React single-page application served directly by the Cr
 
 - Opens an SSE connection to `GET /api/stream/:incidentId` on mount
 - On connect, a `snapshot` event sends the current incident state so the UI renders immediately
-- Past events are replayed from Redis on connect — the ToolTimeline and StreamPanel are populated even for completed incidents
+- Past events are replayed from Redis on connect — the `ActivityRail` and `ToolCalls` are populated even for completed incidents
 - `status_changed` SSE events trigger a full re-fetch of incident state so QA and PR sections update in real-time
 - Sections (in order):
   1. **Back link + header** — incident ID, error type/message, severity and status badges
   2. **Pipeline tracker** — 4-step horizontal progress bar with checkmarks (Crash Analysed → Test Generated → PR Created → Merged)
-  3. **Tool call timeline** — structured live list of tool calls (see below)
-  4. **Agent activity log** — auto-scrolling dark terminal-style log
-  5. **Crash report** — error type, component, endpoint, language, source, stack trace (expandable `<details>`)
+  3. **Tool call list** — structured live list of tool calls (`ToolCalls` component)
+  4. **Agent activity rail** — auto-scrolling live event log (`ActivityRail` component)
+  5. **Crash report** — error type, component, endpoint, language, source, stack trace (expandable)
   6. **QA result** — issue link, test file path and name, test content (expandable)
   7. **PR result** — PR link, branch, fix summary, files changed, iterations taken
 
@@ -69,18 +70,23 @@ The Helix dashboard is a React single-page application served directly by the Cr
   3. Credential config — `ANTHROPIC_API_KEY`, `SENTRY_WEBHOOK_SECRET` / `ROLLBAR_ACCESS_TOKEN`, optional Slack + email
   4. Done — project is ready; webhook URLs are shown
 
+### Agents `/app/agents`
+
+- Overview of all four pipeline agents (Crash Handler, QA, Dev, Notifier)
+- Shows each agent's model, provider, and current status
+- Walkthrough component guides new users through the pipeline flow
+
+### Settings `/app/settings`
+
+- Account-level LLM key management — Anthropic, OpenRouter, Ollama `base_url`
+- Slack and email notification settings
+- Secret fields are masked on read; a Save button persists changes to `PUT /api/settings`
+
 ### GitHub page `/github`
 
 - Shows all repos accessible via the authenticated GitHub App installation
 - Displays Private/Public badge, default branch, and which Helix project monitors each repo
 - Handles the post-install `?installation_id=` redirect and manual installation ID entry
-
-### Repos `/app/repos`
-
-- Lists repos the authenticated user has configured (calls `GET /api/repos`)
-- Add form: `owner/name` repo input, base branch, language selector
-- Remove button per row (calls `DELETE /api/repos/{owner}/{name}`)
-- Changes are persisted per user in Redis via the API
 
 ---
 
@@ -88,45 +94,49 @@ The Helix dashboard is a React single-page application served directly by the Cr
 
 ```
 dashboard/src/
-  App.tsx                    Root: BrowserRouter, nav bar (Incidents, Projects, Repos, GitHub),
+  App.tsx                    Root: BrowserRouter, nav bar (Incidents, Projects, Agents, Settings, GitHub),
                              Auth0 token bridge, AuthGuard, Shell layout
   main.tsx                   Entry: wraps App in Auth0Provider when VITE_AUTH0_DOMAIN is set
-  api.ts                     Typed fetch wrappers + EventSource helper + token injection
+  authFetch.ts               Authenticated fetch wrapper — injects Bearer token; falls back gracefully
+  constants.ts               Shared types (Agent, Incident, ToolCall, etc.) and API fetch helpers
   pages/
-    IncidentList.tsx          10s polling, grouped by project
-    IncidentDetail.tsx        SSE-driven detail view with event replay
-    Projects.tsx              Project management — create, configure per-project credentials
-    Repos.tsx                 Repo add/remove UI
+    IncidentsPage.tsx         10s polling + manual refresh, grouped by project
+    IncidentDetailPage.tsx    SSE-driven detail view with event replay
+    ProjectsPage.tsx          Project management — create, configure per-project credentials
+    AgentsPage.tsx            Agent status overview with pipeline walkthrough
+    SettingsPage.tsx          Account-level LLM keys, Slack, email settings
+    GitHubPage.tsx            GitHub App repo list and installation management
+    LoginPage.tsx             Auth0 login landing page
   components/
-    PipelineProgress.tsx      Horizontal 4-step tracker (Crash → Test → PR → Merged)
-    ToolTimeline.tsx          Tool call log — rendered only when tool_call events arrive
-    StreamPanel.tsx           Auto-scrolling agent activity log (dark theme)
-    StatusBadge.tsx           Pill badge mapping status strings to colours
-    SeverityBadge.tsx         Pill badge for critical / high / medium severity
+    Pipeline.tsx              Horizontal 4-step tracker (Crash → Test → PR → Merged)
+    ToolCalls.tsx             Tool call log — rendered from tool_call SSE events
+    ActivityRail.tsx          Auto-scrolling agent activity log (live event feed)
+    Header.tsx                Top navigation bar with user dropdown and sign-out
+    Walkthrough.tsx           Step-by-step pipeline explainer for new users
+    primitives.tsx            Shared UI primitives — badges, cards, buttons
     AuthGuard.tsx             Redirects unauthenticated users to Auth0; no-op if auth disabled
-    NavUserChip.tsx           GitHub avatar + name + sign-out button (auth only)
-    TokenProviderBridge.tsx   Registers Auth0 getAccessTokenSilently with the API client
 ```
 
 ---
 
-## API Client (`api.ts`)
+## API Client
 
-All API calls go through `api.ts` which:
-1. Calls `_getToken()` (if registered via `setTokenProvider()`) to get the current Auth0 access token
-2. Attaches `Authorization: Bearer <token>` to every request
-3. Falls back gracefully if token fetch fails (server will 401 if auth is required)
+API calls use two files:
 
-### Functions
+**`authFetch.ts`** — low-level authenticated fetch. Call `setTokenGetter(fn)` once on startup (done in `App.tsx` after Auth0 login); all subsequent `authFetch(url, init)` calls automatically attach `Authorization: Bearer <token>`. Falls back gracefully when no token getter is registered.
+
+**`constants.ts`** — shared types and API fetch helpers that call `authFetch` under the hood.
+
+### Functions (in `constants.ts`)
 
 | Function | Method | Path | Description |
 |---|---|---|---|
 | `fetchIncidents()` | GET | `/api/incidents` | List all incidents |
 | `fetchIncident(id)` | GET | `/api/incidents/:id` | Single incident state |
-| `subscribeToIncident(id, onSnapshot, onProgress)` | EventSource | `/api/stream/:id` | Live SSE stream; returns cleanup function |
-| `fetchRepos()` | GET | `/api/repos` | List user's repos |
-| `addRepo(repo, branch, lang)` | POST | `/api/repos` | Add a repo |
-| `removeRepo(repo)` | DELETE | `/api/repos/:owner/:name` | Remove a repo |
+| `subscribeToIncident(id, handlers)` | EventSource | `/api/stream/:id` | Live SSE stream; returns cleanup function |
+| `fetchProjects()` | GET | `/api/projects` | List user's projects |
+| `fetchSettings()` | GET | `/api/settings` | Account-level LLM/notification settings |
+| `saveSettings(data)` | PUT | `/api/settings` | Persist account settings |
 | `fetchMe()` | GET | `/api/me` | Caller identity from JWT |
 
 ### Event types
@@ -160,9 +170,9 @@ type UIProgressEvent = AgentProgressEvent | ToolCallEvent
 
 ---
 
-## Tool Timeline
+## Tool Calls
 
-The `ToolTimeline` component appears on the incident detail page once the first `tool_call` event arrives. It shows every external integration call made by agents:
+The `ToolCalls` component appears on the incident detail page once the first `tool_call` event arrives. It shows every external integration call made by agents:
 
 | Tool | Icon | Colour | Actions shown |
 |---|---|---|---|
@@ -183,8 +193,8 @@ Auth is **optional**. The entire auth layer activates only when `VITE_AUTH0_DOMA
 1. `main.tsx` checks `VITE_AUTH0_DOMAIN` — if set, wraps the app in `Auth0Provider`
 2. `AuthGuard` calls `loginWithRedirect()` if the user is not authenticated
 3. After login (GitHub OAuth via Auth0), the user is redirected back to `/app/`
-4. `TokenProviderBridge` registers `getAccessTokenSilently` with the API client
-5. All subsequent API calls automatically include `Authorization: Bearer <token>`
+4. `App.tsx` calls `setTokenGetter(getAccessTokenSilently)` to register the token supplier
+5. All subsequent `authFetch` calls automatically include `Authorization: Bearer <token>`
 6. The SSE stream uses `?access_token=<token>` query param (EventSource can't send headers)
 
 ### Demo mode (no auth)
@@ -205,7 +215,7 @@ VITE_AUTH0_CLIENT_ID=your-spa-client-id
 VITE_AUTH0_AUDIENCE=https://api.helix.yourapp.com
 ```
 
-A custom Auth0 login page matching Helix's dark theme is at `dashboard/login.html` — paste its contents into Auth0 → Branding → Universal Login → Custom Login Page.
+The `LoginPage.tsx` component handles the in-app login landing; the Auth0 Universal Login page uses Auth0's default branding.
 
 ---
 

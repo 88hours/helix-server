@@ -59,16 +59,25 @@
 - [x] Dev Agent Anthropic key gate — TDD loop skips gracefully when no Anthropic key is configured for the project; publishes `pr_skipped` event so Notifier can inform the customer
 - [x] Dev Agent replica support — `deploy.replicas` in docker-compose; Redis Streams consumer groups distribute incidents across replicas automatically; no code changes required to scale
 - [x] SaaS architecture documentation — `docs/SAAS.md` (tenant isolation models, expected load at 100 customers, delivery phases) and `docs/TECHDECISIONS.md` (TD-001 shared streams, TD-002 Anthropic gate, TD-003 Ollama BYOK)
-- [ ] Priority queues per plan tier — Free / Pro / Team incidents route to separate Redis Stream keys; workers poll high-priority streams first
-- [ ] Worker pool per agent — multiple concurrent instances with Railway replica scaling or ECS Fargate auto-scaling on queue depth
-- [ ] GitHub App multi-org install flow — installation callback reliably saves `installation_id` per org
+- [x] Dashboard UI rebuild — new component architecture: `Pipeline`, `ActivityRail`, `ToolCalls`, `Header`, `Walkthrough`, `primitives`; all pages renamed to `*Page.tsx`; added `AgentsPage` and `SettingsPage`; removed `Repos` page
+- [x] `authFetch.ts` replaces `api.ts` — cleaner token injection; `constants.ts` consolidates shared types and API helpers
+- [x] Incident pipeline reliability — crash handler saves a stub report immediately on webhook receipt; any LLM or downstream failure leaves the incident in Redis with status `failed` instead of returning a 500 to the webhook caller
+- [x] `core/preflight.py` — startup env-var check raises on missing LLM key; warns on missing optional vars (Sentry secret, GitHub token, Rollbar token) instead of crashing at first use
+- [x] GitHub Actions release workflow — pushing a `v*` tag builds a self-contained tarball (`docker-compose.yml`, `.env.example`, `config.yaml`, `INSTALL.md`) and publishes a GitHub Release automatically
+- [x] `scripts/reset_data.py` — dev utility to wipe Redis incident keys and Postgres project/settings data without restarting containers
+- [x] GitHub App multi-org install flow — installation callback reliably saves `installation_id` per org
 - [ ] Audit trail — queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id`
 
 > **Organisation/team support** (org table, org_id in payloads, per-org noisy-neighbour limits) is deferred until a customer explicitly requires it. The current single-user-per-account model handles 100+ customers on a single Railway deployment without it.
 
 ---
 
-### Phase 7 — Axon (planned)
+### Phase 7 — Scale and Axon (planned)
+
+- [ ] Priority queues per plan tier — Free / Pro / Team incidents route to separate Redis Stream keys; workers poll high-priority streams first
+- [ ] Worker pool per agent — multiple concurrent instances with Railway replica scaling or ECS Fargate auto-scaling on queue depth
+
+#### Axon
 
 Axon is the event-driven, distributed agent infrastructure extracted from Helix's `core/` and open-sourced as a standalone Python package. It gives other teams the event bus, shared state, and LLM routing layer without requiring them to build it from scratch — the gap that LangChain leaves unfilled for distributed, multi-process agent pipelines.
 

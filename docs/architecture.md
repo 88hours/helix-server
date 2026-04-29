@@ -359,6 +359,7 @@ helix/
 │   ├── ui_events.py           # Dashboard event publishing (Redis Pub/Sub + persistence)
 │   ├── auth.py                # Auth0 JWT validation (RS256 via JWKS)
 │   ├── utils.py               # extract_json() — parses structured JSON from LLM output
+│   ├── preflight.py           # Startup env-var checks — raises on missing LLM key, warns on optional vars
 │   ├── db.py                  # Async Postgres helpers — projects, github_installations, user_settings tables
 │   └── github_app.py          # GitHub App JWT generation, installation access token fetch/cache
 ├── integrations/
@@ -370,10 +371,11 @@ helix/
 ├── dashboard/                 # React + TypeScript + Tailwind
 │   └── src/
 │       ├── App.tsx
-│       ├── api.ts
+│       ├── authFetch.ts       # Authenticated fetch wrapper (Bearer token injection)
+│       ├── constants.ts       # Shared types and API fetch helpers
 │       ├── main.tsx
-│       ├── pages/             # IncidentList, IncidentDetail, Projects, Repos, Settings
-│       └── components/        # PipelineProgress, StreamPanel, ToolTimeline, StatusBadge, …
+│       ├── pages/             # IncidentsPage, IncidentDetailPage, ProjectsPage, AgentsPage, SettingsPage, GitHubPage, LoginPage
+│       └── components/        # Pipeline, ActivityRail, ToolCalls, Header, Walkthrough, primitives, AuthGuard
 ├── evals/                     # LangSmith eval suite (datasets, evaluators, runner)
 ├── config.yaml                # Source of truth for models, Redis, permissions, LangSmith
 ├── index.html                 # Landing page
