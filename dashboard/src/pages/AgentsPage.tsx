@@ -1,111 +1,153 @@
 import { AGENTS, AgentId } from '../constants';
-import { AgentChip, Badge } from '../components/primitives';
+import { Badge, Button, Icon } from '../components/primitives';
 
-interface AgentCapability {
-  label: string;
-  desc: string;
-}
-
-const AGENT_DETAILS: Record<AgentId, { capabilities: AgentCapability[]; defaultModel: string; trigger: string }> = {
-  handler: {
-    trigger: 'Incoming webhook (Sentry / Rollbar / custom)',
-    defaultModel: 'claude-sonnet-4-6',
-    capabilities: [
-      { label: 'Crash analysis',     desc: 'Parses stack traces, extracts root cause, assesses severity.' },
-      { label: 'Deduplication',      desc: 'Detects if the crash is a known issue and skips duplicate work.' },
-      { label: 'Context enrichment', desc: 'Fetches recent commits, related issues, and affected component info.' },
-      { label: 'Routing',            desc: 'Publishes crash_analysed event to trigger the QA Agent.' },
-    ],
-  },
-  qa: {
-    trigger: 'crash_analysed event from Crash Handler',
-    defaultModel: 'claude-sonnet-4-6',
-    capabilities: [
-      { label: 'Test generation', desc: 'Writes a failing test that reproduces the crash.' },
-      { label: 'Hypothesis',      desc: 'Proposes the likely fix strategy based on the crash context.' },
-      { label: 'Coverage check',  desc: 'Verifies the new test actually fails on main before handoff.' },
-    ],
-  },
-  dev: {
-    trigger: 'test_case_generated event from QA Agent',
-    defaultModel: 'claude-code (CLI)',
-    capabilities: [
-      { label: 'Fix implementation', desc: 'Writes the minimum code change to make the failing test pass.' },
-      { label: 'Regression check',   desc: 'Runs the full test suite to confirm no regressions.' },
-      { label: 'Retry logic',        desc: 'Retries up to 3 times; escalates to human on repeated failure.' },
-      { label: 'PR creation',        desc: 'Opens a GitHub PR with fix, test, and plain-English description.' },
-    ],
-  },
-  human: {
-    trigger: 'pr_created event from Dev Agent',
-    defaultModel: 'n/a',
-    capabilities: [
-      { label: 'Slack notification', desc: 'Approval request sent to the configured Slack channel.' },
-      { label: 'PR review',          desc: 'Human approves or requests changes directly on GitHub.' },
-      { label: 'Email fallback',     desc: 'Email notification if Slack is not configured.' },
-    ],
-  },
-};
-
-interface AgentDetailCardProps {
+interface AgentMeta {
   id: AgentId;
+  role: string;
+  tagline: string;
+  desc: string;
+  tools: string[];
+  stats: Record<string, string>;
 }
 
-function AgentDetailCard({ id }: AgentDetailCardProps) {
-  const agent = AGENTS[id];
-  const details = AGENT_DETAILS[id];
+const AGENT_META: AgentMeta[] = [
+  {
+    id: 'handler',
+    role: 'Crash Handler',
+    tagline: 'First to see every crash.',
+    desc: 'Receives webhooks from Sentry / Rollbar, dedupes against open incidents, scores severity and decides whether to spin up a fix or escalate.',
+    tools: ['Sentry', 'Rollbar', 'GitHub', 'LLM'],
+    stats: { handled: '—', dedupe: '—', median: '—' },
+  },
+  {
+    id: 'qa',
+    role: 'QA Agent',
+    tagline: 'Writes the failing test first.',
+    desc: 'Reproduces the crash in a unit or integration test before any code changes happen. The dev agent only runs once QA has a red test in hand.',
+    tools: ['Git', 'Claude'],
+    stats: { handled: '—', repro: '—', median: '—' },
+  },
+  {
+    id: 'dev',
+    role: 'Dev Agent',
+    tagline: 'Makes the test pass.',
+    desc: 'Iterates on a minimal patch until the QA test goes green and existing tests still pass. Caps out at the configured max-iterations and max-files budget.',
+    tools: ['Git', 'GitHub', 'Claude'],
+    stats: { handled: '—', merged: '—', median: '—' },
+  },
+  {
+    id: 'human',
+    role: 'Human reviewer',
+    tagline: 'The last call.',
+    desc: 'You. Approves PRs the agents have prepared, or takes over when the dev agent escalates because confidence is low or the patch is too broad.',
+    tools: [],
+    stats: { reviewed: '—', approved: '—', median: '—' },
+  },
+];
+
+function AgentCard({ a }: { a: AgentMeta }) {
+  const meta = AGENTS[a.id];
+  const isHuman = a.id === 'human';
   return (
-    <div style={{
-      border: `1px solid color-mix(in oklch, ${agent.color} 25%, var(--line-2))`,
-      borderRadius: 8, overflow: 'hidden',
+    <section style={{
+      border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)',
     }}>
       {/* Header */}
       <div style={{
-        padding: '14px 16px',
-        background: `color-mix(in oklch, ${agent.color} 6%, var(--bg-2))`,
-        borderBottom: '1px solid var(--line)',
-        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '14px 16px', borderBottom: '1px solid var(--line)',
+        display: 'flex', alignItems: 'center', gap: 12,
+        background: `linear-gradient(180deg, color-mix(in oklch, ${meta.color} 6%, var(--bg-2)), var(--bg-2))`,
       }}>
-        <AgentChip id={id} size="md" />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{agent.name}</div>
-          <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 2 }}>
-            {details.trigger}
-          </div>
+        <span style={{
+          width: 36, height: 36, borderRadius: 6,
+          background: `color-mix(in oklch, ${meta.color} 14%, transparent)`,
+          border: `1px solid color-mix(in oklch, ${meta.color} 35%, transparent)`,
+          color: meta.color,
+          fontFamily: 'var(--mono)', fontSize: 18, fontWeight: 600,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          {meta.symbol}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>{a.role}</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>agent.{a.id}</div>
         </div>
-        <Badge tone="neutral">{details.defaultModel}</Badge>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%',
+            background: isHuman ? 'var(--ink-3)' : 'var(--ok)',
+            animation: isHuman ? 'none' : 'pulse-dot 1.8s ease-in-out infinite',
+          }} />
+          <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-2)' }}>
+            {isHuman ? 'on call' : 'online'}
+          </span>
+        </span>
       </div>
 
-      {/* Capabilities */}
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {details.capabilities.map(c => (
-          <div key={c.label} style={{ display: 'flex', gap: 10 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: agent.color, flexShrink: 0, marginTop: 6,
-            }}/>
-            <div>
-              <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--ink)', marginBottom: 1 }}>{c.label}</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{c.desc}</div>
+      {/* Body */}
+      <div style={{ padding: '14px 16px' }}>
+        <p style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: 18, lineHeight: 1.25, color: 'var(--ink)' }}>
+          {a.tagline}
+        </p>
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+          {a.desc}
+        </p>
+
+        <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+          {a.tools.length === 0
+            ? <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>uses no tools — that's the point</span>
+            : a.tools.map(t => <Badge key={t} tone="neutral">{t}</Badge>)
+          }
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${Object.keys(a.stats).length}, 1fr)`,
+          gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)',
+        }}>
+          {Object.entries(a.stats).map(([k, v]) => (
+            <div key={k}>
+              <div className="mono" style={{ fontSize: 16, color: 'var(--ink)', fontWeight: 500, letterSpacing: '-0.02em' }}>{v}</div>
+              <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em', marginTop: 2 }}>{k}</div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 
 export function AgentsPage() {
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 960, margin: '0 auto' }}>
-      <h2 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 600 }}>Agents</h2>
-      <p style={{ margin: '0 0 20px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-        Four agents run in sequence for each incident. Each is stateless and communicates via events.
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 16 }}>
-        {(['handler', 'qa', 'dev', 'human'] as AgentId[]).map(id => (
-          <AgentDetailCard key={id} id={id} />
-        ))}
+    <div style={{ padding: '22px 28px 60px', maxWidth: 1400, margin: '0 auto' }}>
+
+      {/* Hero header */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)',
+        alignItems: 'end', gap: 32, marginBottom: 22,
+      }}>
+        <div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Agents · 3 online · 1 human
+          </div>
+          <h1 style={{ margin: 0, fontFamily: 'var(--serif)', fontWeight: 400, fontSize: 'clamp(28px, 3.4vw, 42px)', lineHeight: 1.05, letterSpacing: '-0.02em' }}>
+            Four roles, <span style={{ color: 'var(--ink-3)' }}>one</span> pipeline.
+          </h1>
+          <p style={{ margin: '10px 0 0', maxWidth: 540, fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+            Helix splits the fix loop into specialists so each one can be tuned, rate-limited and audited
+            independently.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button variant="ghost" size="sm"><Icon.refresh size={11} /> refresh</Button>
+          <Button variant="ghost" size="sm">view audit log</Button>
+        </div>
+      </div>
+
+      {/* 2-col agent cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+        {AGENT_META.map(a => <AgentCard key={a.id} a={a} />)}
       </div>
     </div>
   );
