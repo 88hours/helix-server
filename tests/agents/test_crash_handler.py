@@ -825,7 +825,8 @@ def test_list_projects_returns_project_list(monkeypatch):
              "slack_bot_token": None, "slack_signing_secret": None, "sendgrid_api_key": None}]
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.main.get_db", return_value=_make_db_mock(mock_db)), \
-         patch("agents.crash_handler.main.db_list_projects", new=AsyncMock(return_value=rows)):
+         patch("agents.crash_handler.main.db_list_projects", new=AsyncMock(return_value=rows)), \
+         patch("agents.crash_handler.main.db_list_all_projects", new=AsyncMock(return_value=rows)):
         from agents.crash_handler.main import app
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/api/projects")
