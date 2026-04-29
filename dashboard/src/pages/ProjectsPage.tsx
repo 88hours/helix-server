@@ -100,19 +100,82 @@ function SecretField({ label, set, preview, placeholder }: {
 
 // ---- Notify row ----
 
-function NotifyRow({ kind, enabled, detail }: { kind: string; enabled: boolean; detail?: string }) {
+interface NotifyField {
+  key: string;
+  label: string;
+  placeholder: string;
+  type?: 'text' | 'password';
+  initialValue?: string;
+}
+
+function NotifyRow({ kind, enabled, detail, fields, onSave }: {
+  kind: string; enabled: boolean; detail?: string;
+  fields: NotifyField[];
+  onSave: (enabled: boolean, values: Record<string, string>) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [on, setOn] = useState(enabled);
+  const [values, setValues] = useState<Record<string, string>>(
+    () => Object.fromEntries(fields.map(f => [f.key, f.initialValue ?? '']))
+  );
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const ok = await onSave(on, values);
+    setSaving(false);
+    if (ok) setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setOn(enabled);
+    setValues(Object.fromEntries(fields.map(f => [f.key, f.initialValue ?? ''])));
+    setEditing(false);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    fontFamily: 'var(--mono)', fontSize: 12, padding: '6px 10px',
+    border: '1px solid var(--line-2)', borderRadius: 4, background: 'var(--bg)',
+    color: 'var(--ink)', width: '100%', boxSizing: 'border-box',
+  };
+
   return (
-    <div style={{
-      padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--bg)',
-      display: 'flex', alignItems: 'center', gap: 10,
-    }}>
-      <span style={{ fontSize: 12, fontWeight: 500 }}>{kind}</span>
-      {enabled ? <Badge tone="ok">on</Badge> : <Badge tone="dim">off</Badge>}
-      <span style={{ flex: 1 }}/>
-      <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {enabled ? (detail || '—') : 'not configured'}
-      </span>
-      <Button variant="ghost" size="sm">edit</Button>
+    <div style={{ border: '1px solid var(--line)', borderRadius: 6, background: 'var(--bg)', overflow: 'hidden' }}>
+      <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 500 }}>{kind}</span>
+        {(editing ? on : enabled) ? <Badge tone="ok">on</Badge> : <Badge tone="dim">off</Badge>}
+        <span style={{ flex: 1 }}/>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {enabled ? (detail || '—') : 'not configured'}
+        </span>
+        <Button variant="ghost" size="sm" onClick={() => setEditing(e => !e)}>edit</Button>
+      </div>
+      {editing && (
+        <div style={{ padding: '10px 12px', borderTop: '1px solid var(--line)', background: 'var(--bg-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} />
+            Enable {kind} notifications
+          </label>
+          {on && fields.map(f => (
+            <div key={f.key}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3, fontFamily: 'var(--mono)' }}>{f.label}</div>
+              <input
+                type={f.type ?? 'text'}
+                value={values[f.key]}
+                onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
+                placeholder={f.placeholder}
+                style={inputStyle}
+              />
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="primary" size="sm" disabled={saving} onClick={handleSave}>
+              {saving ? 'saving…' : 'save'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleCancel}>cancel</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -173,8 +236,27 @@ function ProjectSettings({ p, onSave }: { p: Project; onSave: (s: Record<string,
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
         <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Notifications</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <NotifyRow kind="Slack" enabled={p.notify.slack.enabled} detail={p.notify.slack.channel} />
-          <NotifyRow kind="Email" enabled={p.notify.email.enabled} detail={p.notify.email.to} />
+          <NotifyRow
+            kind="Slack" enabled={p.notify.slack.enabled} detail={p.notify.slack.channel}
+            fields={[
+              { key: 'slack_bot_token',      label: 'Bot Token',       placeholder: 'xoxb-…',           type: 'password' },
+              { key: 'slack_signing_secret', label: 'Signing Secret',  placeholder: 'feb56cbe…',         type: 'password' },
+              { key: 'slack_approval_channel', label: 'Approval Channel', placeholder: '#eng-incidents', initialValue: p.notify.slack.channel },
+            ]}
+            onSave={(en, vals) => {
+              const body: Record<string, string> = { slack_approval_channel: en ? (vals.slack_approval_channel || '') : '' };
+              if (vals.slack_bot_token)      body.slack_bot_token      = vals.slack_bot_token;
+              if (vals.slack_signing_secret) body.slack_signing_secret = vals.slack_signing_secret;
+              return onSave(body);
+            }}
+          />
+          <NotifyRow
+            kind="Email" enabled={p.notify.email.enabled} detail={p.notify.email.to}
+            fields={[
+              { key: 'email_to', label: 'Email address', placeholder: 'oncall@example.com', initialValue: p.notify.email.to },
+            ]}
+            onSave={(en, vals) => onSave({ email_to: en ? (vals.email_to || '') : '' })}
+          />
         </div>
       </div>
 
@@ -392,7 +474,7 @@ function StepRepo({ data, set, repos, loadingRepos }: {
           const selected = data.repo === r.full_name;
           return (
             <button key={r.full_name}
-              onClick={() => set({ repo: r.full_name, branch: r.default_branch ?? 'main', name: r.name })}
+              onClick={() => set({ repo: r.full_name, branch: r.default_branch ?? 'main', name: r.name ?? r.full_name.split('/')[1] ?? '' })}
               style={{
                 display: 'grid', gridTemplateColumns: '24px 1fr 90px 18px', gap: 12,
                 padding: '12px 14px', alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer',
@@ -583,7 +665,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   const canAdvance = () => {
     if (step === 1) return !!data.repo;
-    if (step === 2) return data.name.trim().length > 0;
+    if (step === 2) return (data.name ?? '').trim().length > 0;
     if (step === 3) return data.sources.sentry || data.sources.rollbar;
     return true;
   };
@@ -687,7 +769,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 // ---- Main page ----
 
 export function ProjectsPage() {
-  const { projects, loading, saveProjectSettings } = useProjects();
+  const { projects, loading, saveProjectSettings, reload } = useProjects();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ name: string; repo: string } | null>(null);
@@ -756,7 +838,7 @@ export function ProjectsPage() {
       {showNew && (
         <NewProjectModal
           onClose={() => setShowNew(false)}
-          onCreated={(name, repo) => { setCreated({ name, repo }); window.location.reload(); }}
+          onCreated={(name, repo) => { setCreated({ name, repo }); setShowNew(false); reload(); }}
         />
       )}
     </div>

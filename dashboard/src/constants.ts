@@ -164,7 +164,7 @@ export function mapApiProject(raw: Record<string, unknown>): Project {
       rollbar:   { set: raw.rollbar_access_token === '***',  preview: raw.rollbar_access_token === '***' ? '••••••• (set)' : '' },
     },
     notify: {
-      slack: { enabled: !!(raw.slack_bot_token && raw.slack_approval_channel), channel: (raw.slack_approval_channel as string) || '' },
+      slack: { enabled: !!(raw.slack_approval_channel), channel: (raw.slack_approval_channel as string) || '' },
       email: { enabled: !!(raw.email_to), to: (raw.email_to as string) || '' },
     },
   };
@@ -218,6 +218,7 @@ export function useProjects(): {
   projects: Project[];
   loading: boolean;
   saveProjectSettings: (id: string, settings: Record<string, string>) => Promise<boolean>;
+  reload: () => void;
 } {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -244,7 +245,7 @@ export function useProjects(): {
     return res.ok;
   };
 
-  return { projects, loading, saveProjectSettings };
+  return { projects, loading, saveProjectSettings, reload };
 }
 
 export interface Settings {
