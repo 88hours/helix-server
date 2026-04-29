@@ -1,90 +1,108 @@
 import { useState, useEffect, useRef } from 'react';
 import { useIncident, useActivityStream, Incident, ApiIncidentDetail, AgentId } from '../constants';
-import { Badge, StatusPill, Severity, AgentChip, Icon, Button } from '../components/primitives';
+import { StatusPill, Severity, Icon, Button, Field } from '../components/primitives';
 import { Pipeline, incidentToPipelineStages } from '../components/Pipeline';
 import { ToolCallsList, PRDiff, ToolCall, DiffHunk } from '../components/ToolCalls';
 import { ActivityRail, ActivityEvent } from '../components/ActivityRail';
 
-interface CrashReportProps {
-  data: Record<string, unknown>;
-}
+function CrashReport({ data, incident }: { data: Record<string, unknown>; incident: Incident }) {
+  const [stackOpen, setStackOpen] = useState(false);
+  const trace = Array.isArray(data.stack_trace)
+    ? data.stack_trace as Array<{ file: string; line: number; fn: string; highlight?: boolean }>
+    : [];
 
-function CrashReport({ data }: CrashReportProps) {
-  const [open, setOpen] = useState(true);
-  const trace = Array.isArray(data.stack_trace) ? data.stack_trace as Array<{ file: string; line: number; fn: string; highlight?: boolean }> : [];
   return (
-    <div style={{ border: '1px solid var(--line-2)', borderRadius: 6, overflow: 'hidden', marginBottom: 16 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-          padding: '8px 12px', background: 'var(--bg-2)', borderBottom: open ? '1px solid var(--line)' : 'none',
-          border: 'none', cursor: 'pointer',
-        }}
-      >
-        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1, textAlign: 'left' }}>
-          Crash Report
+    <section style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', overflow: 'hidden' }}>
+      <div style={{
+        padding: '10px 14px', borderBottom: '1px solid var(--line)',
+        background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <span className="mono" style={{ fontSize: 10.5, letterSpacing: '0.1em', color: 'var(--ink-3)', textTransform: 'uppercase' }}>
+          Crash report
         </span>
-        <Icon.chev size={10} dir={open ? 'down' : 'right'} />
-      </button>
-      {open && (
-        <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {data.error_type != null && (
-            <div>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Error</span>
-              <span style={{ fontWeight: 600, color: 'var(--crash)', fontFamily: 'var(--mono)', fontSize: 12 }}>{String(data.error_type)}</span>
-              {data.error_message != null && <span style={{ color: 'var(--ink-2)', fontFamily: 'var(--mono)', fontSize: 11, marginLeft: 8 }}>{String(data.error_message)}</span>}
-            </div>
-          )}
-          {trace.length > 0 && (
-            <div>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Stack Trace</span>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 11, lineHeight: 1.6 }}>
-                {trace.map((f, i) => (
-                  <div key={i} style={{
-                    padding: '2px 6px', borderRadius: 3,
-                    background: f.highlight ? 'oklch(0.95 0.04 25 / 0.5)' : 'transparent',
-                    color: f.highlight ? 'var(--crash)' : 'var(--ink-2)',
-                  }}>
-                    <span style={{ color: 'var(--ink-3)' }}>at </span>
-                    <span style={{ fontWeight: f.highlight ? 600 : 400 }}>{f.fn}</span>
-                    <span style={{ color: 'var(--ink-3)' }}> ({f.file}:{f.line})</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {data.summary != null && (
-            <div>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>Summary</span>
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>{String(data.summary)}</p>
+        {data.source != null && (
+          <>
+            <span style={{ color: 'var(--ink-3)' }}>·</span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-2)' }}>{String(data.source)}</span>
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: '16px 18px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        <Field label="Error type" value={String(data.error_type ?? incident.error)} mono />
+        <Field label="Component" value={String(data.affected_component ?? incident.component)} />
+        <Field label="Endpoint" value={String(data.endpoint ?? '—')} mono />
+        <Field label="Language" value={String(data.language ?? '—')} mono />
+        <Field label="Source" value={String(data.source ?? '—')} />
+        <Field label="Detected" value={incident.createdAt} />
+        <Field label="Occurrences" value={`${incident.occurrences ?? 0}× · ${incident.users ?? 0} users`} />
+        <Field label="Dedupe hash" value={incident.short} mono />
+      </div>
+
+      {data.summary != null && (
+        <div style={{ padding: '0 18px 16px' }}>
+          <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+            Summary
+          </div>
+          <p style={{ margin: 0, fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.6, maxWidth: 800 }}>
+            {String(data.summary)}
+          </p>
+        </div>
+      )}
+
+      {trace.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--line)' }}>
+          <button
+            onClick={() => setStackOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '10px 18px', width: '100%', textAlign: 'left',
+              fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--ink-2)',
+              background: 'none', border: 'none', cursor: 'pointer',
+            }}
+          >
+            <Icon.chev size={11} dir={stackOpen ? 'down' : 'right'} />
+            Stack trace
+            <span style={{ color: 'var(--ink-3)' }}>{trace.length} frames</span>
+          </button>
+          {stackOpen && (
+            <div style={{ padding: '6px 18px 16px', fontFamily: 'var(--mono)', fontSize: 12 }}>
+              {trace.map((f, i) => (
+                <div key={i} style={{
+                  padding: '4px 8px',
+                  background: f.highlight ? 'oklch(0.97 0.04 25)' : 'transparent',
+                  borderLeft: f.highlight ? '2px solid var(--crash)' : '2px solid transparent',
+                  color: f.highlight ? 'var(--crash)' : 'var(--ink-2)',
+                }}>
+                  <span>{f.file}:{f.line}</span>
+                  <span style={{ color: 'var(--ink-3)' }}> in </span>
+                  <span>{f.fn}()</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-function parseToolCallsFromDetail(detail: ApiIncidentDetail): ToolCall[] {
+function parseToolCalls(detail: ApiIncidentDetail): ToolCall[] {
   const calls: ToolCall[] = [];
   const pr = detail.pr_result;
   if (!pr) return calls;
-
   const agentOrder: AgentId[] = ['handler', 'qa', 'dev'];
   agentOrder.forEach(agent => {
     const agentData = (pr as Record<string, unknown>)[agent] as Record<string, unknown> | undefined;
-    if (!agentData) return;
-    const toolCalls = agentData.tool_calls as Array<Record<string, unknown>> | undefined;
+    const toolCalls = agentData?.tool_calls as Array<Record<string, unknown>> | undefined;
     if (!toolCalls) return;
     toolCalls.forEach((tc, i) => {
       calls.push({
-        id: `${agent}-${i}`,
-        agent,
-        tool: String(tc.tool || 'LLM'),
-        input: String(tc.input || ''),
+        id: `${agent}-${i}`, agent,
+        tool: String(tc.tool ?? 'LLM'),
+        input: String(tc.input ?? ''),
         output: tc.output ? String(tc.output) : undefined,
-        ts: String(tc.ts || ''),
+        ts: String(tc.ts ?? ''),
         durationMs: tc.duration_ms as number | undefined,
       });
     });
@@ -92,12 +110,10 @@ function parseToolCallsFromDetail(detail: ApiIncidentDetail): ToolCall[] {
   return calls;
 }
 
-function parseDiffFromDetail(detail: ApiIncidentDetail): DiffHunk[] {
+function parseDiff(detail: ApiIncidentDetail): DiffHunk[] {
   const pr = detail.pr_result as Record<string, unknown> | null;
-  if (!pr) return [];
-  const devData = pr.dev as Record<string, unknown> | undefined;
-  if (!devData) return [];
-  const diff = devData.diff as Array<Record<string, unknown>> | string | undefined;
+  const devData = pr?.dev as Record<string, unknown> | undefined;
+  const diff = devData?.diff as Array<Record<string, unknown>> | string | undefined;
   if (!diff) return [];
   if (typeof diff === 'string') {
     return [{ file: 'patch', lines: diff.split('\n').map(line => ({
@@ -106,10 +122,10 @@ function parseDiffFromDetail(detail: ApiIncidentDetail): DiffHunk[] {
     })) }];
   }
   return (diff as Array<Record<string, unknown>>).map(d => ({
-    file: String(d.file || 'unknown'),
-    lines: (d.lines as Array<Record<string, unknown>> || []).map(l => ({
-      type: String(l.type || ' ') as '+' | '-' | ' ',
-      text: String(l.text || ''),
+    file: String(d.file ?? 'unknown'),
+    lines: (d.lines as Array<Record<string, unknown>> ?? []).map(l => ({
+      type: String(l.type ?? ' ') as '+' | '-' | ' ',
+      text: String(l.text ?? ''),
     })),
   }));
 }
@@ -121,11 +137,10 @@ interface IncidentDetailPageProps {
   pipelineLayout: 'horizontal' | 'vertical';
 }
 
-export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelineLayout }: IncidentDetailPageProps) {
+export function IncidentDetailPage({ incident, onBack, showActivityRail }: IncidentDetailPageProps) {
   const { data: detail } = useIncident(incident?.id ?? null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
-  const [activeTab, setActiveTab] = useState<'trace' | 'diff'>('trace');
   const evIdRef = useRef(0);
 
   useActivityStream(incident?.id ?? null, (type, data) => {
@@ -139,9 +154,7 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
   });
 
   useEffect(() => {
-    if (detail) {
-      setToolCalls(parseToolCallsFromDetail(detail));
-    }
+    if (detail) setToolCalls(parseToolCalls(detail));
   }, [detail]);
 
   if (!incident) {
@@ -153,88 +166,89 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
   }
 
   const stages = incidentToPipelineStages(incident.status);
-  const diff = detail ? parseDiffFromDetail(detail) : [];
+  const diff = detail ? parseDiff(detail) : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 44px)' }}>
-      {/* Header bar */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 20px', borderBottom: '1px solid var(--line)',
-        flexShrink: 0, background: 'var(--bg)',
-      }}>
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <Icon.chev dir="left" size={10} /> back
-        </Button>
-        <span style={{ width: 1, height: 16, background: 'var(--line-2)' }}/>
-        <Badge tone="neutral">{incident.short}</Badge>
-        <span style={{ fontWeight: 500, fontSize: 13, color: 'var(--ink)', flex: 1 }}>
-          {incident.error}
-        </span>
-        <Severity level={incident.severity} />
-        <StatusPill status={incident.status} />
-      </div>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: showActivityRail ? 'minmax(0, 1fr) 420px' : '1fr',
+      gap: 16,
+      padding: '16px 22px 40px',
+      maxWidth: 1600, margin: '0 auto',
+    }}>
 
-      {/* Body */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {/* Left panel */}
-        <div style={{ width: showActivityRail ? 380 : '50%', flexShrink: 0, overflowY: 'auto', padding: '16px 20px', borderRight: '1px solid var(--line)' }}>
-          {/* Pipeline */}
-          <div style={{ marginBottom: 20 }}>
-            <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 10 }}>Pipeline</span>
-            <Pipeline stages={stages} layout={pipelineLayout} />
-          </div>
+      {/* Main column */}
+      <div style={{ minWidth: 0 }}>
+        {/* Breadcrumb */}
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={onBack}
+            className="mono"
+            style={{
+              fontSize: 11, color: 'var(--ink-3)', padding: '3px 6px',
+              border: '1px solid var(--line-2)', borderRadius: 4, background: 'var(--bg-2)',
+              cursor: 'pointer',
+            }}
+          >
+            ← all incidents
+          </button>
 
-          {/* Crash report */}
-          {detail?.crash_report && <CrashReport data={detail.crash_report} />}
-
-          {/* Meta */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {incident.summary && (
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>{incident.summary}</p>
-            )}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {incident.component && <AgentChip id="handler" />}
-              <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{incident.createdAt}</span>
+          {/* Title row */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginTop: 14 }}>
+            <div style={{ minWidth: 0 }}>
+              <div className="mono" style={{ fontSize: 12, color: 'var(--accent)', letterSpacing: '0.01em', marginBottom: 4 }}>
+                {incident.id}
+              </div>
+              <h1 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: 42, fontWeight: 400, letterSpacing: '-0.02em', lineHeight: 1.05 }}>
+                <span style={{ color: 'var(--crash)' }}>{incident.error}</span>
+                <span style={{ color: 'var(--ink-3)' }}> in </span>
+                <span className="mono" style={{ fontSize: 30, color: 'var(--ink)' }}>{incident.component}</span>
+              </h1>
+              {incident.message && (
+                <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--ink-2)' }}>
+                  <span className="mono" style={{ fontSize: 13 }}>{incident.message}</span>
+                </p>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+              <Severity level={incident.severity} />
+              <StatusPill status={incident.status} />
+              <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 4px' }} />
+              <Button variant="ghost" size="sm"><Icon.refresh size={11} /> rerun</Button>
+              {incident.status === 'approval' && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => incident.prUrl ? window.open(incident.prUrl, '_blank', 'noopener,noreferrer') : undefined}
+                >
+                  <Icon.check size={11} /> approve PR
+                </Button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Right panel - tool calls / diff */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-          {/* Tabs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '0 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-            {(['trace', 'diff'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className="mono"
-                style={{
-                  fontSize: 11, letterSpacing: '0.04em', padding: '10px 12px', border: 'none',
-                  borderBottom: `2px solid ${activeTab === tab ? 'var(--accent)' : 'transparent'}`,
-                  background: 'none', cursor: 'pointer',
-                  color: activeTab === tab ? 'var(--ink)' : 'var(--ink-3)',
-                  marginBottom: -1,
-                }}
-              >
-                {tab === 'trace' ? 'agent trace' : 'pr diff'}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16, minHeight: 0 }}>
-            {activeTab === 'trace' && <ToolCallsList calls={toolCalls} />}
-            {activeTab === 'diff' && <PRDiff hunks={diff} prUrl={incident.prUrl} />}
-          </div>
+        {/* Pipeline */}
+        <div style={{ marginBottom: 16 }}>
+          <Pipeline stages={stages} layout="horizontal" />
         </div>
 
-        {/* Activity rail */}
-        {showActivityRail && (
-          <div style={{ width: 300, flexShrink: 0, borderLeft: '1px solid var(--line)', padding: 12, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <ActivityRail events={events} title="live stream" />
-          </div>
-        )}
+        {/* Content stacked */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <ToolCallsList calls={toolCalls} />
+          <PRDiff hunks={diff} prUrl={incident.prUrl} />
+          {detail?.crash_report && (
+            <CrashReport data={detail.crash_report} incident={incident} />
+          )}
+        </div>
       </div>
+
+      {/* Activity rail */}
+      {showActivityRail && (
+        <div style={{ minWidth: 0 }}>
+          <ActivityRail events={events} title="live stream" />
+        </div>
+      )}
     </div>
   );
 }

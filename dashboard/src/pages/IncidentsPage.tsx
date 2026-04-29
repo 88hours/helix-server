@@ -1,135 +1,139 @@
 import { useState } from 'react';
 import { Incident, AGENTS, AgentId } from '../constants';
-import { Badge, StatusPill, Severity, Icon, Spark } from '../components/primitives';
+import { StatusPill, Icon, Button } from '../components/primitives';
 
-type Filter = 'all' | 'review' | 'fixed' | 'failed';
+type Filter = 'all' | 'active' | 'pr' | 'approval' | 'merged' | 'duplicate' | 'failed';
+type SevFilter = 'any' | 'high' | 'medium' | 'low';
 
-interface FilterChipProps {
-  label: string;
-  active: boolean;
-  count?: number;
-  onClick: () => void;
-}
-
-function FilterChip({ label, active, count, onClick }: FilterChipProps) {
+function FilterChip({ active, children, count, onClick }: {
+  active: boolean; children: React.ReactNode; count?: number; onClick: () => void;
+}) {
   return (
-    <button onClick={onClick} className="mono" style={{
-      fontSize: 10.5, letterSpacing: '0.04em',
-      padding: '4px 8px', borderRadius: 4,
-      background: active ? 'var(--ink)' : 'var(--bg-2)',
-      border: `1px solid ${active ? 'var(--ink)' : 'var(--line-2)'}`,
-      color: active ? 'var(--bg)' : 'var(--ink-2)',
-      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+    <button onClick={onClick} style={{
+      fontFamily: 'var(--mono)', fontSize: 11.5,
+      padding: '4px 9px', borderRadius: 4,
+      color: active ? 'var(--ink)' : 'var(--ink-2)',
+      background: active ? 'var(--bg)' : 'transparent',
+      border: active ? '1px solid var(--line-2)' : '1px solid transparent',
+      boxShadow: active ? '0 1px 0 oklch(0.22 0.01 260 / 0.03)' : 'none',
+      display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
     }}>
-      {label}
-      {count !== undefined && (
-        <span style={{ opacity: 0.7, fontSize: 10 }}>{count}</span>
-      )}
+      {children}
+      {count != null && <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{count}</span>}
     </button>
   );
 }
 
-interface StatProps {
-  label: string;
-  value: string | number;
-  color?: string;
-  spark?: number[];
-}
-
-function Stat({ label, value, color, spark }: StatProps) {
+function StatCard({ value, label, accent, small }: { value: string; label: string; accent?: string; small?: boolean }) {
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: 4,
-      padding: '12px 16px',
-      background: 'var(--bg-2)',
-      border: '1px solid var(--line)',
-      borderRadius: 6,
-      flex: 1,
-    }}>
-      <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-        {label}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 22, fontWeight: 600, color: color ?? 'var(--ink)', letterSpacing: '-0.02em', lineHeight: 1 }}>
-          {value}
-        </span>
-        {spark && spark.length > 0 && <Spark points={spark} color={color ?? 'var(--ink-3)'} />}
+    <div style={{ padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg-2)', minWidth: 0 }}>
+      <div className="mono" style={{
+        fontSize: small ? 18 : 24, color: accent ?? 'var(--ink)',
+        lineHeight: 1, letterSpacing: '-0.02em', fontWeight: 500, whiteSpace: 'nowrap',
+      }}>
+        {value}
+      </div>
+      <div style={{ marginTop: 6 }}>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>{label}</span>
       </div>
     </div>
   );
 }
 
 function agentsForStatus(status: string): AgentId[] {
-  if (['analysing'].includes(status)) return ['handler'];
-  if (['testing'].includes(status)) return ['handler', 'qa'];
-  if (['fixing', 'pr'].includes(status)) return ['handler', 'qa', 'dev'];
-  if (['approval', 'merged'].includes(status)) return ['handler', 'qa', 'dev', 'human'];
-  return [];
+  if (status === 'duplicate' || status === 'failed') return ['handler'];
+  if (status === 'analysing') return ['handler'];
+  if (status === 'testing') return ['handler', 'qa'];
+  return ['handler', 'qa', 'dev'];
 }
 
-interface MiniPipelineProps {
-  status: string;
-}
-
-function MiniPipeline({ status }: MiniPipelineProps) {
+function AgentChips({ status }: { status: string }) {
   const agents = agentsForStatus(status);
-  const allAgents: AgentId[] = ['handler', 'qa', 'dev', 'human'];
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {agents.map(a => (
+        <span key={a} title={AGENTS[a].name} style={{
+          width: 20, height: 20, borderRadius: 3,
+          background: `color-mix(in oklch, ${AGENTS[a].color} 14%, transparent)`,
+          border: `1px solid color-mix(in oklch, ${AGENTS[a].color} 35%, transparent)`,
+          color: AGENTS[a].color,
+          fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {AGENTS[a].short.slice(0, 2)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MiniPipeline({ inc }: { inc: Incident }) {
+  const progress = inc.progress ?? 0;
+  if (inc.status === 'duplicate') {
+    return (
+      <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        ↳ dup of <span style={{ color: 'var(--accent)' }}>{inc.duplicateOf ?? '—'}</span>
+      </div>
+    );
+  }
+  if (inc.status === 'failed') {
+    return (
+      <div className="mono" style={{ fontSize: 11, color: 'var(--crash)' }}>
+        {inc.note ?? 'escalated'}
+      </div>
+    );
+  }
+  const segs: AgentId[] = ['handler', 'qa', 'dev', 'dev', 'human'];
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-      {allAgents.map((id, i) => {
-        const done = agents.includes(id);
-        const color = AGENTS[id].color;
+      {segs.map((a, i) => {
+        const filled = progress >= (i + 1) / segs.length - 0.08;
         return (
-          <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <div style={{
-              width: 8, height: 8, borderRadius: 2,
-              background: done ? color : 'var(--bg-3)',
-              border: `1px solid ${done ? color : 'var(--line-2)'}`,
-            }}/>
-            {i < allAgents.length - 1 && (
-              <div style={{ width: 6, height: 1, background: done ? 'var(--line-2)' : 'var(--line)' }}/>
-            )}
-          </div>
+          <span key={i} style={{
+            flex: 1, height: 4, borderRadius: 2,
+            background: filled ? AGENTS[a].color : 'var(--bg-3)',
+            border: filled ? 'none' : '1px solid var(--line-2)',
+          }} />
         );
       })}
     </div>
   );
 }
 
-interface IncidentRowProps {
-  inc: Incident;
-  onClick: () => void;
-}
-
-function IncidentRow({ inc, onClick }: IncidentRowProps) {
+function IncidentRow({ inc, onClick }: { inc: Incident; onClick: () => void }) {
   return (
-    <div
-      onClick={onClick}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '20px 1fr 120px 110px 110px 90px',
-        alignItems: 'center', gap: 12,
-        padding: '9px 16px',
-        borderBottom: '1px solid var(--line)',
-        cursor: 'pointer',
-        transition: 'background 100ms',
-      }}
+    <div onClick={onClick} style={{
+      display: 'grid',
+      gridTemplateColumns: '150px 1fr 180px 140px 110px 120px',
+      gap: 16, padding: '14px 16px',
+      borderTop: '1px solid var(--line)',
+      alignItems: 'center', cursor: 'pointer',
+      transition: 'background 120ms',
+    }}
       onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-2)')}
       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
     >
-      <Severity level={inc.severity} />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 500, fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {inc.error}
-        </div>
-        <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {inc.message || inc.component}
-        </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="mono" style={{ fontSize: 11.5, color: 'var(--accent)' }}>{inc.short}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{inc.component}</span>
       </div>
-      <MiniPipeline status={inc.status} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <span className="mono" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{inc.error}</span>
+        <span style={{ fontSize: 11.5, color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {inc.message}
+        </span>
+      </div>
+      <MiniPipeline inc={inc} />
+      <AgentChips status={inc.status} />
       <StatusPill status={inc.status} />
-      <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{inc.createdAt}</span>
-      <Badge tone="neutral">{inc.short}</Badge>
+      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{inc.createdAt}</span>
+        {(inc.occurrences > 0 || inc.users > 0) && (
+          <span style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>
+            {inc.occurrences}× · {inc.users} user{inc.users !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -142,69 +146,108 @@ interface IncidentsPageProps {
 
 export function IncidentsPage({ incidents, loading, onOpen }: IncidentsPageProps) {
   const [filter, setFilter] = useState<Filter>('all');
-  const [search, setSearch] = useState('');
+  const [severity, setSeverity] = useState<SevFilter>('any');
 
-  const needsReview = incidents.filter(i => i.status === 'approval').length;
-  const autoFixed   = incidents.filter(i => ['pr', 'merged'].includes(i.status)).length;
-  const failed      = incidents.filter(i => i.status === 'failed').length;
+  const counts: Record<string, number> = {
+    all:       incidents.length,
+    active:    incidents.filter(i => !['merged', 'duplicate', 'failed'].includes(i.status)).length,
+    pr:        incidents.filter(i => i.status === 'pr').length,
+    approval:  incidents.filter(i => i.status === 'approval').length,
+    merged:    incidents.filter(i => i.status === 'merged').length,
+    duplicate: incidents.filter(i => i.status === 'duplicate').length,
+    failed:    incidents.filter(i => i.status === 'failed').length,
+  };
+
+  const prs = incidents.filter(i => ['pr', 'merged'].includes(i.status)).length;
+  const needsReview = counts.approval;
 
   const filtered = incidents.filter(inc => {
-    if (filter === 'review' && inc.status !== 'approval') return false;
-    if (filter === 'fixed'  && !['pr', 'merged'].includes(inc.status)) return false;
-    if (filter === 'failed' && inc.status !== 'failed') return false;
-    if (search && !inc.error.toLowerCase().includes(search.toLowerCase()) &&
-        !inc.message.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filter === 'active' && ['merged', 'duplicate', 'failed'].includes(inc.status)) return false;
+    if (filter !== 'all' && filter !== 'active' && inc.status !== filter) return false;
+    if (severity !== 'any' && inc.severity !== severity) return false;
     return true;
   });
 
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 1100, margin: '0 auto' }}>
-      {/* Stats row */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        <Stat label="Total"         value={incidents.length} />
-        <Stat label="Auto-fixed"    value={autoFixed}   color="var(--ok)" />
-        <Stat label="Needs review"  value={needsReview} color="var(--warn)" />
-        <Stat label="Failed"        value={failed}      color="var(--crash)" />
+    <div style={{ padding: '22px 28px 60px', maxWidth: 1400, margin: '0 auto' }}>
+
+      {/* Hero block */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)',
+        alignItems: 'end', gap: 32, marginBottom: 26,
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Incidents · last 7 days
+          </div>
+          {loading ? (
+            <h1 style={{ margin: 0, fontFamily: 'var(--serif)', fontWeight: 400, fontSize: 'clamp(28px, 3.6vw, 46px)', lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--ink-3)' }}>
+              Loading…
+            </h1>
+          ) : incidents.length === 0 ? (
+            <h1 style={{ margin: 0, fontFamily: 'var(--serif)', fontWeight: 400, fontSize: 'clamp(28px, 3.6vw, 46px)', lineHeight: 1.05, letterSpacing: '-0.02em' }}>
+              No incidents yet.
+              <span style={{ color: 'var(--ink-3)' }}> Send a crash to get started.</span>
+            </h1>
+          ) : (
+            <h1 style={{ margin: 0, fontFamily: 'var(--serif)', fontWeight: 400, fontSize: 'clamp(28px, 3.6vw, 46px)', lineHeight: 1.05, letterSpacing: '-0.02em' }}>
+              <span style={{ color: 'var(--ok)' }}>{incidents.length} crash{incidents.length !== 1 ? 'es' : ''}</span>
+              <span style={{ color: 'var(--ink-3)' }}> became </span>
+              <span style={{ color: 'var(--ok)' }}>{prs} pull request{prs !== 1 ? 's' : ''}</span>.
+              {needsReview > 0 && (
+                <><br /><span style={{ color: 'var(--ink-3)' }}>{needsReview} need{needsReview !== 1 ? '' : 's'} your review.</span></>
+              )}
+            </h1>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, minWidth: 0 }}>
+          <StatCard value={String(incidents.length)} label="incidents" />
+          <StatCard value={String(prs)} label="PRs" accent="var(--ok)" />
+          <StatCard value={String(counts.merged)} label="merged" accent="var(--ok)" />
+          <StatCard value="—" label="median fix" small />
+        </div>
       </div>
 
-      {/* Filters + search */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <FilterChip label="all"          active={filter === 'all'}    count={incidents.length} onClick={() => setFilter('all')} />
-        <FilterChip label="needs review" active={filter === 'review'} count={needsReview}      onClick={() => setFilter('review')} />
-        <FilterChip label="auto-fixed"   active={filter === 'fixed'}  count={autoFixed}        onClick={() => setFilter('fixed')} />
-        <FilterChip label="failed"       active={filter === 'failed'} count={failed}           onClick={() => setFilter('failed')} />
-        <div style={{ flex: 1 }}/>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', border: '1px solid var(--line-2)', borderRadius: 4, background: 'var(--bg-2)' }}>
-          <Icon.search size={11} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="search errors…"
-            style={{
-              font: 'inherit', fontFamily: 'var(--mono)', fontSize: 11,
-              background: 'none', border: 'none', outline: 'none',
-              color: 'var(--ink)', width: 160,
-            }}
-          />
-        </div>
+      {/* Filter bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '8px 10px', border: '1px solid var(--line)',
+        borderRadius: 8, background: 'var(--bg-2)', marginBottom: 14,
+      }}>
+        <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginRight: 6 }}>filter</span>
+        {(['all', 'active', 'pr', 'approval', 'merged', 'duplicate', 'failed'] as Filter[]).map(k => (
+          <FilterChip key={k} active={filter === k} onClick={() => setFilter(k)} count={counts[k]}>
+            {k}
+          </FilterChip>
+        ))}
+        <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 8px' }} />
+        <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>severity</span>
+        {(['any', 'high', 'medium', 'low'] as SevFilter[]).map(k => (
+          <FilterChip key={k} active={severity === k} onClick={() => setSeverity(k)}>
+            {k}
+          </FilterChip>
+        ))}
+        <span style={{ flex: 1 }} />
+        <Button variant="ghost" size="sm"><Icon.refresh size={11} /> refresh</Button>
+        <Button variant="subtle" size="sm">newest ↓</Button>
       </div>
 
       {/* Table */}
-      <div style={{ border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden' }}>
-        {/* Table header */}
+      <div style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', overflow: 'hidden' }}>
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: '20px 1fr 120px 110px 110px 90px',
-          gap: 12, padding: '7px 16px',
+          display: 'grid', gridTemplateColumns: '150px 1fr 180px 140px 110px 120px',
+          gap: 16, padding: '10px 16px',
           background: 'var(--bg-2)', borderBottom: '1px solid var(--line)',
+          fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--ink-3)',
+          letterSpacing: '0.1em', textTransform: 'uppercase',
         }}>
-          {['', 'error', 'pipeline', 'status', 'time', 'id'].map(h => (
-            <span key={h} className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              {h}
-            </span>
-          ))}
+          <span>Incident</span>
+          <span>Error</span>
+          <span>Pipeline</span>
+          <span>Agents</span>
+          <span>Status</span>
+          <span style={{ textAlign: 'right' }}>Opened</span>
         </div>
-
         {loading ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--ink-3)' }} className="mono">
             loading…
@@ -214,12 +257,9 @@ export function IncidentsPage({ incidents, loading, onOpen }: IncidentsPageProps
             {incidents.length === 0 ? 'no incidents yet — send a crash to get started' : 'no matches'}
           </div>
         ) : (
-          filtered.map(inc => (
-            <IncidentRow key={inc.id} inc={inc} onClick={() => onOpen(inc.id)} />
-          ))
+          filtered.map(inc => <IncidentRow key={inc.id} inc={inc} onClick={() => onOpen(inc.id)} />)
         )}
       </div>
     </div>
   );
 }
-
