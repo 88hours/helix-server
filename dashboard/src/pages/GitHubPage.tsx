@@ -1,4 +1,4 @@
-import { authFetch } from '../lib/authFetch';
+import { authFetch } from '../authFetch';
 import { useState, useEffect } from 'react';
 import { Badge, Button, Icon, LiveDot, Field } from '../components/primitives';
 
@@ -78,7 +78,7 @@ export function GitHubPage({ onGo }: GitHubPageProps) {
 
   const loadRepos = () => {
     authFetch('/api/github/repos')
-      .then(r => r.ok ? r.json() : null)
+      .then((r: Response) => r.ok ? r.json() : null)
       .then((d: { repos?: Repo[]; install_url?: string; installation_id?: string } | null) => {
         if (!d) return;
         if (d.repos) { setRepos(d.repos); setInstalled(true); }
@@ -91,11 +91,11 @@ export function GitHubPage({ onGo }: GitHubPageProps) {
   useEffect(() => {
     loadRepos();
     authFetch('/api/github/install-url')
-      .then(r => r.ok ? r.json() : null)
+      .then((r: Response) => r.ok ? r.json() : null)
       .then((d: { install_url?: string } | null) => { if (d?.install_url) setInstallUrl(d.install_url); })
       .catch(() => {});
     authFetch('/api/projects')
-      .then(r => r.ok ? r.json() : null)
+      .then((r: Response) => r.ok ? r.json() : null)
       .then((d: { projects?: Project[] } | null) => { if (d?.projects) setProjects(d.projects); })
       .catch(() => {});
   }, []);

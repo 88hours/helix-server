@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { authFetch } from './lib/authFetch';
+import { authFetch } from './authFetch';
 
 // ---- Types ----
 
@@ -179,7 +179,7 @@ export function useIncidents(): { incidents: Incident[]; loading: boolean; reloa
   const reload = () => {
     setLoading(true);
     authFetch('/api/incidents')
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((r: Response) => r.ok ? r.json() : Promise.reject(r.status))
       .then((d: { incidents?: Record<string, unknown>[] }) => {
         setIncidents((d.incidents || []).map(mapApiIncident));
         setLoading(false);

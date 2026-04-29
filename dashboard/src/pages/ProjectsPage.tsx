@@ -1,4 +1,4 @@
-import { authFetch } from '../lib/authFetch';
+import { authFetch } from '../authFetch';
 import { useState, useEffect } from 'react';
 import { Project, useProjects } from '../constants';
 import { Badge, Button, Icon, Spark } from '../components/primitives';
@@ -697,7 +697,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   useEffect(() => {
     authFetch('/api/github/repos')
-      .then(r => r.ok ? r.json() : null)
+      .then((r: Response) => r.ok ? r.json() : null)
       .then((d: { repos?: GithubRepo[] } | null) => { if (d?.repos) setRepos(d.repos); setLoadingRepos(false); })
       .catch(() => setLoadingRepos(false));
   }, []);
