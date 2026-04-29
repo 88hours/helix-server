@@ -45,7 +45,7 @@ function UserMenu({ onEditMode }: { onEditMode: () => void }) {
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
         {user?.picture ? (
-          <img src={user.picture} alt={displayName} style={{ width: 22, height: 22, borderRadius: '50%', border: '1px solid var(--line-2)' }} />
+          <img src={user.picture} alt={displayName} referrerPolicy="no-referrer" style={{ width: 22, height: 22, borderRadius: '50%', border: '1px solid var(--line-2)' }} />
         ) : (
           <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg, oklch(0.65 0.15 40), oklch(0.55 0.15 280))', border: '1px solid var(--line-2)' }} />
         )}
@@ -89,7 +89,6 @@ function UserMenu({ onEditMode }: { onEditMode: () => void }) {
 }
 
 export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode }: HeaderProps) {
-  void useAuth0();
 
   return (
     <header style={{

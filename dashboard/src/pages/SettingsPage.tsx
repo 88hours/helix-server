@@ -154,7 +154,7 @@ function AccountSection() {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 8 }}>
         {user?.picture ? (
-          <img src={user.picture} alt={name} style={{ width: 56, height: 56, borderRadius: 8, border: '1px solid var(--line-2)', flexShrink: 0 }} />
+          <img src={user.picture} alt={name} referrerPolicy="no-referrer" style={{ width: 56, height: 56, borderRadius: 8, border: '1px solid var(--line-2)', flexShrink: 0 }} />
         ) : (
           <div style={{
             width: 56, height: 56, borderRadius: 8,
