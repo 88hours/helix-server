@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DIRNAME="helix-server-${VERSION}"
+          mkdir -p "/tmp/${DIRNAME}"
+          cp docker-compose.yml .env.example config.yaml "/tmp/${DIRNAME}/"
+          cp docs/INSTALL.md "/tmp/${DIRNAME}/"
+          tar -czf "/tmp/${DIRNAME}.tar.gz" -C /tmp "${DIRNAME}"
+          echo "TARBALL=/tmp/${DIRNAME}.tar.gz" >> "$GITHUB_ENV"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Helix Server ${{ env.VERSION }}"
+          body: |
+            ## Installation
+
+            1. Download `helix-server-${{ env.VERSION }}.tar.gz` below
+            2. Extract: `tar -xzf helix-server-${{ env.VERSION }}.tar.gz && cd helix-server-${{ env.VERSION }}`
+            3. Configure: `cp .env.example .env` — fill in your API keys
+            4. Start: `docker compose up --build`
+
+            Dashboard will be available at `http://localhost:8000/app`
+
+            See `INSTALL.md` inside the archive for the full self-hosting guide.
+          files: ${{ env.TARBALL }}
+          fail_on_unmatched_files: true

@@ -278,6 +278,23 @@ async def list_projects(db: AsyncConnection, owner_sub: str) -> list[dict]:
     return [dict(r) for r in result.mappings()]
 
 
+
+async def list_all_projects(db: AsyncConnection) -> list[dict]:
+    """List all projects across all users (used in demo mode when auth is disabled)."""
+    result = await db.execute(
+        text("""
+            SELECT p.*, s.anthropic_api_key, s.sentry_webhook_secret,
+                   s.rollbar_access_token, s.slack_bot_token, s.slack_signing_secret,
+                   s.slack_approval_channel, s.sendgrid_api_key, s.smtp_host,
+                   s.email_from, s.email_to, s.alert_sources, s.agent_overrides, s.pipeline
+            FROM projects p
+            LEFT JOIN project_settings s ON s.project_id = p.project_id
+            ORDER BY p.created_at ASC
+        """)
+    )
+    return [dict(r) for r in result.mappings()]
+
+
 async def delete_project(db: AsyncConnection, project_id: str, owner_sub: str) -> bool:
     """
     Delete a project and its settings (CASCADE).  Returns True if a row was deleted.
