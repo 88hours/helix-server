@@ -142,9 +142,10 @@ interface IncidentsPageProps {
   incidents: Incident[];
   loading: boolean;
   onOpen: (id: string) => void;
+  onRefresh: () => void;
 }
 
-export function IncidentsPage({ incidents, loading, onOpen }: IncidentsPageProps) {
+export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: IncidentsPageProps) {
   const [filter, setFilter] = useState<Filter>('all');
   const [severity, setSeverity] = useState<SevFilter>('any');
 
@@ -228,7 +229,7 @@ export function IncidentsPage({ incidents, loading, onOpen }: IncidentsPageProps
           </FilterChip>
         ))}
         <span style={{ flex: 1 }} />
-        <Button variant="ghost" size="sm"><Icon.refresh size={11} /> refresh</Button>
+        <Button variant="ghost" size="sm" onClick={onRefresh}><Icon.refresh size={11} /> refresh</Button>
         <Button variant="subtle" size="sm">newest ↓</Button>
       </div>
 

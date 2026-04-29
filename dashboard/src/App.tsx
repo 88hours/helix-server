@@ -62,7 +62,7 @@ export default function App() {
     theme: 'light', accent: 'ink', density: 'compact', pipeline: 'horizontal', showActivityRail: true,
   });
 
-  const { incidents, loading } = useIncidents();
+  const { incidents, loading, reload: reloadIncidents } = useIncidents();
 
   const updateTweak = (k: keyof Tweaks, v: string | boolean) => {
     setTweaks(prev => {
@@ -129,6 +129,7 @@ export default function App() {
           incidents={incidents}
           loading={loading}
           onOpen={handleOpenIncident}
+          onRefresh={reloadIncidents}
         />
       )}
 

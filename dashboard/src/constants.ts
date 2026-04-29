@@ -172,10 +172,12 @@ export function mapApiProject(raw: Record<string, unknown>): Project {
 
 // ---- Hooks ----
 
-export function useIncidents(): { incidents: Incident[]; loading: boolean } {
+export function useIncidents(): { incidents: Incident[]; loading: boolean; reload: () => void } {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+
+  const reload = () => {
+    setLoading(true);
     authFetch('/api/incidents')
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then((d: { incidents?: Record<string, unknown>[] }) => {
@@ -183,8 +185,10 @@ export function useIncidents(): { incidents: Incident[]; loading: boolean } {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
-  return { incidents, loading };
+  };
+
+  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { incidents, loading, reload };
 }
 
 export function useIncident(id: string | null): { data: ApiIncidentDetail | null; loading: boolean } {
