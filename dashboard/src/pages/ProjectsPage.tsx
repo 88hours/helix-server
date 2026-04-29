@@ -199,6 +199,35 @@ function NotifyRow({ kind, enabled, detail, fields, onSave }: {
   );
 }
 
+// ---- Webhook list with copy feedback ----
+
+function WebhookList({ webhooks }: { webhooks: Record<string, string> }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (source: string, url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(source);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  };
+  return (
+    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {Object.entries(webhooks).map(([source, url]) => (
+        <div key={source} style={{ display: 'grid', gridTemplateColumns: '100px 1fr auto', gap: 10, alignItems: 'center' }}>
+          <Badge tone={source === 'sentry' ? 'violet' : 'amber'}>{source}</Badge>
+          <code className="mono" style={{
+            fontSize: 11.5, color: 'var(--ink)', padding: '6px 10px',
+            background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 4,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>{url}</code>
+          <Button variant="ghost" size="sm" onClick={() => copy(source, url)}>
+            {copied === source ? '✓ copied' : 'copy'}
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---- Project settings (inline) ----
 
 function ProjectSettings({ p, onSave }: { p: Project; onSave: (s: Record<string, string>) => Promise<boolean> }) {
@@ -224,20 +253,7 @@ function ProjectSettings({ p, onSave }: { p: Project; onSave: (s: Record<string,
           <Icon.chev size={10} dir={showHooks ? 'down' : 'right'}/> Webhook URLs
         </button>
         {showHooks && (
-          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {Object.entries(p.webhooks).map(([source, url]) => (
-              <div key={source} style={{ display: 'grid', gridTemplateColumns: '100px 1fr auto auto', gap: 10, alignItems: 'center' }}>
-                <Badge tone={source === 'sentry' ? 'violet' : 'amber'}>{source}</Badge>
-                <code className="mono" style={{
-                  fontSize: 11.5, color: 'var(--ink)', padding: '6px 10px',
-                  background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 4,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>{url}</code>
-                <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(url)}>copy</Button>
-                <Button variant="subtle" size="sm">rotate</Button>
-              </div>
-            ))}
-          </div>
+          <WebhookList webhooks={p.webhooks} />
         )}
       </div>
 
@@ -295,9 +311,10 @@ function ProjectSettings({ p, onSave }: { p: Project; onSave: (s: Record<string,
 
 // ---- Project card ----
 
-function ProjectCard({ p, open, onToggle, onSave }: {
+function ProjectCard({ p, open, onToggle, onSave, onDelete }: {
   p: Project; open: boolean; onToggle: () => void;
   onSave: (s: Record<string, string>) => Promise<boolean>;
+  onDelete: () => void;
 }) {
   return (
     <section style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }}>
@@ -345,7 +362,9 @@ function ProjectCard({ p, open, onToggle, onSave }: {
         <Button variant="ghost" size="sm" onClick={onToggle}>
           <Icon.chev size={10} dir={open ? 'down' : 'right'}/> {open ? 'close' : 'configure'}
         </Button>
-        <Button variant="subtle" size="sm" style={{ color: 'var(--crash)' }}>delete</Button>
+        <Button variant="subtle" size="sm" style={{ color: 'var(--crash)' }} onClick={() => {
+          if (window.confirm(`Delete project "${p.name}"? This cannot be undone.`)) onDelete();
+        }}>delete</Button>
       </div>
 
       {open && <ProjectSettings p={p} onSave={onSave} />}
@@ -791,7 +810,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 // ---- Main page ----
 
 export function ProjectsPage() {
-  const { projects, loading, saveProjectSettings, reload } = useProjects();
+  const { projects, loading, saveProjectSettings, deleteProject, reload } = useProjects();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ name: string; repo: string } | null>(null);
@@ -852,6 +871,7 @@ export function ProjectsPage() {
               open={expanded === p.id}
               onToggle={() => setExpanded(x => x === p.id ? null : p.id)}
               onSave={s => saveProjectSettings(p.id, s)}
+              onDelete={() => deleteProject(p.id)}
             />
           ))}
         </div>

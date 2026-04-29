@@ -218,6 +218,7 @@ export function useProjects(): {
   projects: Project[];
   loading: boolean;
   saveProjectSettings: (id: string, settings: Record<string, string>) => Promise<boolean>;
+  deleteProject: (id: string) => Promise<boolean>;
   reload: () => void;
 } {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -245,7 +246,13 @@ export function useProjects(): {
     return res.ok;
   };
 
-  return { projects, loading, saveProjectSettings, reload };
+  const deleteProject = async (projectId: string): Promise<boolean> => {
+    const res = await authFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+    if (res.ok) reload();
+    return res.ok;
+  };
+
+  return { projects, loading, saveProjectSettings, deleteProject, reload };
 }
 
 export interface Settings {
