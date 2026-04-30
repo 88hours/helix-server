@@ -284,3 +284,16 @@ export function useSettings(): { settings: Settings; saveSettings: (updates: Par
   };
   return { settings, saveSettings };
 }
+
+export function useAuditEvents(incidentId: string | null): { events: import('./components/AuditTrail').AuditEvent[]; loading: boolean } {
+  const [events, setEvents] = useState<import('./components/AuditTrail').AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!incidentId) { setLoading(false); return; }
+    authFetch(`/api/audit?incident_id=${encodeURIComponent(incidentId)}`)
+      .then(r => r.ok ? r.json() : { events: [] })
+      .then((d: { events: import('./components/AuditTrail').AuditEvent[] }) => { setEvents(d.events ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [incidentId]);
+  return { events, loading };
+}

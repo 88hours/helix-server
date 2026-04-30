@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { useIncident, useActivityStream, Incident, ApiIncidentDetail, AgentId } from '../constants';
+import { useIncident, useActivityStream, useAuditEvents, Incident, ApiIncidentDetail, AgentId } from '../constants';
 import { StatusPill, Severity, Icon, Button, Field } from '../components/primitives';
 import { Pipeline, incidentToPipelineStages } from '../components/Pipeline';
 import { ToolCallsList, PRDiff, ToolCall, DiffHunk } from '../components/ToolCalls';
 import { ActivityRail, ActivityEvent } from '../components/ActivityRail';
+import { AuditTrail } from '../components/AuditTrail';
 
 function CrashReport({ data, incident }: { data: Record<string, unknown>; incident: Incident }) {
   const [stackOpen, setStackOpen] = useState(false);
@@ -139,6 +140,7 @@ interface IncidentDetailPageProps {
 
 export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelineLayout }: IncidentDetailPageProps) {
   const { data: detail } = useIncident(incident?.id ?? null);
+  const { events: auditEvents } = useAuditEvents(incident?.id ?? null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const evIdRef = useRef(0);
@@ -240,6 +242,7 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
           {detail?.crash_report && (
             <CrashReport data={detail.crash_report} incident={incident} />
           )}
+          <AuditTrail events={auditEvents} />
         </div>
       </div>
 
