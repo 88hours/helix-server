@@ -25,8 +25,6 @@ interface HeaderProps {
   walkthroughRunning: boolean;
   onWalkthrough: () => void;
   onEditMode: () => void;
-  pipeline: 'horizontal' | 'swimlane';
-  onPipelineChange: (v: 'horizontal' | 'swimlane') => void;
 }
 
 function UserMenu({ onEditMode }: { onEditMode: () => void }) {
@@ -89,7 +87,7 @@ function UserMenu({ onEditMode }: { onEditMode: () => void }) {
   );
 }
 
-export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode, pipeline, onPipelineChange }: HeaderProps) {
+export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode }: HeaderProps) {
 
   return (
     <header style={{
@@ -121,28 +119,6 @@ export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode
       </nav>
 
       <span style={{ flex: 1 }} />
-
-      {/* Pipeline layout toggle */}
-      <div style={{
-        display: 'flex', alignItems: 'center',
-        border: '1px solid var(--line-2)', borderRadius: 5, overflow: 'hidden',
-      }}>
-        {(['horizontal', 'swimlane'] as const).map(v => (
-          <button
-            key={v}
-            onClick={() => onPipelineChange(v)}
-            className="mono"
-            style={{
-              padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: 'none',
-              background: pipeline === v ? 'var(--bg-3)' : 'var(--bg-2)',
-              color: pipeline === v ? 'var(--ink)' : 'var(--ink-3)',
-              borderRight: v === 'horizontal' ? '1px solid var(--line-2)' : 'none',
-            }}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
 
       {/* Search */}
       <div style={{

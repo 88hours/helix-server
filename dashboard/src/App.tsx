@@ -131,8 +131,7 @@ export default function App() {
         walkthroughRunning={walkthrough.running}
         onWalkthrough={walkthrough.running ? walkthrough.stop : walkthrough.run}
         onEditMode={() => setEditMode(e => !e)}
-        pipeline={tweaks.pipeline as 'horizontal' | 'swimlane'}
-        onPipelineChange={v => updateTweak('pipeline', v)}
+
       />
 
       {page === 'list' && (

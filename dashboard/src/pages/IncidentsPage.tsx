@@ -67,8 +67,11 @@ function AgentChips({ status }: { status: string }) {
   );
 }
 
+const STATUS_AGENT_IDX: Record<string, number> = {
+  analysing: 0, testing: 1, fixing: 2, pr: 2, approval: 3, merged: 4,
+};
+
 function MiniPipeline({ inc }: { inc: Incident }) {
-  const progress = inc.progress ?? 0;
   if (inc.status === 'duplicate') {
     return (
       <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
@@ -83,16 +86,19 @@ function MiniPipeline({ inc }: { inc: Incident }) {
       </div>
     );
   }
-  const segs: AgentId[] = ['handler', 'qa', 'dev', 'dev', 'human'];
+  const agents: AgentId[] = ['handler', 'qa', 'dev', 'human'];
+  const activeIdx = STATUS_AGENT_IDX[inc.status] ?? -1;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-      {segs.map((a, i) => {
-        const filled = progress >= (i + 1) / segs.length - 0.08;
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {agents.map((a, i) => {
+        const done = i < activeIdx;
+        const active = i === activeIdx;
+        const color = AGENTS[a].color;
         return (
-          <span key={i} style={{
-            flex: 1, height: 4, borderRadius: 2,
-            background: filled ? AGENTS[a].color : 'var(--bg-3)',
-            border: filled ? 'none' : '1px solid var(--line-2)',
+          <span key={a} style={{
+            flex: 1, height: 5, borderRadius: 3,
+            background: (done || active) ? color : 'var(--line-2)',
+            opacity: active ? 0.7 : 1,
           }} />
         );
       })}
