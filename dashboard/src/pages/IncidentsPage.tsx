@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Incident, AGENTS, AgentId } from '../constants';
+import { useState, useRef, useEffect } from 'react';
+import { Incident, AGENTS, AgentId, STATUSES } from '../constants';
 import { StatusPill, Icon, Button } from '../components/primitives';
 
-type Filter = 'all' | 'active' | 'pr' | 'approval' | 'merged' | 'duplicate' | 'failed';
 type SevFilter = 'any' | 'high' | 'medium' | 'low';
+
+const ALL_STATUSES = ['crash','analysing','testing','fixing','pr','approval','merged','duplicate','failed'] as const;
 
 function FilterChip({ active, children, count, onClick }: {
   active: boolean; children: React.ReactNode; count?: number; onClick: () => void;
@@ -21,6 +22,91 @@ function FilterChip({ active, children, count, onClick }: {
       {children}
       {count != null && <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{count}</span>}
     </button>
+  );
+}
+
+function StatusDropdown({ selected, counts, onChange }: {
+  selected: Set<string>;
+  counts: Record<string, number>;
+  onChange: (s: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const toggle = (s: string) => {
+    const next = new Set(selected);
+    next.has(s) ? next.delete(s) : next.add(s);
+    onChange(next);
+  };
+
+  const label = selected.size === 0 ? 'all statuses' : `${selected.size} selected`;
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="mono"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 11.5, padding: '4px 9px', borderRadius: 4, cursor: 'pointer',
+          color: selected.size > 0 ? 'var(--ink)' : 'var(--ink-2)',
+          background: selected.size > 0 ? 'var(--bg)' : 'transparent',
+          border: selected.size > 0 ? '1px solid var(--line-2)' : '1px solid transparent',
+          boxShadow: selected.size > 0 ? '0 1px 0 oklch(0.22 0.01 260 / 0.03)' : 'none',
+        }}
+      >
+        {label}
+        <Icon.chev size={9} dir={open ? 'down' : 'right'} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 60,
+          background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 6,
+          boxShadow: '0 8px 24px oklch(0.22 0.01 260 / 0.08)',
+          minWidth: 200, overflow: 'hidden',
+        }}>
+          <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>status</span>
+            {selected.size > 0 && (
+              <button onClick={() => onChange(new Set())} className="mono" style={{ fontSize: 10.5, color: 'var(--accent)', cursor: 'pointer' }}>clear</button>
+            )}
+          </div>
+          {ALL_STATUSES.map(s => {
+            const info = STATUSES[s];
+            const count = counts[s] ?? 0;
+            const checked = selected.has(s);
+            return (
+              <label key={s} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 12px', cursor: count > 0 ? 'pointer' : 'default',
+                opacity: count === 0 ? 0.4 : 1,
+              }}
+                onMouseEnter={e => { if (count > 0) (e.currentTarget as HTMLElement).style.background = 'var(--bg-2)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+              >
+                <input
+                  type="checkbox" checked={checked}
+                  disabled={count === 0}
+                  onChange={() => count > 0 && toggle(s)}
+                  style={{ accentColor: info.color, width: 13, height: 13 }}
+                />
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: info.color, flexShrink: 0 }} />
+                <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink)', flex: 1 }}>{info.label}</span>
+                <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{count}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -146,25 +232,17 @@ interface IncidentsPageProps {
 }
 
 export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: IncidentsPageProps) {
-  const [filter, setFilter] = useState<Filter>('all');
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   const [severity, setSeverity] = useState<SevFilter>('any');
 
-  const counts: Record<string, number> = {
-    all:       incidents.length,
-    active:    incidents.filter(i => !['merged', 'duplicate', 'failed'].includes(i.status)).length,
-    pr:        incidents.filter(i => i.status === 'pr').length,
-    approval:  incidents.filter(i => i.status === 'approval').length,
-    merged:    incidents.filter(i => i.status === 'merged').length,
-    duplicate: incidents.filter(i => i.status === 'duplicate').length,
-    failed:    incidents.filter(i => i.status === 'failed').length,
-  };
+  const statusCounts: Record<string, number> = {};
+  ALL_STATUSES.forEach(s => { statusCounts[s] = incidents.filter(i => i.status === s).length; });
 
   const prs = incidents.filter(i => ['pr', 'merged'].includes(i.status)).length;
-  const needsReview = counts.approval;
+  const needsReview = statusCounts['approval'] ?? 0;
 
   const filtered = incidents.filter(inc => {
-    if (filter === 'active' && ['merged', 'duplicate', 'failed'].includes(inc.status)) return false;
-    if (filter !== 'all' && filter !== 'active' && inc.status !== filter) return false;
+    if (statusFilter.size > 0 && !statusFilter.has(inc.status)) return false;
     if (severity !== 'any' && inc.severity !== severity) return false;
     return true;
   });
@@ -204,7 +282,7 @@ export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: Inciden
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, minWidth: 0 }}>
           <StatCard value={String(incidents.length)} label="incidents" />
           <StatCard value={String(prs)} label="PRs" accent="var(--ok)" />
-          <StatCard value={String(counts.merged)} label="merged" accent="var(--ok)" />
+          <StatCard value={String(statusCounts['merged'] ?? 0)} label="merged" accent="var(--ok)" />
           <StatCard value="—" label="median fix" small />
         </div>
       </div>
@@ -216,11 +294,7 @@ export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: Inciden
         borderRadius: 8, background: 'var(--bg-2)', marginBottom: 14,
       }}>
         <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginRight: 6 }}>filter</span>
-        {(['all', 'active', 'pr', 'approval', 'merged', 'duplicate', 'failed'] as Filter[]).map(k => (
-          <FilterChip key={k} active={filter === k} onClick={() => setFilter(k)} count={counts[k]}>
-            {k}
-          </FilterChip>
-        ))}
+        <StatusDropdown selected={statusFilter} counts={statusCounts} onChange={setStatusFilter} />
         <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 8px' }} />
         <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>severity</span>
         {(['any', 'high', 'medium', 'low'] as SevFilter[]).map(k => (

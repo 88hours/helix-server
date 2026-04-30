@@ -1,6 +1,6 @@
 import { authFetch } from '../authFetch';
 import { useState, useEffect } from 'react';
-import { Project, useProjects } from '../constants';
+import { Project, Incident, useProjects } from '../constants';
 import { Badge, Button, Icon, Spark } from '../components/primitives';
 
 // ---- Helpers ----
@@ -311,10 +311,11 @@ function ProjectSettings({ p, onSave }: { p: Project; onSave: (s: Record<string,
 
 // ---- Project card ----
 
-function ProjectCard({ p, open, onToggle, onSave, onDelete }: {
+function ProjectCard({ p, open, onToggle, onSave, onDelete, stats }: {
   p: Project; open: boolean; onToggle: () => void;
   onSave: (s: Record<string, string>) => Promise<boolean>;
   onDelete: () => void;
+  stats: { incidents7d: number; prs7d: number; merged7d: number };
 }) {
   return (
     <section style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }}>
@@ -348,9 +349,9 @@ function ProjectCard({ p, open, onToggle, onSave, onDelete }: {
 
         {/* Stats + spark */}
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          <MiniStat v={p.stats.incidents7d} l="incidents" />
-          <MiniStat v={p.stats.prs7d}       l="PRs"       c="var(--ok)" />
-          <MiniStat v={p.stats.merged7d}    l="merged"    c="var(--ok)" />
+          <MiniStat v={stats.incidents7d} l="incidents" />
+          <MiniStat v={stats.prs7d}       l="PRs"       c="var(--ok)" />
+          <MiniStat v={stats.merged7d}    l="merged"    c="var(--ok)" />
           {p.activity.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 90 }}>
               <Spark points={p.activity} w={90} h={18} color="var(--accent)" />
@@ -809,15 +810,27 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
 // ---- Main page ----
 
-export function ProjectsPage() {
+export function ProjectsPage({ incidents = [] }: { incidents?: Incident[] }) {
   const { projects, loading, saveProjectSettings, deleteProject, reload } = useProjects();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [created, setCreated] = useState<{ name: string; repo: string } | null>(null);
 
-  const totals = projects.reduce((a, p) => ({
-    inc: a.inc + p.stats.incidents7d, prs: a.prs + p.stats.prs7d, merged: a.merged + p.stats.merged7d,
-  }), { inc: 0, prs: 0, merged: 0 });
+  // Compute real stats from live incidents, keyed by project_id
+  const projectStats = (projectId: string) => {
+    const proj = incidents.filter(i => i.project_id === projectId);
+    return {
+      incidents7d: proj.length,
+      prs7d:       proj.filter(i => ['pr', 'approval', 'merged'].includes(i.status)).length,
+      merged7d:    proj.filter(i => i.status === 'merged').length,
+    };
+  };
+
+  const totals = {
+    inc:    incidents.length,
+    prs:    incidents.filter(i => ['pr', 'approval', 'merged'].includes(i.status)).length,
+    merged: incidents.filter(i => i.status === 'merged').length,
+  };
 
   return (
     <div style={{ padding: '22px 28px 60px', maxWidth: 1400, margin: '0 auto' }}>
@@ -872,6 +885,7 @@ export function ProjectsPage() {
               onToggle={() => setExpanded(x => x === p.id ? null : p.id)}
               onSave={s => saveProjectSettings(p.id, s)}
               onDelete={() => deleteProject(p.id)}
+              stats={projectStats(p.id)}
             />
           ))}
         </div>

@@ -168,7 +168,7 @@ export default function App() {
         />
       )}
 
-      {page === 'projects' && <ProjectsPage />}
+      {page === 'projects' && <ProjectsPage incidents={incidents} />}
       {page === 'github'   && <GitHubPage onGo={(p: string) => go(p as Page)} />}
       {page === 'agents'   && <AgentsPage />}
       {page === 'settings' && <SettingsPage />}
