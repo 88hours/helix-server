@@ -44,10 +44,11 @@ function TweaksPanel({ tweaks, onUpdate, onClose }: {
       <div className="row">
         <label>accent</label>
         <select value={tweaks.accent} onChange={e => onUpdate('accent', e.target.value)}>
-          <option>ink</option>
-          <option>blue</option>
-          <option>violet</option>
+          <option>amber</option>
           <option>green</option>
+          <option>violet</option>
+          <option>blue</option>
+          <option>ink</option>
         </select>
       </div>
       <div className="row">
@@ -68,7 +69,7 @@ export default function App() {
   const [editMode, setEditMode] = useState(false);
   const [tour, setTour] = useState(false);
   const [tweaks, setTweaks] = useState<Tweaks>(window.__TWEAKS ?? {
-    theme: 'light', accent: 'ink', density: 'compact', pipeline: 'horizontal', showActivityRail: true,
+    theme: 'light', accent: 'amber', density: 'compact', pipeline: 'horizontal', showActivityRail: true,
   });
 
   const { incidents, loading, reload: reloadIncidents } = useIncidents();
@@ -80,6 +81,21 @@ export default function App() {
       return next;
     });
   };
+
+  useEffect(() => {
+    document.documentElement.dataset.density = tweaks.density;
+  }, [tweaks.density]);
+
+  useEffect(() => {
+    const ACCENT_COLORS: Record<string, string> = {
+      amber:  'oklch(0.68 0.17 50)',
+      green:  'oklch(0.62 0.16 155)',
+      violet: 'oklch(0.62 0.18 295)',
+      blue:   'oklch(0.56 0.12 230)',
+      ink:    'var(--ink)',
+    };
+    document.documentElement.style.setProperty('--accent', ACCENT_COLORS[tweaks.accent] ?? ACCENT_COLORS.amber);
+  }, [tweaks.accent]);
 
   // Apply theme CSS variable updates
   useEffect(() => {

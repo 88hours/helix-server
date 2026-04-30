@@ -79,21 +79,15 @@ function MiniPipeline({ inc }: { inc: Incident }) {
       </div>
     );
   }
-  if (inc.status === 'failed') {
-    return (
-      <div className="mono" style={{ fontSize: 11, color: 'var(--crash)' }}>
-        {inc.note ?? 'escalated'}
-      </div>
-    );
-  }
   const agents: AgentId[] = ['handler', 'qa', 'dev', 'human'];
   const activeIdx = STATUS_AGENT_IDX[inc.status] ?? -1;
+  const isFailed = inc.status === 'failed';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
       {agents.map((a, i) => {
         const done = i < activeIdx;
         const active = i === activeIdx;
-        const color = AGENTS[a].color;
+        const color = isFailed && (done || active) ? 'var(--crash)' : AGENTS[a].color;
         return (
           <span key={a} style={{
             flex: 1, height: 5, borderRadius: 3,
