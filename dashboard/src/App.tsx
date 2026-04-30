@@ -38,7 +38,16 @@ function TweaksPanel({ tweaks, onUpdate, onClose }: {
         <label>pipeline</label>
         <select value={tweaks.pipeline} onChange={e => onUpdate('pipeline', e.target.value)}>
           <option>horizontal</option>
-          <option>vertical</option>
+          <option>swimlane</option>
+        </select>
+      </div>
+      <div className="row">
+        <label>accent</label>
+        <select value={tweaks.accent} onChange={e => onUpdate('accent', e.target.value)}>
+          <option>ink</option>
+          <option>blue</option>
+          <option>violet</option>
+          <option>green</option>
         </select>
       </div>
       <div className="row">
@@ -122,6 +131,8 @@ export default function App() {
         walkthroughRunning={walkthrough.running}
         onWalkthrough={walkthrough.running ? walkthrough.stop : walkthrough.run}
         onEditMode={() => setEditMode(e => !e)}
+        pipeline={tweaks.pipeline as 'horizontal' | 'swimlane'}
+        onPipelineChange={v => updateTweak('pipeline', v)}
       />
 
       {page === 'list' && (
@@ -138,7 +149,7 @@ export default function App() {
           incident={selectedIncident}
           onBack={() => setPage('list')}
           showActivityRail={tweaks.showActivityRail}
-          pipelineLayout={tweaks.pipeline as 'horizontal' | 'vertical'}
+          pipelineLayout={tweaks.pipeline as 'horizontal' | 'swimlane'}
         />
       )}
 

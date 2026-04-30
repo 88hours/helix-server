@@ -134,10 +134,10 @@ interface IncidentDetailPageProps {
   incident: Incident | null;
   onBack: () => void;
   showActivityRail: boolean;
-  pipelineLayout: 'horizontal' | 'vertical';
+  pipelineLayout: 'horizontal' | 'swimlane';
 }
 
-export function IncidentDetailPage({ incident, onBack, showActivityRail }: IncidentDetailPageProps) {
+export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelineLayout }: IncidentDetailPageProps) {
   const { data: detail } = useIncident(incident?.id ?? null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
@@ -230,7 +230,7 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail }: Incid
 
         {/* Pipeline */}
         <div style={{ marginBottom: 16 }}>
-          <Pipeline stages={stages} layout="horizontal" />
+          <Pipeline stages={stages} layout={pipelineLayout} />
         </div>
 
         {/* Content stacked */}

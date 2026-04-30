@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { WalkthroughButton } from './Walkthrough';
 import { Icon } from './primitives';
-import helixLogo from '../assets/helix-logo.svg';
 
 export type Page = 'list' | 'detail' | 'projects' | 'github' | 'agents' | 'settings';
 
@@ -26,6 +25,8 @@ interface HeaderProps {
   walkthroughRunning: boolean;
   onWalkthrough: () => void;
   onEditMode: () => void;
+  pipeline: 'horizontal' | 'swimlane';
+  onPipelineChange: (v: 'horizontal' | 'swimlane') => void;
 }
 
 function UserMenu({ onEditMode }: { onEditMode: () => void }) {
@@ -88,7 +89,7 @@ function UserMenu({ onEditMode }: { onEditMode: () => void }) {
   );
 }
 
-export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode }: HeaderProps) {
+export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode, pipeline, onPipelineChange }: HeaderProps) {
 
   return (
     <header style={{
@@ -98,7 +99,12 @@ export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode
     }}>
       {/* Logo */}
       <a onClick={() => go('list')} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-        <img src={helixLogo} alt="helix" width={20} height={20} />
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M8 3.5 C5.5 3.5 5.5 6 5.5 8 C5.5 10.5 4 11 3 12 C4 13 5.5 13.5 5.5 16 C5.5 18 5.5 20.5 8 20.5" stroke="var(--ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M16 3.5 C18.5 3.5 18.5 6 18.5 8 C18.5 10.5 20 11 21 12 C20 13 18.5 13.5 18.5 16 C18.5 18 18.5 20.5 16 20.5" stroke="var(--ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M10 6 Q14 12 10 18" stroke="#c97a3a" strokeWidth="2" strokeLinecap="round"/>
+          <path d="M14 6 Q10 12 14 18" stroke="#3f8a5e" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em' }}>helix</span>
         <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', padding: '2px 5px', border: '1px solid var(--line-2)', borderRadius: 3 }}>
           v0.1
@@ -116,6 +122,28 @@ export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode
 
       <span style={{ flex: 1 }} />
 
+      {/* Pipeline layout toggle */}
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        border: '1px solid var(--line-2)', borderRadius: 5, overflow: 'hidden',
+      }}>
+        {(['horizontal', 'swimlane'] as const).map(v => (
+          <button
+            key={v}
+            onClick={() => onPipelineChange(v)}
+            className="mono"
+            style={{
+              padding: '4px 10px', fontSize: 11, cursor: 'pointer', border: 'none',
+              background: pipeline === v ? 'var(--bg-3)' : 'var(--bg-2)',
+              color: pipeline === v ? 'var(--ink)' : 'var(--ink-3)',
+              borderRight: v === 'horizontal' ? '1px solid var(--line-2)' : 'none',
+            }}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
       {/* Search */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
@@ -131,6 +159,17 @@ export function Header({ page, go, walkthroughRunning, onWalkthrough, onEditMode
 
       {/* Right section */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={onEditMode}
+          className="mono"
+          style={{
+            fontSize: 11, padding: '4px 10px', borderRadius: 5, cursor: 'pointer',
+            border: '1px solid var(--line-2)', background: 'var(--bg-2)', color: 'var(--ink-3)',
+          }}
+        >
+          tweaks
+        </button>
+
         <WalkthroughButton onClick={onWalkthrough} running={walkthroughRunning} />
 
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
