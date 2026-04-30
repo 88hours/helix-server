@@ -136,6 +136,21 @@ CREATE TABLE IF NOT EXISTS user_settings (
     ollama_base_url     TEXT,
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id          BIGSERIAL PRIMARY KEY,
+    incident_id TEXT,
+    project_id  TEXT REFERENCES projects(project_id) ON DELETE SET NULL,
+    event_type  TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    action      TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'ok',
+    details     JSONB,
+    ts          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_incident   ON audit_events (incident_id);
+CREATE INDEX IF NOT EXISTS idx_audit_project_ts ON audit_events (project_id, ts DESC);
 """
 
 
@@ -512,3 +527,31 @@ async def upsert_user_settings(db: AsyncConnection, sub: str, settings: dict) ->
         },
     )
     return await get_user_settings(db, sub)
+
+
+# ---------------------------------------------------------------------------
+# Audit trail helpers
+# ---------------------------------------------------------------------------
+
+async def list_audit_events(
+    db: AsyncConnection,
+    *,
+    incident_id: str | None = None,
+    project_id: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Return audit events filtered by incident or project, newest first."""
+    conditions = []
+    params: dict = {"limit": limit}
+    if incident_id:
+        conditions.append("incident_id = :incident_id")
+        params["incident_id"] = incident_id
+    if project_id:
+        conditions.append("project_id = :project_id")
+        params["project_id"] = project_id
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    rows = await db.execute(
+        text(f"SELECT * FROM audit_events {where} ORDER BY ts DESC LIMIT :limit"),
+        params,
+    )
+    return [dict(r._mapping) for r in rows]

@@ -193,19 +193,10 @@ Upgraded `pytest` and `langsmith` to resolve Dependabot alerts.
 
 ---
 
-### Phase 6 – Multi-Tenancy and Production Scale (planned)
-
-#### Organisations table
-`org_id` threaded through all event payloads. Agents look up the correct project at runtime from `org_id` + `repo`, removing the static `config.yaml` GitHub fallback.
-
-#### Priority queues per plan tier
-Free / Pro / Team incidents route to separate Redis Stream keys. Workers poll high-priority streams first. Team orgs get dedicated worker pools.
-
-#### Worker pool per agent
-Multiple concurrent instances pulling from the same stream. ECS Fargate auto-scaling on queue depth eliminates the sequential processing bottleneck.
+### Phase 6 – Audit Trail (planned)
 
 #### Audit trail
-Queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id` and `org_id`.
+Queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id`.
 
 ---
 
@@ -221,7 +212,7 @@ Always out of scope (not planned for any phase):
 
 Deferred to Phase 6:
 
-- Multi-tenant / multi-org support (single team or organisation through Phase 5)
+- Audit trail (queryable log of all agent operations)
 
 ---
 

@@ -53,6 +53,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from agents.crash_handler.agent import handle
 from core.preflight import check_required_env
+import core.audit as audit
 from core.auth import get_current_user
 from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
 from core.telemetry import get_tracer, setup_tracing
@@ -64,6 +65,7 @@ from core.db import (
     get_user_settings,
     init_db,
     insert_project,
+    list_audit_events,
     list_projects as db_list_projects,
     list_all_projects as db_list_all_projects,
     upsert_github_installation,
@@ -255,6 +257,7 @@ async def rollbar_webhook(project_id: str, request: Request):
         logger.error("rollbar webhook unhandled exception: %s", exc, exc_info=True, extra={"project_id": project_id})
         return {"status": "accepted", "warning": "processing failed — see logs"}
     logger.info("rollbar webhook accepted", extra={"incident_id": report.incident_id, "project_id": project_id})
+    await audit.record("webhook", "rollbar", "received", incident_id=report.incident_id, project_id=project_id)
     return {"incident_id": report.incident_id, "status": "accepted"}
 
 
@@ -307,6 +310,7 @@ async def sentry_webhook(project_id: str, request: Request):
         logger.error("sentry webhook unhandled exception: %s", exc, exc_info=True, extra={"project_id": project_id})
         return {"status": "accepted", "warning": "processing failed — see logs"}
     logger.info("sentry webhook accepted", extra={"incident_id": report.incident_id, "project_id": project_id})
+    await audit.record("webhook", "sentry", "received", incident_id=report.incident_id, project_id=project_id)
     return {"incident_id": report.incident_id, "status": "accepted"}
 
 
@@ -399,6 +403,7 @@ async def slack_actions(request: Request):
             "pr approved and merged",
             extra={"incident_id": incident_id, "pr_number": pr_result.pr_number},
         )
+        await audit.record("slack_action", "slack", "pr_approved", incident_id=incident_id, details={"pr_number": pr_result.pr_number})
         return {"text": f":white_check_mark: PR #{pr_result.pr_number} merged. Incident `{incident_id}` resolved."}
 
     if action_id == "reject_pr":
@@ -407,6 +412,7 @@ async def slack_actions(request: Request):
             "pr rejected by reviewer",
             extra={"incident_id": incident_id},
         )
+        await audit.record("slack_action", "slack", "pr_rejected", incident_id=incident_id)
         return {"text": f":x: PR rejected for incident `{incident_id}`. The branch remains open for manual review."}
 
     logger.warning("unknown slack action_id", extra={"action_id": action_id, "incident_id": incident_id})
@@ -486,6 +492,20 @@ async def get_incident(incident_id: str, request: Request, _user: dict = Depends
         "qa_result": qa_result.model_dump(mode="json") if qa_result else None,
         "pr_result": pr_result.model_dump(mode="json") if pr_result else None,
     }
+
+
+@app.get("/api/audit", tags=["dashboard"])
+async def get_audit(
+    request: Request,
+    incident_id: str | None = None,
+    project_id: str | None = None,
+    limit: int = 100,
+    _user: dict = Depends(get_current_user),
+):
+    """Return audit events, optionally filtered by incident_id or project_id."""
+    async with get_db() as db:
+        events = await list_audit_events(db, incident_id=incident_id, project_id=project_id, limit=limit)
+    return {"events": [dict(e) for e in events]}
 
 
 @app.get("/api/stream/{incident_id}", tags=["dashboard"])

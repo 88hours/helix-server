@@ -25,6 +25,8 @@ from typing import Optional
 
 import httpx
 
+import core.audit as audit
+
 logger = logging.getLogger(__name__)
 
 _GITHUB_API = "https://api.github.com"
@@ -209,6 +211,7 @@ async def create_pull_request(
     pr_number: int = data["number"]
     pr_url: str = data["html_url"]
     logger.info("pull request created", extra={"pr_number": pr_number, "pr_url": pr_url})
+    await audit.record("github_op", "github", "pr_created", details={"repo": repo, "pr_number": pr_number, "pr_url": pr_url})
     return pr_number, pr_url
 
 
@@ -242,6 +245,7 @@ async def merge_pull_request(
         response.raise_for_status()
 
     logger.info("pull request merged", extra={"repo": repo, "pr_number": pr_number})
+    await audit.record("github_op", "github", "pr_merged", details={"repo": repo, "pr_number": pr_number})
 
 
 async def find_existing_issue(repo: str, title: str, token: str | None = None) -> tuple[str, str] | None:
