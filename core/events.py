@@ -43,6 +43,7 @@ import redis.asyncio as redis
 from redis.exceptions import ResponseError
 
 from core.config import get_redis_mode
+import core.audit as audit
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,14 @@ async def publish(
         await _publish_pubsub(client, event_name, incident_id, payload)
     else:
         await _publish_redis(client, event_name, incident_id, payload)
+
+    await audit.record(
+        "agent_event",
+        payload.get("agent", event_name.split("_")[0]),
+        event_name,
+        incident_id=incident_id,
+        project_id=payload.get("project_id"),
+    )
 
 
 async def subscribe(
