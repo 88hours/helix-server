@@ -6,9 +6,9 @@
 
 ---
 
-## Current State (Phases 1–5)
+## Current State (Phases 1–6)
 
-Helix is ~40% SaaS-ready out of the box:
+Helix is ~55% SaaS-ready out of the box:
 
 | What exists | Status |
 |---|---|
@@ -17,6 +17,8 @@ Helix is ~40% SaaS-ready out of the box:
 | Per-project LLM provider/model overrides | ✓ Done |
 | Auth0 JWT authentication | ✓ Done |
 | Per-project Sentry/Rollbar webhook secrets | ✓ Done |
+| Account-level BYOK LLM keys (`user_settings`) | ✓ Done |
+| Audit trail (`audit_events`) — queryable per `project_id` | ✓ Done |
 
 | Critical gap | Impact |
 |---|---|

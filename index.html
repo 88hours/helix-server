@@ -559,7 +559,8 @@ Based on reduced debugging, reproduction, and manual fix iteration cycles in inc
           <li>a web dashboard to manage projects and incidents</li>
           <li>GitHub app integration without manual config</li>
           <li>multi-repo or multi-team incident handling</li>
-          <li>audit logs / compliance / traceability</li>
+          <li>queryable audit trail (webhooks, agent events, Slack actions, PR ops)</li>
+          <li>LLM observability via Langfuse or LangSmith</li>
         </ul>
       </div>
     </div>
@@ -638,8 +639,17 @@ Based on reduced debugging, reproduction, and manual fix iteration cycles in inc
 
           <tr class="hover:bg-stone-50/70 transition-colors">
             <td class="px-5 sm:px-6 py-3 text-gray-700">
-              Production-grade observability (tracing, evals)
+              LLM observability (LangSmith + Langfuse, OTel tracing)
               <div class="text-xs text-stone-400">Requires manual setup + maintenance</div>
+            </td>
+            <td class="px-5 sm:px-6 py-3 text-center text-stone-300">—</td>
+            <td class="px-5 sm:px-6 py-3 text-center text-indigo-600 font-bold">✓</td>
+          </tr>
+
+          <tr class="hover:bg-stone-50/70 transition-colors">
+            <td class="px-5 sm:px-6 py-3 text-gray-700">
+              Audit trail
+              <div class="text-xs text-stone-400">Queryable log of every webhook, agent event, Slack action, and PR op</div>
             </td>
             <td class="px-5 sm:px-6 py-3 text-center text-stone-300">—</td>
             <td class="px-5 sm:px-6 py-3 text-center text-indigo-600 font-bold">✓</td>
@@ -656,6 +666,15 @@ Based on reduced debugging, reproduction, and manual fix iteration cycles in inc
             <td class="px-5 sm:px-6 py-3 text-gray-700">
               Web dashboard
               <div class="text-xs text-stone-400">GitHub app integration, live incident feed, agent settings</div>
+            </td>
+            <td class="px-5 sm:px-6 py-3 text-center text-stone-300">—</td>
+            <td class="px-5 sm:px-6 py-3 text-center text-indigo-600 font-bold">✓</td>
+          </tr>
+
+          <tr class="hover:bg-stone-50/70 transition-colors">
+            <td class="px-5 sm:px-6 py-3 text-gray-700">
+              Pipeline swimlane + horizontal views
+              <div class="text-xs text-stone-400">Agent lanes with connectors; status filter; live activity rail</div>
             </td>
             <td class="px-5 sm:px-6 py-3 text-center text-stone-300">—</td>
             <td class="px-5 sm:px-6 py-3 text-center text-indigo-600 font-bold">✓</td>

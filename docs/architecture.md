@@ -1,8 +1,8 @@
 # Helix – Architecture Document
 
-**Version:** 3.0
-**Date:** April 2026
-**Scope:** Phases 1–6 (Phases 1–5 complete; Phase 6 in progress)
+**Version:** 3.1
+**Date:** May 2026
+**Scope:** Phases 1–6 (all complete)
 
 ---
 
@@ -240,6 +240,7 @@ TTL: 7 days per incident key. User config keys have no TTL.
 | `project_settings` | Per-project credentials — Sentry/Rollbar secrets, Slack, email, `agent_overrides` JSON |
 | `github_installations` | GitHub App installation tokens, cached with expiry |
 | `user_settings` | Account-level LLM keys — `anthropic_api_key`, `openrouter_api_key`, `ollama_base_url` |
+| `audit_events` | Queryable log of every inbound webhook, agent event, Slack action, and GitHub operation — `incident_id`, `project_id`, `event_type`, `source`, `action`, `status`, `details` (JSONB), `ts`; indexed on `incident_id` and `(project_id, ts DESC)` |
 
 Key resolution order for LLM API keys: project-level override → user-level settings → global env var.
 
@@ -350,7 +351,7 @@ helix/
 │       └── railway.json
 ├── core/
 │   ├── config.py              # Typed config loaders for all agents; AgentConfig.base_url for Ollama
-│   ├── events.py              # Redis Streams / Pub/Sub / EventBridge helpers
+│   ├── events.py              # Redis Streams / Pub/Sub / EventBridge helpers; calls audit.record() on publish
 │   ├── state.py               # Redis read/write helpers, keyed by incident_id
 │   ├── models.py              # Pydantic models: CrashReport, QAResult, PRResult, RepoConfig, Project, AgentOverride
 │   ├── llm.py                 # Routes to Anthropic SDK, OpenRouter, Ollama, Claude Code CLI, or OpenCode CLI; LangSmith + Langfuse + OTel instrumentation
@@ -358,9 +359,10 @@ helix/
 │   ├── permissions.py         # Per-agent tool access control
 │   ├── ui_events.py           # Dashboard event publishing (Redis Pub/Sub + persistence)
 │   ├── auth.py                # Auth0 JWT validation (RS256 via JWKS)
+│   ├── audit.py               # Fire-and-forget audit recording — INSERT into audit_events; swallows errors
 │   ├── utils.py               # extract_json() — parses structured JSON from LLM output
 │   ├── preflight.py           # Startup env-var checks — raises on missing LLM key, warns on optional vars
-│   ├── db.py                  # Async Postgres helpers — projects, github_installations, user_settings tables
+│   ├── db.py                  # Async Postgres helpers — projects, github_installations, user_settings, audit_events tables
 │   └── github_app.py          # GitHub App JWT generation, installation access token fetch/cache
 ├── integrations/
 │   ├── sentry.py              # HMAC-SHA256 verification + payload parsing

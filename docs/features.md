@@ -176,23 +176,62 @@ Switch backends with `HELIX_EVENT_BACKEND=eventbridge`. EventBridge uses the sam
 
 ---
 
+## Audit Trail
+
+Every significant action in the pipeline is recorded to a queryable `audit_events` table in Postgres.
+
+### Recorded events
+
+| `event_type` | `source` | `action` | Trigger |
+|---|---|---|---|
+| `webhook` | `sentry` | `received` | Sentry webhook arrives |
+| `webhook` | `rollbar` | `received` | Rollbar webhook arrives |
+| `agent_event` | agent name | event name | Any `publish()` call in `core/events.py` |
+| `slack_action` | `slack` | `pr_approved` | User clicks Approve in Slack |
+| `slack_action` | `slack` | `pr_rejected` | User clicks Reject in Slack |
+| `github_op` | `github` | `pr_created` | `integrations/github.py` creates a PR |
+| `github_op` | `github` | `pr_merged` | `integrations/github.py` merges a PR |
+
+### Storage
+
+- Postgres table `audit_events` — `id` (BIGSERIAL), `incident_id`, `project_id` (FK → projects), `event_type`, `source`, `action`, `status` (default `ok`), `details` (JSONB), `ts` (TIMESTAMPTZ)
+- Indexed on `incident_id` and `(project_id, ts DESC)` for the two main query patterns
+
+### API
+
+- `GET /api/audit?incident_id=<id>` — returns up to 100 audit events for a given incident, newest first
+- `GET /api/audit?project_id=<id>` — returns up to 100 audit events for a project
+
+### Implementation
+
+- `core/audit.py` — `record(event_type, source, action, *, incident_id, project_id, status, details)` — fire-and-forget; errors are swallowed and logged as WARNING so a DB failure never breaks the request path
+- Hook points added in `core/events.py` (agent events), `integrations/github.py` (PR ops), and `agents/crash_handler/main.py` (webhooks + Slack actions)
+
+### Dashboard
+
+The `AuditTrail` component on the incident detail page shows a filterable timeline of audit events. Filter by actor kind (all / agent / user / system) or full-text search. Each row shows timestamp, actor, action, and expandable JSONB metadata.
+
+---
+
 ## Dashboard
 
 The static landing page is served at `GET /` and includes a **Sign in** CTA that routes visitors to `/app`. The React dashboard is served by the Crash Handler at `/app` and streams live agent activity via SSE.
 
 ### Incident list (`/app/incidents`)
 - Polls `GET /api/incidents` every 10 seconds
-- Table view: incident ID, status badge, severity badge, error type, affected component, timestamp
+- **Status filter** — multi-select dropdown covering all 9 statuses (`crash`, `analysing`, `testing`, `fixing`, `pr`, `approval`, `merged`, `duplicate`, `failed`); shows count per status
+- Table view: incident ID, status badge, severity badge, error type, affected component, 4-bar mini pipeline, timestamp
 - Click any row to open the incident detail page
 
 ### Incident detail (`/app/incidents/:id`)
 - Opens an SSE connection to `GET /api/stream/:id` on mount
-- **Pipeline tracker** — 4-step horizontal progress bar (Crash Analysed → Test Generated → PR Created → Merged)
-- **Tool call timeline** — structured list of every external tool call made by agents: LLM completions, GitHub API calls (create issue, add comment, create PR), git clone, Claude Code TDD iterations; each row shows tool icon, agent chip, action, result detail, success/failure status, and timestamp
-- **Agent activity log** — auto-scrolling dark-themed log of all agent start/step/done messages in real time
+- **Pipeline tracker** — switchable between `horizontal` (card row with → separators) and `swimlane` (each agent in its own lane with L-bend connectors); layout controlled by the tweaks panel
+- **Tool call timeline** — structured list of every external tool call made by agents: LLM completions, GitHub API calls, git clone, Claude Code TDD iterations
+- **Agent activity log** — auto-scrolling live event log
 - **Crash report** — error type, component, endpoint, language, source, stack trace (expandable)
-- **QA result** — test file, test name, format, full test content (expandable); link to GitHub Issue
-- **PR result** — PR link, branch name, fix summary, files changed, iterations taken
+- **QA result** — issue link, test file path, test content (expandable)
+- **PR result** — PR link, branch, fix summary, files changed, iterations taken
+- **Audit trail** — filterable timeline of all audit events for the incident
 
 ### Projects (`/app/projects`)
 - A **project** is a GitHub repository plus all the credentials Helix needs to run the pipeline against it
@@ -303,7 +342,9 @@ HELIX_DEV_PROVIDER=anthropic
 HELIX_DEV_MODEL=claude-opus-4-6
 ```
 
-Supported providers: `anthropic`, `openrouter`, `claude-code`.
+Supported providers: `anthropic`, `openrouter`, `claude-code`, `opencode`, `ollama`.
+
+All LLM calls are traced to **Langfuse** (and optionally LangSmith) via `core/llm.py`. Enable with `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`.
 
 ---
 

@@ -108,6 +108,22 @@ REDIS_URL=redis://your-redis-host:6379
 DATABASE_URL=postgresql://user:password@your-db-host:5432/helix
 ```
 
+### Observability (optional)
+
+```env
+# LangSmith — LLM tracing and evals
+LANGSMITH_API_KEY=lsv2_...
+
+# Langfuse — self-hostable alternative/complement to LangSmith
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+# LANGFUSE_HOST=https://langfuse.yourcompany.com  # for self-hosted Langfuse
+
+# OpenTelemetry — export spans to Datadog, Grafana Tempo, Jaeger, etc.
+OTEL_ENABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
 ### Auth (optional — skip for local/internal use)
 
 ```env

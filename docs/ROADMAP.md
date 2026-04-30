@@ -53,7 +53,7 @@
 - [x] Evals CI — eval step skips gracefully (exit 0) when `ANTHROPIC_API_KEY` or `LANGSMITH_API_KEY` secrets are not set; documented in README
 - [x] Dependency security — upgraded `pytest` and `langsmith` via `uv lock` to resolve two Moderate Dependabot alerts
 
-### Phase 6 — Multi-Tenancy and Production Scale (in progress)
+### Phase 6 — Multi-Tenancy and Production Scale (complete)
 - [x] Account-level BYOK keys — `user_settings` Postgres table stores Anthropic, OpenRouter, and Ollama keys per user; `GET/PUT /api/settings` endpoints; Settings page in the dashboard; keys masked on read
 - [x] Ollama provider — self-hosted LLM support for Crash Handler and QA agents via OpenAI-compatible API; customer provides `base_url` in project `agent_overrides`; Helix never hosts Ollama (GPU required)
 - [x] Dev Agent Anthropic key gate — TDD loop skips gracefully when no Anthropic key is configured for the project; publishes `pr_skipped` event so Notifier can inform the customer
@@ -66,7 +66,13 @@
 - [x] GitHub Actions release workflow — pushing a `v*` tag builds a self-contained tarball (`docker-compose.yml`, `.env.example`, `config.yaml`, `INSTALL.md`) and publishes a GitHub Release automatically
 - [x] `scripts/reset_data.py` — dev utility to wipe Redis incident keys and Postgres project/settings data without restarting containers
 - [x] GitHub App multi-org install flow — installation callback reliably saves `installation_id` per org
-- [ ] Audit trail — queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id`
+- [x] Audit trail — `audit_events` Postgres table + `core/audit.py` (fire-and-forget); hook points in `core/events.py`, `integrations/github.py`, and `agents/crash_handler/main.py`; `GET /api/audit` endpoint; `AuditTrail` React component on the incident detail page
+- [x] Dashboard pipeline layouts — swimlane view (agent lanes with L-bend connectors) and horizontal card view; toggled via the tweaks panel (`Pipeline.tsx` rewrite)
+- [x] Incident list status filter — multi-select dropdown for all 9 statuses; `MiniPipeline` bars replace plain status chips
+- [x] Tweaks panel — density (compact/comfortable), accent colour (amber/green/violet/blue/ink), pipeline layout; accessible from the header
+- [x] Projects page live stats — incident count, PR count, and merged PR count computed from live incident data (was hardcoded to 0)
+- [x] Langfuse LLM observability — `core/llm.py` traces all LLM calls to Langfuse alongside LangSmith
+- [x] OpenCode CLI Dev Agent provider — alternative to Claude Code CLI; supports Ollama and other non-Anthropic backends
 
 > **Organisation/team support** (org table, org_id in payloads, per-org noisy-neighbour limits) is deferred until a customer explicitly requires it. The current single-user-per-account model handles 100+ customers on a single Railway deployment without it.
 

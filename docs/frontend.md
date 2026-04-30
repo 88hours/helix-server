@@ -40,7 +40,9 @@ The Helix dashboard is a React single-page application served directly by the Cr
 - Polls `GET /api/incidents` every 10 seconds
 - Incidents are **grouped by project** — each group shows the project name, repo slug, and incident count
 - Incidents without a matched project fall into an "Other" section
-- Table columns per incident: incident ID (mono), status badge, severity badge, error type, affected component, timestamp
+- **Status filter** — multi-select dropdown listing all 9 statuses with per-status counts and a "clear" action; closes on outside click
+- Table columns per incident: incident ID (mono), status badge, severity badge, error type, affected component, **4-bar mini pipeline**, timestamp
+- Mini pipeline: 4 equal-width bars coloured by agent (`--handler`, `--qa`, `--dev`, `--human`); bars after the current stage are dimmed; failed incidents show a red tint
 - Clicking a row navigates to the incident detail page
 - Projects whose GitHub repo is no longer accessible via the App show a yellow warning banner with a link to the GitHub page
 
@@ -51,13 +53,13 @@ The Helix dashboard is a React single-page application served directly by the Cr
 - Past events are replayed from Redis on connect — the `ActivityRail` and `ToolCalls` are populated even for completed incidents
 - `status_changed` SSE events trigger a full re-fetch of incident state so QA and PR sections update in real-time
 - Sections (in order):
-  1. **Back link + header** — incident ID, error type/message, severity and status badges
-  2. **Pipeline tracker** — 4-step horizontal progress bar with checkmarks (Crash Analysed → Test Generated → PR Created → Merged)
+  1. **Back link + header** — incident ID, error type/message, severity and status badges, rerun + approve PR actions
+  2. **Pipeline tracker** — switchable between `horizontal` (cards with → separators) and `swimlane` (agent rows with L-bend connectors); layout set in the tweaks panel
   3. **Tool call list** — structured live list of tool calls (`ToolCalls` component)
-  4. **Agent activity rail** — auto-scrolling live event log (`ActivityRail` component)
+  4. **PR diff** — unified diff viewer rendered from `dev.diff` in the PR result
   5. **Crash report** — error type, component, endpoint, language, source, stack trace (expandable)
-  6. **QA result** — issue link, test file path and name, test content (expandable)
-  7. **PR result** — PR link, branch, fix summary, files changed, iterations taken
+  6. **Audit trail** — filterable timeline of audit events for this incident (`AuditTrail` component)
+- **Activity rail** (optional, right column) — auto-scrolling live event log; toggled via `showActivityRail` tweak
 
 ### Projects `/app/projects`
 
@@ -94,26 +96,31 @@ The Helix dashboard is a React single-page application served directly by the Cr
 
 ```
 dashboard/src/
-  App.tsx                    Root: BrowserRouter, nav bar (Incidents, Projects, Agents, Settings, GitHub),
-                             Auth0 token bridge, AuthGuard, Shell layout
+  App.tsx                    Root: page routing, tweaks panel (density/accent/pipeline/activity rail),
+                             theme + accent CSS variable updates, Auth0 token bridge
   main.tsx                   Entry: wraps App in Auth0Provider when VITE_AUTH0_DOMAIN is set
   authFetch.ts               Authenticated fetch wrapper — injects Bearer token; falls back gracefully
-  constants.ts               Shared types (Agent, Incident, ToolCall, etc.) and API fetch helpers
+  constants.ts               Shared types (Agent, Incident, ToolCall, AuditEvent, etc.) and API fetch
+                             helpers including useAuditEvents()
+  index.css                  Global CSS custom properties; density rules via html[data-density="compact"]
   pages/
-    IncidentsPage.tsx         10s polling + manual refresh, grouped by project
-    IncidentDetailPage.tsx    SSE-driven detail view with event replay
-    ProjectsPage.tsx          Project management — create, configure per-project credentials
+    IncidentsPage.tsx         10s polling + manual refresh, grouped by project, status multi-select filter
+    IncidentDetailPage.tsx    SSE-driven detail view with event replay; passes layout to Pipeline
+    ProjectsPage.tsx          Project management; live stats computed from incidents prop
     AgentsPage.tsx            Agent status overview with pipeline walkthrough
     SettingsPage.tsx          Account-level LLM keys, Slack, email settings
     GitHubPage.tsx            GitHub App repo list and installation management
-    LoginPage.tsx             Auth0 login landing page
+    LoginPage.tsx             Auth0 login landing page with inline SVG helix logo
   components/
-    Pipeline.tsx              Horizontal 4-step tracker (Crash → Test → PR → Merged)
-    ToolCalls.tsx             Tool call log — rendered from tool_call SSE events
+    Pipeline.tsx              Dual-layout pipeline: horizontal (card row) + swimlane (agent lanes with
+                              L-bend CSS connectors); incidentToPipelineStages() maps status → stages
+    AuditTrail.tsx            Filterable audit event timeline; filter by actor kind + full-text search;
+                              expandable JSONB metadata per row
+    ToolCalls.tsx             Tool call log — rendered from tool_call SSE events; PRDiff unified diff viewer
     ActivityRail.tsx          Auto-scrolling agent activity log (live event feed)
-    Header.tsx                Top navigation bar with user dropdown and sign-out
+    Header.tsx                Top nav with inline SVG logo, tweaks button, user dropdown
     Walkthrough.tsx           Step-by-step pipeline explainer for new users
-    primitives.tsx            Shared UI primitives — badges, cards, buttons
+    primitives.tsx            Shared UI primitives — StatusPill, Severity, Icon, Button, Field
     AuthGuard.tsx             Redirects unauthenticated users to Auth0; no-op if auth disabled
 ```
 
@@ -138,6 +145,7 @@ API calls use two files:
 | `fetchSettings()` | GET | `/api/settings` | Account-level LLM/notification settings |
 | `saveSettings(data)` | PUT | `/api/settings` | Persist account settings |
 | `fetchMe()` | GET | `/api/me` | Caller identity from JWT |
+| `useAuditEvents(incidentId)` | GET | `/api/audit?incident_id=` | Audit events for an incident (hook) |
 
 ### Event types
 
@@ -167,6 +175,20 @@ type ToolCallEvent = {
 
 type UIProgressEvent = AgentProgressEvent | ToolCallEvent
 ```
+
+---
+
+## Tweaks Panel
+
+A floating settings panel toggled by the **tweaks** button in the header. Controls are persisted to `window.__TWEAKS` (session only — not stored).
+
+| Setting | Options | Effect |
+|---|---|---|
+| `theme` | `light` / `dark` | Overrides CSS custom properties (`--bg`, `--ink`, `--line`, etc.) |
+| `density` | `compact` / `comfortable` | Sets `html[data-density]`; CSS rules adjust padding and font sizes |
+| `pipeline` | `horizontal` / `swimlane` | Passed as `layout` prop to the `Pipeline` component on incident detail |
+| `accent` | `amber` / `green` / `violet` / `blue` / `ink` | Updates `--accent` CSS variable via OKLCH values |
+| `activity rail` | on / off | Shows or hides the live event rail on the incident detail page |
 
 ---
 

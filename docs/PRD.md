@@ -193,10 +193,31 @@ Upgraded `pytest` and `langsmith` to resolve Dependabot alerts.
 
 ---
 
-### Phase 6 – Audit Trail (planned)
+### Phase 6 – Production Scale and Audit Trail (complete)
+
+#### Account-level BYOK keys
+`user_settings` Postgres table stores Anthropic, OpenRouter, and Ollama keys per user. Keys are masked on read. Key resolution order: project override → user settings → global env var.
+
+#### Ollama provider
+Self-hosted LLM support for Crash Handler and QA agents via OpenAI-compatible API. Customers provide `base_url` in project `agent_overrides`. Helix never hosts Ollama.
+
+#### OpenCode CLI Dev Agent provider
+Alternative to Claude Code CLI. Supports Ollama and other non-Anthropic backends. Configured via `HELIX_DEV_PROVIDER=opencode`.
+
+#### Langfuse LLM observability
+All LLM calls in `core/llm.py` are traced to Langfuse alongside LangSmith. Enabled by setting `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`.
 
 #### Audit trail
-Queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id`.
+Queryable log of every inbound webhook, agent event, Slack action, and GitHub operation, keyed by `incident_id`. Stored in `audit_events` Postgres table. Exposed via `GET /api/audit`. Visualised in the `AuditTrail` component on the incident detail page. Recording is fire-and-forget — a DB failure never interrupts the request path.
+
+#### Dashboard pipeline layouts
+Swimlane view (each agent in its own lane with L-bend CSS connectors) and horizontal card view. Toggled via the tweaks panel. Active stage pulses; completed stages show checkmarks.
+
+#### Incident list status filter
+Multi-select dropdown covering all 9 pipeline statuses. Four-bar mini pipeline replaces plain status chips in the incident table.
+
+#### Tweaks panel
+User-accessible panel in the header for density (compact/comfortable), accent colour, pipeline layout, activity rail toggle, and theme. Changes apply immediately via CSS custom properties.
 
 ---
 

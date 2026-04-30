@@ -170,3 +170,33 @@ Helix charges for platform access, not LLM inference. Customers own their infere
 - `core/models.py` — `AgentOverride.base_url: Optional[str]` added
 - `core/config.py` — `AgentConfig.base_url: Optional[str]` added; `ProjectConfig.agent()` passes it through
 - `core/llm.py` — `_complete_ollama()` added; `complete()` accepts optional pre-resolved `config` param for per-project routing
+
+---
+
+## TD-005 — Langfuse added alongside LangSmith for LLM observability
+
+**Date:** May 2026
+**Status:** Decided
+
+### Decision
+
+Both **Langfuse** and **LangSmith** are used for LLM observability. Each LLM call in `core/llm.py` sends a trace to whichever backends are configured. Either can be used independently; both can run simultaneously.
+
+### Reasons
+
+**1. Langfuse is self-hostable.**
+LangSmith is SaaS-only. Customers with data-residency requirements can run Langfuse on their own infrastructure and point Helix at it via `LANGFUSE_HOST`. LangSmith has no equivalent.
+
+**2. Different pricing models.**
+Langfuse has a generous free tier and predictable per-event pricing. LangSmith free tier limits are lower for high-volume evals. Having both means customers can choose based on their usage.
+
+**3. No additional complexity at the call site.**
+Both backends are optional. `core/llm.py` checks for keys at call time and fires to whichever are present. Call sites do not change.
+
+### Rejected alternative: Langfuse-only
+
+LangSmith evals are already wired into CI (`evals.yml`). Removing LangSmith would require rewriting the eval runner. Not worth the churn.
+
+### Activation
+
+Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` (and optionally `LANGFUSE_HOST` for self-hosted). LangSmith remains active independently via `LANGSMITH_API_KEY`.
