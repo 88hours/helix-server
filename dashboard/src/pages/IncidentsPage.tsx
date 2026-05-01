@@ -234,6 +234,9 @@ interface IncidentsPageProps {
 export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: IncidentsPageProps) {
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   const [severity, setSeverity] = useState<SevFilter>('any');
+  const [orgFilter, setOrgFilter] = useState<string>('any');
+
+  const orgs = Array.from(new Set(incidents.map(i => i.github_org_login).filter(Boolean) as string[])).sort();
 
   const statusCounts: Record<string, number> = {};
   ALL_STATUSES.forEach(s => { statusCounts[s] = incidents.filter(i => i.status === s).length; });
@@ -244,6 +247,7 @@ export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: Inciden
   const filtered = incidents.filter(inc => {
     if (statusFilter.size > 0 && !statusFilter.has(inc.status)) return false;
     if (severity !== 'any' && inc.severity !== severity) return false;
+    if (orgFilter !== 'any' && inc.github_org_login !== orgFilter) return false;
     return true;
   });
 
@@ -302,6 +306,16 @@ export function IncidentsPage({ incidents, loading, onOpen, onRefresh }: Inciden
             {k}
           </FilterChip>
         ))}
+        {orgs.length > 0 && (
+          <>
+            <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 8px' }} />
+            <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>org</span>
+            <FilterChip active={orgFilter === 'any'} onClick={() => setOrgFilter('any')}>all</FilterChip>
+            {orgs.map(o => (
+              <FilterChip key={o} active={orgFilter === o} onClick={() => setOrgFilter(o)}>{o}</FilterChip>
+            ))}
+          </>
+        )}
         <span style={{ flex: 1 }} />
         <Button variant="ghost" size="sm" onClick={onRefresh}><Icon.refresh size={11} /> refresh</Button>
         <Button variant="subtle" size="sm">newest ↓</Button>

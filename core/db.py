@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS projects (
     base_branch         TEXT NOT NULL DEFAULT 'main',
     language            TEXT NOT NULL DEFAULT 'python',
     github_installation_id TEXT,
+    github_org_login    TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -166,6 +167,13 @@ async def init_db() -> None:
             stmt = statement.strip()
             if stmt:
                 await conn.execute(text(stmt))
+        await conn.execute(text(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_org_login TEXT"
+        ))
+        await conn.execute(text(
+            "UPDATE projects SET github_org_login = split_part(repo, '/', 1)"
+            " WHERE github_org_login IS NULL AND repo LIKE '%/%'"
+        ))
     logger.info("database tables verified / created")
 
 
@@ -224,12 +232,13 @@ async def insert_project(
         language:                Primary language of the repo.
         github_installation_id:  GitHub App installation ID, if connected.
     """
+    org_login = repo.split("/")[0] if "/" in repo else None
     await db.execute(
         text("""
             INSERT INTO projects
-                (project_id, owner_sub, name, repo, base_branch, language, github_installation_id)
+                (project_id, owner_sub, name, repo, base_branch, language, github_installation_id, github_org_login)
             VALUES
-                (:project_id, :owner_sub, :name, :repo, :base_branch, :language, :installation_id)
+                (:project_id, :owner_sub, :name, :repo, :base_branch, :language, :installation_id, :org_login)
         """),
         {
             "project_id": project_id,
@@ -239,6 +248,7 @@ async def insert_project(
             "base_branch": base_branch,
             "language": language,
             "installation_id": github_installation_id,
+            "org_login": org_login,
         },
     )
 

@@ -35,6 +35,7 @@ export interface Incident {
   users: number;
   progress: number;
   project_id?: string;
+  github_org_login?: string;
   duplicateOf?: string;
   note?: string;
   source?: string;
@@ -139,6 +140,7 @@ export function mapApiIncident(raw: Record<string, unknown>): Incident {
     users: 0,
     progress: statusToProgress(raw.status as string),
     project_id: raw.project_id as string | undefined,
+    github_org_login: raw.github_org_login as string | undefined,
   };
 }
 

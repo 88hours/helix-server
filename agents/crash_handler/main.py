@@ -424,15 +424,26 @@ async def slack_actions(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/incidents", tags=["dashboard"])
-async def list_incidents(request: Request, _user: dict = Depends(get_current_user)):
+async def list_incidents(request: Request, org: str | None = None, _user: dict = Depends(get_current_user)):
     """
     List all known incidents.
 
     Scans Redis for helix:incident:*:status keys to enumerate incident IDs,
     then reads the status and crash report summary for each.  Returns newest
     incidents first (sorted by crash report timestamp).
+
+    Optional query param: ?org=<github_org_login> to filter by organisation.
     """
     redis_client = request.app.state.redis
+
+    org_by_project: dict[str, str | None] = {}
+    if os.environ.get("DATABASE_URL"):
+        async with get_db() as db:
+            owner_sub = _user.get("sub", "")
+            rows = await db_list_projects(db, owner_sub) if owner_sub else await db_list_all_projects(db)
+            for row in rows:
+                org_by_project[row["project_id"]] = row.get("github_org_login")
+
     incidents = []
 
     async for raw_key in redis_client.scan_iter("helix:incident:*:status"):
@@ -445,11 +456,17 @@ async def list_incidents(request: Request, _user: dict = Depends(get_current_use
 
         status_val = await read_status(redis_client, incident_id)
         report = await read_crash_report(redis_client, incident_id)
+        project_id = report.project_id if report else None
+        github_org_login = org_by_project.get(project_id) if project_id else None
+
+        if org and github_org_login != org:
+            continue
 
         incidents.append(
             {
                 "incident_id": incident_id,
-                "project_id": report.project_id if report else None,
+                "project_id": project_id,
+                "github_org_login": github_org_login,
                 "status": status_val or "unknown",
                 "error_type": report.error_type if report else None,
                 "error_message": report.error_message if report else None,
