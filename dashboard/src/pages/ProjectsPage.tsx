@@ -876,20 +876,43 @@ export function ProjectsPage({ incidents = [] }: { incidents?: Incident[] }) {
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)' }} className="mono">
           no projects yet — click "new project" to add one
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {projects.map(p => (
-            <ProjectCard
-              key={p.id} p={p}
-              open={expanded === p.id}
-              onToggle={() => setExpanded(x => x === p.id ? null : p.id)}
-              onSave={s => saveProjectSettings(p.id, s)}
-              onDelete={() => deleteProject(p.id)}
-              stats={projectStats(p.id)}
-            />
-          ))}
-        </div>
-      )}
+      ) : (() => {
+        const orgs = Array.from(new Set(projects.map(p => p.github_org_login ?? '—'))).sort();
+        const grouped = orgs.map(org => ({
+          org,
+          projects: projects.filter(p => (p.github_org_login ?? '—') === org),
+        }));
+        const showHeaders = orgs.length > 0;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: showHeaders ? 24 : 14 }}>
+            {grouped.map(({ org, projects: group }) => (
+              <div key={org}>
+                {showHeaders && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                      {org}
+                    </span>
+                    <span style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+                    <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{group.length} project{group.length !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {group.map(p => (
+                    <ProjectCard
+                      key={p.id} p={p}
+                      open={expanded === p.id}
+                      onToggle={() => setExpanded(x => x === p.id ? null : p.id)}
+                      onSave={s => saveProjectSettings(p.id, s)}
+                      onDelete={() => deleteProject(p.id)}
+                      stats={projectStats(p.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {showNew && (
         <NewProjectModal

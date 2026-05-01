@@ -59,6 +59,7 @@ export interface Project {
   language: string;
   status: string;
   warning?: string;
+  github_org_login?: string;
   stats: { incidents7d: number; prs7d: number; merged7d: number; meanFix: string };
   activity: number[];
   webhooks: Record<string, string>;
@@ -153,6 +154,7 @@ export function mapApiProject(raw: Record<string, unknown>): Project {
     repo: raw.repo as string,
     branch: (raw.base_branch as string) || 'main',
     language: (raw.language as string) || 'python',
+    github_org_login: raw.github_org_login as string | undefined,
     status: 'ready',
     stats: { incidents7d: 0, prs7d: 0, merged7d: 0, meanFix: '—' },
     activity: [],
