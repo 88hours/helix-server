@@ -82,6 +82,7 @@
 
 - [ ] Priority queues per plan tier — Free / Pro / Team incidents route to separate Redis Stream keys; workers poll high-priority streams first
 - [ ] Worker pool per agent — multiple concurrent instances with Railway replica scaling or ECS Fargate auto-scaling on queue depth
+- [ ] On-prem source protection — compile `agents/`, `core/`, `integrations/` to native `.so` binaries via Cython in a Docker build stage; ship the runtime image without `.py` source files; `__init__.py` stubs retained for import compatibility
 
 #### Axon
 
