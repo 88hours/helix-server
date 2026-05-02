@@ -32,6 +32,7 @@ EventBridge detail-type names match the event_name 1-to-1:
     pr_created              helix:stream:pr_created
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -191,30 +192,42 @@ async def _subscribe_pubsub(
 ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
     """Subscribe to a Redis Pub/Sub channel and yield (incident_id, payload) tuples."""
     channel = f"{_REDIS_CHANNEL_PREFIX}:{event_name}"
-    pubsub = client.pubsub()
-    await pubsub.subscribe(channel)
-    logger.info("subscribed to pubsub channel", extra={"event": event_name, "channel": channel})
 
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-
+    while True:
+        pubsub = client.pubsub()
         try:
-            data = json.loads(message["data"])
-            incident_id = data["incident_id"]
-            payload = data["payload"]
-        except (json.JSONDecodeError, KeyError) as exc:
-            logger.error(
-                "malformed pubsub message — skipping",
+            await pubsub.subscribe(channel)
+            logger.info("subscribed to pubsub channel", extra={"event": event_name, "channel": channel})
+
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+
+                try:
+                    data = json.loads(message["data"])
+                    incident_id = data["incident_id"]
+                    payload = data["payload"]
+                except (json.JSONDecodeError, KeyError) as exc:
+                    logger.error(
+                        "malformed pubsub message — skipping",
+                        extra={"channel": channel, "error": str(exc)},
+                    )
+                    continue
+
+                logger.info(
+                    "event received via pubsub",
+                    extra={"event": event_name, "incident_id": incident_id},
+                )
+                yield incident_id, payload
+
+        except Exception as exc:
+            logger.warning(
+                "pubsub connection lost — reconnecting in 2s",
                 extra={"channel": channel, "error": str(exc)},
             )
-            continue
-
-        logger.info(
-            "event received via pubsub",
-            extra={"event": event_name, "incident_id": incident_id},
-        )
-        yield incident_id, payload
+            await asyncio.sleep(2)
+        finally:
+            await pubsub.close()
 
 
 # ---------------------------------------------------------------------------
