@@ -139,7 +139,7 @@ interface IncidentDetailPageProps {
 }
 
 export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelineLayout }: IncidentDetailPageProps) {
-  const { data: detail } = useIncident(incident?.id ?? null);
+  const { data: detail, reload: reloadDetail } = useIncident(incident?.id ?? null);
   const { events: auditEvents } = useAuditEvents(incident?.id ?? null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
@@ -227,7 +227,7 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
               <Severity level={incident.severity} />
               <StatusPill status={incident.status} />
               <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 4px' }} />
-              <Button variant="ghost" size="sm"><Icon.refresh size={11} /> rerun</Button>
+              <Button variant="ghost" size="sm" onClick={reloadDetail}><Icon.refresh size={11} /> refresh</Button>
               {incident.status === 'approval' && (
                 <Button
                   variant="primary"

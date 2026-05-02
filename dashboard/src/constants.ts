@@ -207,17 +207,20 @@ export function useIncidents(): { incidents: Incident[]; loading: boolean; reloa
   return { incidents, loading, reload };
 }
 
-export function useIncident(id: string | null): { data: ApiIncidentDetail | null; loading: boolean } {
+export function useIncident(id: string | null): { data: ApiIncidentDetail | null; loading: boolean; reload: () => void } {
   const [data, setData] = useState<ApiIncidentDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+
+  const reload = () => {
     if (!id) return;
     authFetch(`/api/incidents/${id}`)
       .then(r => r.ok ? r.json() : null)
       .then((d: ApiIncidentDetail | null) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [id]);
-  return { data, loading };
+  };
+
+  useEffect(() => { reload(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { data, loading, reload };
 }
 
 export function useActivityStream(
