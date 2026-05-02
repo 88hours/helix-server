@@ -184,7 +184,7 @@ async def _complete_openrouter(
 # ---------------------------------------------------------------------------
 
 async def _complete_ollama(
-    config: AgentConfig, prompt: str, system: str
+    config: AgentConfig, prompt: str, system: str, json_mode: bool = False
 ) -> tuple[str, dict]:
     """
     Call a customer-provided Ollama instance using the OpenAI-compatible API.
@@ -195,9 +195,12 @@ async def _complete_ollama(
     self-hosting, customers should use OpenRouter instead.
 
     Args:
-        config:   Resolved agent config — must have base_url set.
-        prompt:   User-turn message.
-        system:   System prompt. Prepended as a system message when non-empty.
+        config:    Resolved agent config — must have base_url set.
+        prompt:    User-turn message.
+        system:    System prompt. Prepended as a system message when non-empty.
+        json_mode: When True, passes response_format={"type":"json_object"} to
+                   suppress chain-of-thought (e.g. qwen3 <think> blocks) and
+                   force direct JSON output.
 
     Returns:
         Tuple of (response text, usage dict with input_tokens and output_tokens).
@@ -205,6 +208,7 @@ async def _complete_ollama(
     Raises:
         ValueError: If base_url is not set on the config.
     """
+    import re as _re
     import openai  # lazy import — only required for this backend
 
     if not config.base_url:
@@ -224,16 +228,34 @@ async def _complete_ollama(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    response = await client.chat.completions.create(
-        model=config.model,
-        messages=messages,
-        max_tokens=_MAX_TOKENS,
-    )
+    kwargs: dict = {
+        "model": config.model,
+        "messages": messages,
+        "max_tokens": _MAX_TOKENS,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = await client.chat.completions.create(**kwargs)
     usage = {
         "input_tokens": response.usage.prompt_tokens if response.usage else 0,
         "output_tokens": response.usage.completion_tokens if response.usage else 0,
     }
-    return response.choices[0].message.content, usage
+    content = response.choices[0].message.content or ""
+    logger.debug("ollama raw response", extra={"agent": config.agent, "content_len": len(content), "content_preview": content[:200]})
+
+    # Some reasoning models (qwen3, deepseek-r1) prepend <think>…</think> blocks
+    # even when JSON mode is requested via an older Ollama version. Strip them so
+    # extract_json reliably finds the JSON object.
+    content = _re.sub(r"<think>.*?</think>", "", content, flags=_re.DOTALL).strip()
+
+    if not content:
+        raise ValueError(
+            f"Ollama returned empty content for agent '{config.agent}'. "
+            "The model may have used its entire token budget for reasoning. "
+            "Check HELIX_OLLAMA_BASE_URL and the model name, or increase max_tokens."
+        )
+    return content, usage
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +397,7 @@ async def complete(
     system: str = "",
     cwd: Optional[str] = None,
     config: Optional[AgentConfig] = None,
+    json_mode: bool = False,
 ) -> str:
     """
     Run a completion for the given agent, routed to the correct LLM backend.
@@ -421,7 +444,7 @@ async def complete(
         elif resolved.provider == "openrouter":
             response, usage = await _complete_openrouter(resolved, prompt, system)
         elif resolved.provider == "ollama":
-            response, usage = await _complete_ollama(resolved, prompt, system)
+            response, usage = await _complete_ollama(resolved, prompt, system, json_mode=json_mode)
         elif resolved.provider == "claude-code":
             response, usage = await _complete_claude_code(prompt, cwd)
         elif resolved.provider == "opencode":

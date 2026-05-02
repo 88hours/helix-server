@@ -93,6 +93,7 @@ async def handle(event: RollbarEvent, redis_client: redis.Redis, project_id: str
             agent="crash_handler",
             prompt=prompt,
             system=prompts.SYSTEM,
+            json_mode=True,
         )
         await publish_tool_event(redis_client, incident_id, "crash_handler", "llm", "complete", "success")
 

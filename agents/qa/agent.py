@@ -166,6 +166,7 @@ async def handle(
                 agent="qa",
                 prompt=prompt,
                 system=prompts.SYSTEM,
+                json_mode=True,
             )
             await publish_tool_event(redis_client, report.incident_id, "qa", "llm", "complete", "success", f"attempt {attempt}")
             data = extract_json(raw_response)
