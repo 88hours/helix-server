@@ -915,6 +915,12 @@ async def create_project(
             email=user.get("email", "") or "",
             picture=user.get("picture", "") or "",
         )
+        installation_id = body.github_installation_id
+        if not installation_id:
+            inst = await get_installation_for_user(db, user["sub"])
+            if inst:
+                installation_id = str(inst["installation_id"])
+
         await insert_project(
             db,
             project_id=project_id,
@@ -923,7 +929,7 @@ async def create_project(
             repo=repo_slug,
             base_branch=body.base_branch,
             language=body.language,
-            github_installation_id=body.github_installation_id,
+            github_installation_id=installation_id,
         )
         settings = {
             "anthropic_api_key": body.anthropic_api_key,

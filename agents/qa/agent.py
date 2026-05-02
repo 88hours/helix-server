@@ -30,7 +30,7 @@ from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, QAResult, TestCase, TestFormat, TicketAction, language_to_test_format
 from core.permissions import AgentPermissions, load_permissions, require
-from core.state import write_qa_result, write_status
+from core.state import write_llm_response, write_qa_result, write_status
 from core.ui_events import publish_tool_event, publish_ui_event
 from core.utils import extract_json
 from integrations import github
@@ -155,6 +155,7 @@ async def handle(
         )
 
         raw_response = None
+        data: dict = {}
         rejection_note = ""
         for attempt in range(1, _MAX_TEST_RETRIES + 2):  # attempts: 1, 2, 3
             await publish_ui_event(
@@ -168,8 +169,24 @@ async def handle(
                 system=prompts.SYSTEM,
                 json_mode=True,
             )
+            await write_llm_response(redis_client, report.incident_id, "qa", attempt, raw_response)
             await publish_tool_event(redis_client, report.incident_id, "qa", "llm", "complete", "success", f"attempt {attempt}")
-            data = extract_json(raw_response)
+            try:
+                data = extract_json(raw_response)
+            except ValueError:
+                logger.warning(
+                    "qa agent llm returned invalid JSON — retrying",
+                    extra={"incident_id": report.incident_id, "attempt": attempt},
+                )
+                rejection_note = "\n\nIMPORTANT: Your previous response was not valid JSON. Return ONLY a JSON object — no prose, no markdown, no extra text."
+                continue
+
+            # Normalise field aliases that models commonly use instead of our schema.
+            if "content" not in data and "test_code" in data:
+                data["content"] = data.pop("test_code")
+            if "file_path" not in data:
+                data["file_path"] = f"tests/test_{report.affected_component.lower().replace(' ', '_')}.py"
+
             problem = _check_test(data.get("content", ""), report.error_type, report.language)
             if not problem:
                 break
@@ -186,7 +203,9 @@ async def handle(
     finally:
         shutil.rmtree(repo_dir, ignore_errors=True)
 
-    data = extract_json(raw_response)
+    missing = [k for k in ("file_path", "test_name", "content") if not data.get(k)]
+    if missing:
+        raise ValueError(f"LLM response missing required fields after all retries: {missing}. Last response: {raw_response!r:.200}")
 
     test_case = TestCase(
         file_path=data["file_path"],
