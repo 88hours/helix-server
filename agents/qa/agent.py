@@ -335,12 +335,29 @@ def _read_relevant_files(repo_dir: str, stack_trace: str, language: str = "pytho
     candidate_paths = _extract_paths_from_stack_trace(stack_trace, language)
     result: dict[str, str] = {}
 
+    # Build a filename → repo-relative-path index for fallback searches.
+    # Stack traces from developer machines contain absolute local paths that
+    # won't match the repo directory structure, so we search by basename.
+    filename_index: dict[str, str] = {}
+    repo_root = Path(repo_dir)
+    for p in repo_root.rglob("*"):
+        if p.is_file() and not any(part.startswith(".") for part in p.parts):
+            rel = str(p.relative_to(repo_root))
+            filename_index.setdefault(p.name, rel)
+
     for relative_path in candidate_paths:
         if len(result) >= _MAX_SOURCE_FILES:
             break
-        full_path = Path(repo_dir) / relative_path
+        full_path = repo_root / relative_path
         if not full_path.is_file():
-            continue
+            # Fall back: search by filename only
+            basename = Path(relative_path).name
+            fallback = filename_index.get(basename)
+            if fallback:
+                relative_path = fallback
+                full_path = repo_root / relative_path
+            else:
+                continue
         try:
             content = full_path.read_text(encoding="utf-8", errors="replace")
             if len(content) > _MAX_FILE_CHARS:
@@ -442,11 +459,8 @@ def _extract_paths_from_stack_trace(stack_trace: str, language: str = "python") 
 
 
 def _normalise_path(path: str) -> str:
-    """Strip leading ./ or / from a path to make it relative."""
-    path = path.lstrip("./")
-    # Strip a leading absolute path component that looks like a container root
-    # (e.g. "/app/src/file.js" → "src/file.js" won't work, keep as-is for matching)
-    return path
+    """Return a normalised relative path, stripping leading ./ or /."""
+    return path.lstrip("./") if not path.startswith("/") else path.split("/")[-1]
 
 
 def _check_test(test_content: str, error_type: str, language: str = "python") -> str:
