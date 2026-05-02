@@ -39,6 +39,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # `claude -p "<prompt>"` inside the cloned repo.
 RUN npm install -g @anthropic-ai/claude-code
 
+# OpenCode CLI — alternative Dev Agent backend that supports Ollama and other
+# providers. Installed so `opencode` is on PATH when HELIX_DEV_PROVIDER=opencode.
+RUN curl -fsSL https://opencode.ai/install | bash \
+    && mv /root/.opencode/bin/opencode /usr/local/bin/opencode
+
 # ---------------------------------------------------------------------------
 # Non-root user
 # ---------------------------------------------------------------------------

@@ -184,8 +184,10 @@ async def handle(
             # Normalise field aliases that models commonly use instead of our schema.
             if "content" not in data and "test_code" in data:
                 data["content"] = data.pop("test_code")
-            if "file_path" not in data:
+            if not (data.get("file_path") or "").strip():
                 data["file_path"] = f"tests/test_{report.affected_component.lower().replace(' ', '_')}.py"
+            if not (data.get("test_name") or "").strip():
+                data["test_name"] = f"test_{report.affected_component.lower().replace(' ', '_')}_bug"
 
             content = (data.get("content") or "").strip()
             if not content:
