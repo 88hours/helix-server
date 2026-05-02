@@ -129,7 +129,7 @@ function StatCard({ value, label, accent, small }: { value: string; label: strin
 function agentsForStatus(status: string): AgentId[] {
   if (status === 'duplicate' || status === 'failed') return ['handler'];
   if (status === 'analysing') return ['handler'];
-  if (status === 'testing') return ['handler', 'qa'];
+  if (status === 'crash_analysed' || status === 'duplicate_detected' || status === 'testing') return ['handler', 'qa'];
   return ['handler', 'qa', 'dev'];
 }
 
@@ -154,7 +154,19 @@ function AgentChips({ status }: { status: string }) {
 }
 
 const STATUS_AGENT_IDX: Record<string, number> = {
-  analysing: 0, testing: 1, fixing: 2, pr: 2, approval: 3, merged: 4,
+  analysing: 0,
+  crash_analysed: 1,
+  duplicate_detected: 1,
+  test_case_generated: 2,
+  fix_suggested: 2,
+  pr_created: 3,
+  pr_merged: 4,
+  approval_rejected: 3,
+  testing: 1,
+  fixing: 2,
+  pr: 2,
+  approval: 3,
+  merged: 4,
 };
 
 function MiniPipeline({ inc }: { inc: Incident }) {

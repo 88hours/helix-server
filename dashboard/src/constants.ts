@@ -114,7 +114,19 @@ export const STATUSES: Record<string, { label: string; color: string }> = {
 
 export function statusToProgress(status: string): number {
   const map: Record<string, number> = {
-    analysing: 0.15, testing: 0.3, fixing: 0.5, pr: 0.6, approval: 0.8, merged: 1,
+    analysing: 0.15,
+    crash_analysed: 0.25,
+    duplicate_detected: 0.25,
+    test_case_generated: 0.45,
+    fix_suggested: 0.55,
+    pr_created: 0.7,
+    pr_merged: 1,
+    approval_rejected: 0.8,
+    testing: 0.3,
+    fixing: 0.5,
+    pr: 0.6,
+    approval: 0.8,
+    merged: 1,
   };
   return map[status] ?? 0;
 }

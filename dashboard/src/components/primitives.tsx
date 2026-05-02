@@ -37,15 +37,22 @@ export function Badge({ children, tone = 'neutral', style = {} }: BadgeProps) {
 
 export function StatusPill({ status }: { status: string }) {
   const map: Record<string, { tone: BadgeTone; label: string }> = {
-    merged:    { tone: 'ok',     label: 'merged' },
-    pr:        { tone: 'ok',     label: 'pr created' },
-    approval:  { tone: 'amber',  label: 'awaiting approval' },
-    analysing: { tone: 'warn',   label: 'analysing' },
-    testing:   { tone: 'violet', label: 'test gen' },
-    fixing:    { tone: 'ok',     label: 'fixing' },
-    duplicate: { tone: 'dim',    label: 'duplicate' },
-    failed:    { tone: 'crash',  label: 'failed' },
-    crash:     { tone: 'crash',  label: 'crash' },
+    analysing:           { tone: 'warn',   label: 'analysing' },
+    crash_analysed:      { tone: 'violet', label: 'crash analysed' },
+    duplicate_detected:  { tone: 'dim',    label: 'duplicate' },
+    test_case_generated: { tone: 'violet', label: 'test generated' },
+    fix_suggested:       { tone: 'ok',     label: 'fixing' },
+    pr_created:          { tone: 'ok',     label: 'pr created' },
+    pr_merged:           { tone: 'ok',     label: 'merged' },
+    approval_rejected:   { tone: 'crash',  label: 'rejected' },
+    merged:              { tone: 'ok',     label: 'merged' },
+    pr:                  { tone: 'ok',     label: 'pr created' },
+    approval:            { tone: 'amber',  label: 'awaiting approval' },
+    testing:             { tone: 'violet', label: 'test gen' },
+    fixing:              { tone: 'ok',     label: 'fixing' },
+    duplicate:           { tone: 'dim',    label: 'duplicate' },
+    failed:              { tone: 'crash',  label: 'failed' },
+    crash:               { tone: 'crash',  label: 'crash' },
   };
   const s = map[status] ?? { tone: 'neutral' as BadgeTone, label: status };
   return <Badge tone={s.tone}>{s.label}</Badge>;

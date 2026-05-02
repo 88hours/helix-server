@@ -146,13 +146,24 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
   const evIdRef = useRef(0);
 
   useActivityStream(incident?.id ?? null, (type, data) => {
-    const ev: ActivityEvent = {
-      id: String(evIdRef.current++),
-      ts: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      type: type === 'progress' ? 'status' : 'log',
-      message: JSON.stringify(data).slice(0, 200),
-    };
-    setEvents(prev => [...prev.slice(-499), ev]);
+    if (type === 'snapshot') {
+      const past = (data.events as Record<string, unknown>[] | undefined) ?? [];
+      const hydrated: ActivityEvent[] = past.map(e => ({
+        id: String(evIdRef.current++),
+        ts: e.timestamp ? new Date(e.timestamp as string).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—',
+        type: 'status' as const,
+        message: (e.message as string) ?? (e.type === 'tool_call' ? `${e.agent} › ${e.tool} › ${e.action} [${e.status}]${e.detail ? ` — ${e.detail}` : ''}` : JSON.stringify(e).slice(0, 200)),
+      }));
+      setEvents(hydrated);
+    } else {
+      const ev: ActivityEvent = {
+        id: String(evIdRef.current++),
+        ts: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        type: 'status',
+        message: (data.message as string) ?? (data.type === 'tool_call' ? `${data.agent} › ${data.tool} › ${data.action} [${data.status}]${data.detail ? ` — ${data.detail}` : ''}` : JSON.stringify(data).slice(0, 200)),
+      };
+      setEvents(prev => [...prev.slice(-499), ev]);
+    }
   });
 
   useEffect(() => {
