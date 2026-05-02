@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 
 # Maximum tokens to request from the API. Agents that need longer responses
 # (Dev Agent writing code) are served by claude-code which has no hard limit here.
-_MAX_TOKENS = 4096
+_MAX_TOKENS = 8192
 
 # Timeout in seconds for the claude-code subprocess. Dev Agent iterations
 # can be long — allow up to 10 minutes per call.
@@ -235,6 +235,9 @@ async def _complete_ollama(
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
+    num_ctx = os.environ.get("HELIX_OLLAMA_NUM_CTX")
+    if num_ctx:
+        kwargs["extra_body"] = {"options": {"num_ctx": int(num_ctx)}}
 
     response = await client.chat.completions.create(**kwargs)
     usage = {
