@@ -83,7 +83,14 @@ def parse_event(raw: dict[str, Any]) -> RollbarEvent:
     occurrence: dict[str, Any] = data.get("occurrence") or item.get("last_occurrence", {})
 
     item_id = str(item.get("id", ""))
-    occurrence_id = str(occurrence.get("id", "") or item_id)
+    # Prefer the explicit occurrence ID. For exp_repeat_item events, last_occurrence
+    # has no "id" field but the item carries last_occurrence_id at the top level.
+    occurrence_id = str(
+        occurrence.get("id")
+        or item.get("last_occurrence_id")
+        or occurrence.get("uuid")
+        or item_id
+    )
 
     title = item.get("title") or "Unknown error"
     # item.level is an integer in Rollbar's API (40 = error, 50 = critical, etc.)
