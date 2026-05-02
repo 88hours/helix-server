@@ -55,7 +55,7 @@ from agents.crash_handler.agent import handle
 from core.preflight import check_required_env
 import core.audit as audit
 from core.auth import get_current_user
-from core.config import get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
+from core.config import get_agent_config, get_github_config, get_redis_url, get_rollbar_config, get_sentry_config, get_slack_config, is_demo_mode
 from core.telemetry import get_tracer, setup_tracing
 from core.db import (
     delete_project as db_delete_project,
@@ -76,6 +76,7 @@ from core.db import (
 from core.github_app import build_install_url, get_app_slug, list_installation_repos
 from core.models import Project, ProjectSettings, RepoConfig
 from core.state import (
+    is_duplicate_occurrence,
     read_crash_report,
     read_pr_result,
     read_qa_result,
@@ -116,6 +117,8 @@ async def lifespan(app: FastAPI):
     redis_url = get_redis_url()
     logger.info("=== Crash Handler starting ===")
     logger.info("demo mode: %s", os.environ.get("HELIX_DEMO", "not set"))
+    cfg = get_agent_config("crash_handler")
+    logger.info("crash_handler llm config — provider=%s model=%s base_url=%s", cfg.provider, cfg.model, cfg.base_url or "not set")
     logger.info("crash handler connecting to redis", extra={"redis_url": redis_url})
     app.state.redis = aioredis.from_url(redis_url, decode_responses=False)
 
@@ -199,8 +202,8 @@ async def rollbar_webhook(project_id: str, request: Request):
     the payload, then delegates to the Crash Handler Agent.
     Returns 202 immediately — processing is async.
     """
-    row = await _load_project_or_404(project_id)
     body = await request.body()
+    row = await _load_project_or_404(project_id)
 
     logger.debug(
         "rollbar webhook raw headers: %s",
@@ -247,6 +250,9 @@ async def rollbar_webhook(project_id: str, request: Request):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
 
     crash_event = rollbar_integration.parse_event(raw)
+    if await is_duplicate_occurrence(request.app.state.redis, crash_event.occurrence_id):
+        logger.info("duplicate occurrence — skipping", extra={"occurrence_id": crash_event.occurrence_id, "project_id": project_id})
+        return {"status": "ignored", "reason": "duplicate_occurrence"}
     try:
         with _tracer.start_as_current_span("crash_handler.handle_incident") as span:
             span.set_attribute("helix.source", "rollbar")
@@ -270,9 +276,9 @@ async def sentry_webhook(project_id: str, request: Request):
     then delegates to the Crash Handler Agent.
     Returns 202 immediately — processing is async.
     """
-    row = await _load_project_or_404(project_id)
     body = await request.body()
     signature = request.headers.get("sentry-hook-signature", "")
+    row = await _load_project_or_404(project_id)
 
     logger.info(
         "sentry webhook received",
@@ -300,6 +306,9 @@ async def sentry_webhook(project_id: str, request: Request):
         return {"status": "ok"}
 
     crash_event = sentry_integration.parse_event(raw)
+    if await is_duplicate_occurrence(request.app.state.redis, crash_event.occurrence_id):
+        logger.info("duplicate occurrence — skipping", extra={"occurrence_id": crash_event.occurrence_id, "project_id": project_id})
+        return {"status": "ignored", "reason": "duplicate_occurrence"}
     try:
         with _tracer.start_as_current_span("crash_handler.handle_incident") as span:
             span.set_attribute("helix.source", "sentry")

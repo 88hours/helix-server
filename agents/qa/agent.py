@@ -84,12 +84,19 @@ async def handle(
     else:
         gh_config = get_github_config()
 
-    # Step 1 — GitHub Issue.
-    ticket_id, ticket_url, ticket_action = await _create_or_update_issue(
-        report, gh_config.target_repo, permissions, redis_client, gh_config.token
-    )
-
-    await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", f"GitHub issue #{ticket_id} {'updated (duplicate)' if ticket_action == TicketAction.updated else 'created'}")
+    # Step 1 — GitHub Issue (optional — failure does not block the pipeline).
+    ticket_id, ticket_url, ticket_action = None, None, TicketAction.created
+    try:
+        ticket_id, ticket_url, ticket_action = await _create_or_update_issue(
+            report, gh_config.target_repo, permissions, redis_client, gh_config.token
+        )
+        await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", f"GitHub issue #{ticket_id} {'updated (duplicate)' if ticket_action == TicketAction.updated else 'created'}")
+    except Exception as gh_exc:
+        logger.warning(
+            "github issue step skipped — continuing pipeline",
+            extra={"incident_id": report.incident_id, "error": str(gh_exc)},
+        )
+        await publish_ui_event(redis_client, report.incident_id, "agent_step", "qa", "GitHub issue skipped — continuing pipeline")
 
     # If this is a duplicate issue, skip the full pipeline and notify via Slack.
     # The Dev Agent should not re-run for a bug it has already attempted to fix.
@@ -196,6 +203,12 @@ async def handle(
         relevant_files=list(source_files.keys()),
     )
 
+    require(permissions, "redis", "write_qa_result")
+    await write_qa_result(redis_client, result)
+    require(permissions, "redis", "write_status")
+    await write_status(redis_client, report.incident_id, "test_case_generated")
+    await publish_ui_event(redis_client, report.incident_id, "status_changed", "qa", "test_case_generated")
+
     # Post the generated test case as a comment on the GitHub Issue before
     # handing off to the Dev Agent, so reviewers can see what will be run.
     test_comment = (
@@ -207,25 +220,21 @@ async def handle(
         "posting test case to github issue",
         extra={"incident_id": report.incident_id, "issue_number": ticket_id},
     )
-    require(permissions, "github", "add_issue_comment")
-    await github.add_issue_comment(
-        repo=gh_config.target_repo,
-        issue_number=ticket_id,
-        comment=test_comment,
-        token=gh_config.token,
-    )
-    await publish_tool_event(redis_client, report.incident_id, "qa", "github", "add_comment", "success", f"#{ticket_id} test case")
-    logger.debug("test case posted to github issue", extra={"incident_id": report.incident_id})
+    if ticket_id is not None:
+        require(permissions, "github", "add_issue_comment")
+        await github.add_issue_comment(
+            repo=gh_config.target_repo,
+            issue_number=ticket_id,
+            comment=test_comment,
+            token=gh_config.token,
+        )
+        await publish_tool_event(redis_client, report.incident_id, "qa", "github", "add_comment", "success", f"#{ticket_id} test case")
+        logger.debug("test case posted to github issue", extra={"incident_id": report.incident_id})
 
     await publish_ui_event(
         redis_client, report.incident_id, "agent_step", "qa",
         f"Test case written: {test_case.file_path}::{test_case.test_name}",
     )
-    require(permissions, "redis", "write_qa_result")
-    await write_qa_result(redis_client, result)
-    require(permissions, "redis", "write_status")
-    await write_status(redis_client, report.incident_id, "test_case_generated")
-    await publish_ui_event(redis_client, report.incident_id, "status_changed", "qa", "test_case_generated")
     require(permissions, "events", "publish:test_case_generated")
     await publish(
         redis_client,

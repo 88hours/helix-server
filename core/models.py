@@ -269,8 +269,8 @@ class QAResult(BaseModel):
     Published as the payload of the TestCaseGenerated event.
     """
     incident_id: str
-    ticket_id: str          # e.g. "PROJ-123" (JIRA) or "#42" (GitHub Issues)
-    ticket_url: str
+    ticket_id: Optional[str] = None   # None when GitHub issue creation was skipped
+    ticket_url: Optional[str] = None
     ticket_action: TicketAction
     test_case: TestCase
     relevant_files: list[str] = Field(default_factory=list)  # paths read from the target repo

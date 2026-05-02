@@ -151,18 +151,19 @@ async def handle(
         "posting fix suggestion to github issue",
         extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
     )
-    require(permissions, "github", "add_issue_comment")
-    await github.add_issue_comment(
-        repo=gh_config.target_repo,
-        issue_number=qa_result.ticket_id,
-        comment=issue_comment,
-        token=gh_config.token,
-    )
-    await publish_tool_event(redis_client, incident_id, "dev", "github", "add_comment", "success", f"#{qa_result.ticket_id} fix suggestion")
-    logger.info(
-        "fix suggestion posted to github issue",
-        extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
-    )
+    if qa_result.ticket_id is not None:
+        require(permissions, "github", "add_issue_comment")
+        await github.add_issue_comment(
+            repo=gh_config.target_repo,
+            issue_number=qa_result.ticket_id,
+            comment=issue_comment,
+            token=gh_config.token,
+        )
+        await publish_tool_event(redis_client, incident_id, "dev", "github", "add_comment", "success", f"#{qa_result.ticket_id} fix suggestion")
+        logger.info(
+            "fix suggestion posted to github issue",
+            extra={"incident_id": incident_id, "issue_number": qa_result.ticket_id},
+        )
 
     await publish_ui_event(redis_client, incident_id, "agent_step", "dev", "Fix suggestion posted to GitHub issue — starting TDD loop…")
 
@@ -488,7 +489,7 @@ def _build_pr_body(
         f"- **Error:** `{crash_report.error_type}: {crash_report.error_message}`\n"
         f"- **Component:** {crash_report.affected_component}\n"
         f"- **Endpoint:** {crash_report.affected_endpoint}\n"
-        f"- **Issue:** [{qa_result.ticket_id}]({qa_result.ticket_url})\n\n"
+        f"- **Issue:** {f'[{qa_result.ticket_id}]({qa_result.ticket_url})' if qa_result.ticket_id else 'n/a'}\n\n"
         f"## What Changed\n\n"
         f"{crash_report.summary}\n\n"
         f"## Testing\n\n"
@@ -537,19 +538,20 @@ async def _post_failure_comment(
         "posting failure comment to github issue",
         extra={"issue_number": qa_result.ticket_id},
     )
-    try:
-        require(permissions, "github", "add_issue_comment")
-        await github.add_issue_comment(
-            repo=repo,
-            issue_number=qa_result.ticket_id,
-            comment=comment,
-            token=token,
-        )
-    except Exception as exc:
-        logger.warning(
-            "could not post failure comment to github issue",
-            extra={"issue_number": qa_result.ticket_id, "error": str(exc)},
-        )
+    if qa_result.ticket_id is not None:
+        try:
+            require(permissions, "github", "add_issue_comment")
+            await github.add_issue_comment(
+                repo=repo,
+                issue_number=qa_result.ticket_id,
+                comment=comment,
+                token=token,
+            )
+        except Exception as exc:
+            logger.warning(
+                "could not post failure comment to github issue",
+                extra={"issue_number": qa_result.ticket_id, "error": str(exc)},
+            )
 
 
 async def _escalate(

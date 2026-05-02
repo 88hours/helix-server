@@ -341,6 +341,18 @@ async def read_user_projects(client: redis.Redis, user_id: str) -> list[Project]
         return []
 
 
+async def is_duplicate_occurrence(client: redis.Redis, occurrence_id: str) -> bool:
+    """
+    Return True if this occurrence_id has already been processed.
+
+    Uses SET NX (set-if-not-exists) so the check and mark are atomic.
+    Key expires after 7 days — same TTL as other incident state.
+    """
+    key = f"helix:seen_occurrence:{occurrence_id}"
+    inserted = await client.set(key, "1", nx=True, ex=_TTL_SECONDS)
+    return inserted is None
+
+
 async def write_user_projects(client: redis.Redis, user_id: str, projects: list[Project]) -> None:
     """
     Persist the full list of project configs for a user.

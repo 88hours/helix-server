@@ -313,12 +313,19 @@ const STAGE_LABELS: Record<AgentId, { label: string; detail: string }> = {
 export function incidentToPipelineStages(status: string): PipelineStage[] {
   const order: AgentId[] = ['handler', 'qa', 'dev', 'human'];
   const activeMap: Record<string, AgentId> = {
-    analysing: 'handler',
-    testing:   'qa',
-    fixing:    'dev',
-    pr:        'dev',
-    approval:  'human',
-    merged:    'human',
+    analysing:            'handler',
+    crash_analysed:       'qa',
+    duplicate_detected:   'qa',
+    test_case_generated:  'dev',
+    fix_suggested:        'dev',
+    pr_created:           'human',
+    pr_merged:            'human',
+    approval_rejected:    'human',
+    testing:              'qa',
+    fixing:               'dev',
+    pr:                   'dev',
+    approval:             'human',
+    merged:               'human',
   };
   const activeAgent = activeMap[status] ?? null;
   const activeIdx = activeAgent ? order.indexOf(activeAgent) : -1;

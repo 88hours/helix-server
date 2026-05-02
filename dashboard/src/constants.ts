@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { authFetch } from './authFetch';
+import { useState, useEffect, useRef } from 'react';
+import { authFetch, getToken } from './authFetch';
 
 // ---- Types ----
 
@@ -180,8 +180,8 @@ export function useIncidents(): { incidents: Incident[]; loading: boolean; reloa
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const reload = () => {
-    setLoading(true);
+  const reload = (showSpinner = false) => {
+    if (showSpinner) setLoading(true);
     authFetch('/api/incidents')
       .then((r: Response) => r.ok ? r.json() : Promise.reject(r.status))
       .then((d: { incidents?: Record<string, unknown>[] }) => {
@@ -191,7 +191,7 @@ export function useIncidents(): { incidents: Incident[]; loading: boolean; reloa
       .catch(() => setLoading(false));
   };
 
-  useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { incidents, loading, reload };
 }
 
@@ -212,13 +212,25 @@ export function useActivityStream(
   id: string | null,
   onEvent: (type: string, data: Record<string, unknown>) => void,
 ): void {
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+
   useEffect(() => {
     if (!id) return;
-    const es = new EventSource(`/api/stream/${id}`);
-    es.addEventListener('snapshot', e => { try { onEvent('snapshot', JSON.parse((e as MessageEvent).data)); } catch { /* ignore */ } });
-    es.addEventListener('progress', e => { try { onEvent('progress', JSON.parse((e as MessageEvent).data)); } catch { /* ignore */ } });
-    return () => es.close();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    let es: EventSource | null = null;
+    let closed = false;
+
+    async function open() {
+      const token = await getToken();
+      if (closed) return;
+      const url = token ? `/api/stream/${id}?access_token=${encodeURIComponent(token)}` : `/api/stream/${id}`;
+      es = new EventSource(url);
+      es.addEventListener('snapshot', e => { try { onEventRef.current('snapshot', JSON.parse((e as MessageEvent).data)); } catch { /* ignore */ } });
+      es.addEventListener('progress', e => { try { onEventRef.current('progress', JSON.parse((e as MessageEvent).data)); } catch { /* ignore */ } });
+    }
+
+    open();
+    return () => { closed = true; es?.close(); };
   }, [id]);
 }
 

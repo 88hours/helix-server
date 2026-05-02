@@ -46,7 +46,10 @@ Usage:
     sl = pc.slack()                     # SlackConfig from project settings, falls back to env vars
 """
 
+import logging
 import os
+
+_logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -211,13 +214,22 @@ def get_agent_config(agent: str) -> AgentConfig:
 
     provider = os.environ.get(f"{env_prefix}PROVIDER") or agent_yaml.get("provider", "")
     model = os.environ.get(f"{env_prefix}MODEL") or agent_yaml.get("model", "")
+    base_url = (
+        os.environ.get(f"{env_prefix}BASE_URL")
+        or os.environ.get("HELIX_OLLAMA_BASE_URL")
+        or agent_yaml.get("base_url")
+    )
 
     if not provider:
         raise ValueError(f"No provider configured for agent '{agent}'")
     if not model:
         raise ValueError(f"No model configured for agent '{agent}'")
 
-    return AgentConfig(agent=agent, provider=provider, model=model)
+    _logger.info(
+        "agent config resolved",
+        extra={"agent": agent, "provider": provider, "model": model, "base_url": base_url or "not set"},
+    )
+    return AgentConfig(agent=agent, provider=provider, model=model, base_url=base_url)
 
 
 def is_demo_mode() -> bool:

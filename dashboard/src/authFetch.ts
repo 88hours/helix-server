@@ -5,6 +5,11 @@ export function setTokenGetter(fn: TokenGetter) {
   _getToken = fn;
 }
 
+export async function getToken(): Promise<string | null> {
+  if (!_getToken) return null;
+  try { return await _getToken(); } catch { return null; }
+}
+
 export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
   if (_getToken) {
     try {
