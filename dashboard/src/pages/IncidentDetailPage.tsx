@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { useIncident, useActivityStream, useAuditEvents, Incident, ApiIncidentDetail, AgentId } from '../constants';
+import { useState, useRef } from 'react';
+import { useIncident, useActivityStream, useAuditEvents, Incident, ApiIncidentDetail } from '../constants';
 import { StatusPill, Severity, Icon, Button, Field } from '../components/primitives';
 import { Pipeline, incidentToPipelineStages } from '../components/Pipeline';
-import { ToolCallsList, PRDiff, ToolCall, DiffHunk } from '../components/ToolCalls';
 import { ActivityRail, ActivityEvent } from '../components/ActivityRail';
 import { AuditTrail } from '../components/AuditTrail';
 
@@ -126,48 +125,50 @@ function CrashReport({ data, incident }: { data: Record<string, unknown>; incide
   );
 }
 
-function parseToolCalls(detail: ApiIncidentDetail): ToolCall[] {
-  const calls: ToolCall[] = [];
-  const pr = detail.pr_result;
-  if (!pr) return calls;
-  const agentOrder: AgentId[] = ['handler', 'qa', 'dev'];
-  agentOrder.forEach(agent => {
-    const agentData = (pr as Record<string, unknown>)[agent] as Record<string, unknown> | undefined;
-    const toolCalls = agentData?.tool_calls as Array<Record<string, unknown>> | undefined;
-    if (!toolCalls) return;
-    toolCalls.forEach((tc, i) => {
-      calls.push({
-        id: `${agent}-${i}`, agent,
-        tool: String(tc.tool ?? 'LLM'),
-        input: String(tc.input ?? ''),
-        output: tc.output ? String(tc.output) : undefined,
-        ts: String(tc.ts ?? ''),
-        durationMs: tc.duration_ms as number | undefined,
-      });
-    });
-  });
-  return calls;
+function PRResultCard({ pr }: { pr: NonNullable<ApiIncidentDetail['pr_result']> }) {
+  return (
+    <section style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', overflow: 'hidden' }}>
+      <div style={{
+        padding: '10px 14px', borderBottom: '1px solid var(--line)',
+        background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <span className="mono" style={{ fontSize: 10.5, letterSpacing: '0.1em', color: 'var(--ink-3)', textTransform: 'uppercase' }}>
+          Dev · Pull request
+        </span>
+        <span style={{ color: 'var(--ink-3)' }}>·</span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--dev)' }}>{pr.branch_name}</span>
+        <span style={{ flex: 1 }} />
+        <a href={pr.pr_url} target="_blank" rel="noopener noreferrer"
+          className="mono" style={{ fontSize: 10.5, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Icon.github size={10} /> PR #{pr.pr_number}
+        </a>
+      </div>
+      <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {pr.fix_summary && (
+          <p style={{ margin: 0, fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>{pr.fix_summary}</p>
+        )}
+        <div style={{ display: 'flex', gap: 20 }}>
+          <div>
+            <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Iterations</div>
+            <div className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{pr.iterations_taken}</div>
+          </div>
+          <div>
+            <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Files changed</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {pr.files_changed.length > 0
+                ? pr.files_changed.map(f => (
+                    <span key={f} className="mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{f}</span>
+                  ))
+                : <span className="mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>—</span>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
-function parseDiff(detail: ApiIncidentDetail): DiffHunk[] {
-  const pr = detail.pr_result as Record<string, unknown> | null;
-  const devData = pr?.dev as Record<string, unknown> | undefined;
-  const diff = devData?.diff as Array<Record<string, unknown>> | string | undefined;
-  if (!diff) return [];
-  if (typeof diff === 'string') {
-    return [{ file: 'patch', lines: diff.split('\n').map(line => ({
-      type: (line.startsWith('+') ? '+' : line.startsWith('-') ? '-' : ' ') as '+' | '-' | ' ',
-      text: line.slice(1),
-    })) }];
-  }
-  return (diff as Array<Record<string, unknown>>).map(d => ({
-    file: String(d.file ?? 'unknown'),
-    lines: (d.lines as Array<Record<string, unknown>> ?? []).map(l => ({
-      type: String(l.type ?? ' ') as '+' | '-' | ' ',
-      text: String(l.text ?? ''),
-    })),
-  }));
-}
 
 interface IncidentDetailPageProps {
   incident: Incident | null;
@@ -180,7 +181,6 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
   const { data: detail, reload: reloadDetail } = useIncident(incident?.id ?? null);
   const { events: auditEvents } = useAuditEvents(incident?.id ?? null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const evIdRef = useRef(0);
 
   useActivityStream(incident?.id ?? null, (type, data) => {
@@ -204,10 +204,6 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
     }
   });
 
-  useEffect(() => {
-    if (detail) setToolCalls(parseToolCalls(detail));
-  }, [detail]);
-
   if (!incident) {
     return (
       <div style={{ padding: 32, color: 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 12 }}>
@@ -217,7 +213,6 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
   }
 
   const stages = incidentToPipelineStages(incident.status);
-  const diff = detail ? parseDiff(detail) : [];
 
   return (
     <div style={{
@@ -266,11 +261,11 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
               <StatusPill status={incident.status} />
               <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 4px' }} />
               <Button variant="ghost" size="sm" onClick={reloadDetail}><Icon.refresh size={11} /> refresh</Button>
-              {incident.status === 'approval' && (
+              {incident.status === 'approval' && detail?.pr_result?.pr_url && (
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => incident.prUrl ? window.open(incident.prUrl, '_blank', 'noopener,noreferrer') : undefined}
+                  onClick={() => window.open(detail.pr_result!.pr_url, '_blank', 'noopener,noreferrer')}
                 >
                   <Icon.check size={11} /> approve PR
                 </Button>
@@ -286,9 +281,8 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
 
         {/* Content stacked */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <ToolCallsList calls={toolCalls} />
           {detail?.qa_result && <TestCaseCard qa={detail.qa_result} />}
-          <PRDiff hunks={diff} prUrl={incident.prUrl} />
+          {detail?.pr_result && <PRResultCard pr={detail.pr_result} />}
           {detail?.crash_report && (
             <CrashReport data={detail.crash_report} incident={incident} />
           )}

@@ -85,7 +85,14 @@ export interface ApiIncidentDetail {
     };
     relevant_files?: string[];
   };
-  pr_result?: Record<string, unknown>;
+  pr_result?: {
+    pr_url: string;
+    pr_number: number;
+    branch_name: string;
+    iterations_taken: number;
+    files_changed: string[];
+    fix_summary: string;
+  };
 }
 
 export interface Tweaks {
