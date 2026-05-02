@@ -173,12 +173,15 @@ function PRResultCard({ pr }: { pr: NonNullable<ApiIncidentDetail['pr_result']> 
 interface IncidentDetailPageProps {
   incident: Incident | null;
   onBack: () => void;
+  onRefresh?: () => void;
   showActivityRail: boolean;
   pipelineLayout: 'horizontal' | 'swimlane';
 }
 
-export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelineLayout }: IncidentDetailPageProps) {
+export function IncidentDetailPage({ incident, onBack, onRefresh, showActivityRail, pipelineLayout }: IncidentDetailPageProps) {
   const { data: detail, reload: reloadDetail } = useIncident(incident?.id ?? null);
+
+  const handleRefresh = () => { reloadDetail(); onRefresh?.(); };
   const { events: auditEvents } = useAuditEvents(incident?.id ?? null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const evIdRef = useRef(0);
@@ -260,7 +263,7 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
               <Severity level={incident.severity} />
               <StatusPill status={incident.status} />
               <span style={{ width: 1, height: 18, background: 'var(--line-2)', margin: '0 4px' }} />
-              <Button variant="ghost" size="sm" onClick={reloadDetail}><Icon.refresh size={11} /> refresh</Button>
+              <Button variant="ghost" size="sm" onClick={handleRefresh}><Icon.refresh size={11} /> refresh</Button>
               {incident.status === 'approval' && detail?.pr_result?.pr_url && (
                 <Button
                   variant="primary"

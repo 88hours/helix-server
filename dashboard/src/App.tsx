@@ -163,6 +163,7 @@ export default function App() {
         <IncidentDetailPage
           incident={selectedIncident}
           onBack={() => setPage('list')}
+          onRefresh={reloadIncidents}
           showActivityRail={tweaks.showActivityRail}
           pipelineLayout={tweaks.pipeline as 'horizontal' | 'swimlane'}
         />
