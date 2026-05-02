@@ -710,3 +710,138 @@ None of these require changes to agent logic. The event-driven architecture is t
 ## Roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full phase-by-phase roadmap.
+
+# Ollama Remote Access and opencode Setup
+
+## Step 1: Pull the Model
+
+```
+ollama pull Qwen3.6:latest
+```
+
+Verify it downloaded correctly:
+
+```
+ollama list
+```
+
+---
+
+## Step 2: Allow Ollama to Listen on All Network Interfaces
+
+By default Ollama only binds to localhost, so remote machines cannot reach it. Create a systemd override file:
+
+```
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo nano /etc/systemd/system/ollama.service.d/override.conf
+```
+
+Add exactly this content:
+
+```
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0"
+```
+
+Save and exit, then apply the change:
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+Confirm it worked:
+
+```
+ss -tlnp | grep 11434
+```
+
+You should see `0.0.0.0:11434`, not `127.0.0.1:11434`.
+
+---
+
+## Step 3: Open the Firewall Port
+
+```
+sudo ufw allow 11434/tcp
+```
+
+To restrict to one specific machine only:
+
+```
+sudo ufw allow from 192.168.1.X to any port 11434
+```
+
+---
+
+## Step 4: Verify Remote Access
+
+From another machine on the network:
+
+```
+curl http://192.168.1.9:11434/
+curl http://192.168.1.9:11434/api/tags
+```
+
+---
+
+## Step 5: Configure opencode to Use Ollama
+
+Create or edit `~/.config/opencode/config.json` with the following. Note that the key is `provider` (singular, not `providers`), and the base URL must use `/v1` at the end since opencode uses the OpenAI-compatible API endpoint:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen3.6": {
+          "name": "qwen3.6"
+        },
+        "gemma4": {
+          "name": "Gemma 4"
+        }
+      }
+    }
+  }
+}
+```
+
+Add any other locally available models under `models` using the exact name that `ollama list` shows. Then run opencode using the provider and model name:
+
+```
+opencode run --dangerously-skip-permissions --model ollama/qwen3.6 "your prompt here"
+```
+
+---
+
+## Step 6: ollama cp Workaround (Alternative to Config)
+
+If you do not want to maintain the config file, you can create a simpler alias for models with dots in their name:
+
+```
+ollama cp Qwen3.6:latest qwen36
+```
+
+This does not duplicate the model on disk. Then use:
+
+```
+opencode run --dangerously-skip-permissions --model ollama/qwen36 "your prompt here"
+```
+
+---
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Restart Ollama | `sudo systemctl restart ollama` |
+| Check listening port | `ss -tlnp | grep 11434` |
+| Check firewall | `sudo ufw status` |
+| List models | `ollama list` |
+| Test remote connection | `curl http://<ip>:11434/` |
