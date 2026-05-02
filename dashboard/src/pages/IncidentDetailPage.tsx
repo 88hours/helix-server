@@ -6,6 +6,44 @@ import { ToolCallsList, PRDiff, ToolCall, DiffHunk } from '../components/ToolCal
 import { ActivityRail, ActivityEvent } from '../components/ActivityRail';
 import { AuditTrail } from '../components/AuditTrail';
 
+function TestCaseCard({ qa }: { qa: NonNullable<ApiIncidentDetail['qa_result']> }) {
+  const tc = qa.test_case;
+  if (!tc) return null;
+  return (
+    <section style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', overflow: 'hidden' }}>
+      <div style={{
+        padding: '10px 14px', borderBottom: '1px solid var(--line)',
+        background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <span className="mono" style={{ fontSize: 10.5, letterSpacing: '0.1em', color: 'var(--ink-3)', textTransform: 'uppercase' }}>
+          QA · Test case
+        </span>
+        <span style={{ color: 'var(--ink-3)' }}>·</span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--qa)' }}>{tc.file_path}</span>
+        {qa.ticket_url && (
+          <>
+            <span style={{ flex: 1 }} />
+            <a href={qa.ticket_url} target="_blank" rel="noopener noreferrer"
+              className="mono" style={{ fontSize: 10.5, color: 'var(--accent)', textDecoration: 'none' }}>
+              <Icon.github size={10} /> {qa.ticket_id}
+            </a>
+          </>
+        )}
+      </div>
+      <div style={{ padding: '10px 14px 4px' }}>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {tc.test_name}
+        </span>
+      </div>
+      <pre style={{
+        margin: 0, padding: '10px 18px 16px',
+        fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.6,
+        color: 'var(--ink-2)', overflowX: 'auto', whiteSpace: 'pre',
+      }}>{tc.content}</pre>
+    </section>
+  );
+}
+
 function CrashReport({ data, incident }: { data: Record<string, unknown>; incident: Incident }) {
   const [stackOpen, setStackOpen] = useState(false);
   const trace = Array.isArray(data.stack_trace)
@@ -249,6 +287,7 @@ export function IncidentDetailPage({ incident, onBack, showActivityRail, pipelin
         {/* Content stacked */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <ToolCallsList calls={toolCalls} />
+          {detail?.qa_result && <TestCaseCard qa={detail.qa_result} />}
           <PRDiff hunks={diff} prUrl={incident.prUrl} />
           {detail?.crash_report && (
             <CrashReport data={detail.crash_report} incident={incident} />

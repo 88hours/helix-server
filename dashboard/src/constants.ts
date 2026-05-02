@@ -74,6 +74,17 @@ export interface ApiIncidentDetail {
   incident_id: string;
   status: string;
   crash_report?: Record<string, unknown>;
+  qa_result?: {
+    ticket_id?: string;
+    ticket_url?: string;
+    test_case?: {
+      file_path: string;
+      test_name: string;
+      content: string;
+      format: string;
+    };
+    relevant_files?: string[];
+  };
   pr_result?: Record<string, unknown>;
 }
 
