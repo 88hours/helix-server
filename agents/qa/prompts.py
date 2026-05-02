@@ -6,23 +6,26 @@ and must produce a single failing pytest test case that reproduces the bug.
 """
 
 SYSTEM = """\
-You are an expert QA engineer working in a TDD pipeline.
-Given a production crash report and the relevant source code, write a minimal
-test that asserts the CORRECT, expected behaviour of the function.
+You are an expert QA engineer. You write minimal test cases for a TDD pipeline.
 
-Rules:
-- The test MUST assert the desired correct outcome — NOT that an exception is raised.
-  Do NOT use the framework's exception-assertion helper (e.g. pytest.raises,
-  .toThrow, raise_error, assertThrows) for the crash exception type, unless the
-  correct behaviour genuinely is to raise a specific, intentional exception.
-- The test MUST fail on the current buggy code (because the code does not yet
-  produce the correct outcome).
-- The test MUST pass once the correct fix is applied.
-- Keep it minimal — one test function, no unnecessary fixtures.
-- Use the project's test framework. Import only what already exists in the codebase.
-- The test should target the specific function or code path that crashed.
+You will receive a crash report and source code. Your ONLY job is to output a JSON object.
 
-Always respond with a single JSON object — no prose, no markdown fences.
+OUTPUT FORMAT — you must return exactly this JSON shape, nothing else:
+{
+  "file_path": "<relative path where the test file should be written>",
+  "test_name": "<name of the test function>",
+  "content": "<full content of the test file as a string>"
+}
+
+Rules for the test:
+- ONLY import and call functions that exist in the provided source files.
+- The test must call the EXACT function that crashed, with inputs that trigger the bug.
+- Assert the CORRECT expected outcome (e.g. a return value, None, a default).
+- Do NOT assert that an exception is raised — assert what should happen instead.
+- The test must FAIL on current buggy code and PASS once the fix is applied.
+- One test function only. No fixtures. No extra imports beyond what the codebase has.
+
+No prose, no markdown fences, no explanation — JSON only.
 """
 
 
@@ -99,42 +102,29 @@ def user(
     example = _test_file_example(language, test_format)
 
     return f"""\
-A production crash has occurred. Your job is to write a {test_format} test that
-asserts the CORRECT, expected behaviour of the affected function — not that it crashes.
+A production crash has occurred. Write a {test_format} test for it.
 
-The test must currently FAIL (because the bug means the function does not yet
-produce the correct result), and PASS once the fix is applied.
+Return ONLY this JSON — no other text:
+{example}
 
-## Crash Report
-- Language:            {language}
-- Test framework:      {test_format}
-- Error type:          {error_type}
-- Error message:       {error_message}
-- Affected component:  {affected_component}
-- Affected endpoint:   {affected_endpoint}
-- Summary:             {summary}
+The "content" field must be a non-empty string containing the full test file.
+The "file_path" field must be a relative path like "tests/test_something.py".
+
+## Crash
+- Error type:     {error_type}
+- Error message:  {error_message}
+- Endpoint:       {affected_endpoint}
+- Summary:        {summary}
 
 ## Stack Trace
 {stack_trace}
 
-## Relevant Source Files
+## Source Files (use ONLY these — do not import anything else)
 {files_section}
 
-## What to write
-Assert what the function SHOULD return or do — not that it raises an exception.
-For example, if a function crashes when a user is missing, the correct test checks
-that calling it with a missing user returns a safe fallback (e.g. None/null/nil, "",
-a default object), not that it raises an exception.
-
-## Output Format
-Return a JSON object with exactly these fields:
-
-  file_path  — relative path in the repo where the test file should be written
-  test_name  — the name of the test function (describe the expected outcome)
-  content    — the full content of the test file, ready to be written to disk
-
-Example shape:
-{example}
+## Stack Trace
+Write the test to call the EXACT function that appears in the stack trace above,
+with inputs that reproduce the bug. Assert the correct outcome — not that it raises.
 """
 
 

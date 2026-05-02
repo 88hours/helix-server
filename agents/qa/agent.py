@@ -187,7 +187,15 @@ async def handle(
             if "file_path" not in data:
                 data["file_path"] = f"tests/test_{report.affected_component.lower().replace(' ', '_')}.py"
 
-            problem = _check_test(data.get("content", ""), report.error_type, report.language)
+            content = (data.get("content") or "").strip()
+            if not content:
+                logger.warning(
+                    "qa agent llm returned empty content — retrying",
+                    extra={"incident_id": report.incident_id, "attempt": attempt},
+                )
+                rejection_note = "\n\nIMPORTANT: The 'content' field in your previous response was empty or null. You MUST include the full test file content as a non-empty string."
+                continue
+            problem = _check_test(content, report.error_type, report.language)
             if not problem:
                 break
             logger.warning(
@@ -203,7 +211,7 @@ async def handle(
     finally:
         shutil.rmtree(repo_dir, ignore_errors=True)
 
-    missing = [k for k in ("file_path", "test_name", "content") if not data.get(k)]
+    missing = [k for k in ("file_path", "test_name", "content") if not (data.get(k) or "").strip()]
     if missing:
         raise ValueError(f"LLM response missing required fields after all retries: {missing}. Last response: {raw_response!r:.200}")
 
