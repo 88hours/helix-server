@@ -254,29 +254,24 @@ def build_tdd_short(
     run_one, _ = _test_commands(language, test_file_path, test_name)
 
     return f"""The repository is already cloned in the current working directory.
-Run commands immediately. Do not explain. Do not plan.
+Run commands immediately. Do not explain. Do not plan. Do not create any new files except the result file.
 
-RULE: NEVER edit {test_file_path}. The test file is correct. Only fix source files.
+RULE: NEVER edit any file inside the tests/ directory. The test files are correct.
+RULE: To fix source files, use ONLY the edit tool. NEVER use the write tool on any source file.
 
-Step 1: Run the failing test.
-Run: PYTHONPATH=. {run_one}
+Step 1: Run: PYTHONPATH=. {run_one}
 
-Step 2: Read the traceback. Identify the source file that contains the bug. Read that file:
-Run: cat <the source file named in the traceback — not {test_file_path}>
+Step 2: Read the source file identified in the traceback:
+Run: cat <source file path>
 
-Step 3: Fix the bug in that source file using a python one-liner:
-python3 -c "
-content = open('SOURCE_FILE.py').read()
-content = content.replace('BROKEN_LINE', 'FIXED_LINE')
-open('SOURCE_FILE.py', 'w').write(content)
-"
+Step 3: Use the edit tool to replace only the broken line with the fixed line.
 
-Step 4: Run the test again to verify.
-Run: PYTHONPATH=. {run_one}
+Step 4: Run: PYTHONPATH=. {run_one}
 
-Step 5: Create a result file based on the outcome:
-If tests passed: touch task_passed
-If tests still fail: touch task_failed
+Step 5: Create a result file based on the test outcome:
+If tests passed: use the write tool to create a file named TESTS_PASSED with content: done
+If tests failed: use the write tool to create a file named TESTS_FAILED with content: done
+Do not do anything else after creating the result file.
 
 Bug description: {summary}
 Language: {language}"""

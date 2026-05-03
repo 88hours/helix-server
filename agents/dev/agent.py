@@ -462,13 +462,13 @@ async def _tdd_loop(
     )
 
 
+
 def _check_result_file(repo_dir: str) -> bool:
-    """Check for task_passed / task_failed sentinel files left by the agentic runner."""
+    """Check for TESTS_PASSED / TESTS_FAILED sentinel files left by the agentic runner."""
     import os as _os
-    passed_path = _os.path.join(repo_dir, "task_passed")
-    failed_path = _os.path.join(repo_dir, "task_failed")
+    passed_path = _os.path.join(repo_dir, "TESTS_PASSED")
+    failed_path = _os.path.join(repo_dir, "TESTS_FAILED")
     passed = _os.path.exists(passed_path)
-    # Clean up so the file doesn't persist into the next iteration.
     for p in (passed_path, failed_path):
         try:
             _os.remove(p)

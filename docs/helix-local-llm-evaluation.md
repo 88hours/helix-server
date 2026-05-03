@@ -67,6 +67,34 @@ This was the final and fatal blocker. After correctly running pytest and reading
 
 The underlying issue is that gemma4 at 4B parameters treats code generation as a text completion task. When asked to fix a bug, its trained behaviour is to write the fix as text, not to use tools to apply it.
 
+### devstral-small-2 (via Ollama + Goose)
+
+**Result: Closest yet, but not production-ready**
+
+devstral-small-2 is a Mistral model purpose-built for agentic coding tasks. It was a meaningful step forward over gemma4.
+
+**What worked:**
+
+- Called the shell tool immediately and without prompting.
+- Ran pytest with the correct test path and parsed the traceback correctly.
+- In the first successful run identified `payload['amount']` as the bug and applied `payload.get('amount', 0)` — the correct minimal fix. The test passed.
+
+**Blocker 1 - Never outputs the completion sentinel**
+
+Regardless of how Step 5 was phrased — plain text `TESTS_PASSED`, `echo TESTS_PASSED` shell command, `touch task_passed` file creation — the model always ended its session with "Task completed." Helix could not detect that the bug was fixed and burned all 3 iterations retrying an already-solved problem.
+
+Multiple sentinel strategies were attempted:
+- Parse `TESTS_PASSED` text from response → model outputs "Task completed." instead.
+- `echo TESTS_PASSED` shell command → model outputs "Task completed." instead.
+- `touch task_passed` / `touch task_failed` file creation → model created `TODO.md` and `readme.md` instead.
+- `write` tool to create `TESTS_PASSED` file → not tested before the model was ruled out.
+
+**Blocker 2 - Occasionally rewrites entire source files**
+
+In two of three runs the model replaced `fastapi_error.py` wholesale with a hallucinated FastAPI app of its own design, destroying the original code. The next iteration then failed with `ImportError: cannot import name 'trigger_key_error'` — a regression caused by the agent itself. A `RULE: NEVER use the write tool on source files` instruction was added but not tested before the model was ruled out.
+
+**Summary:** devstral-small-2 can reason about the bug and apply the correct fix. The blocker is reliability of the agentic loop — it does not consistently complete Step 5 or constrain itself to surgical edits. The `edit` tool (targeted line replacement) rather than `write` (full file overwrite) may address the second blocker; the sentinel problem likely requires an out-of-band check by Helix rather than trusting the model's output.
+
 ---
 
 ## Infrastructure Work Completed
@@ -128,6 +156,7 @@ Added `build_tdd_short()` in `agents/dev/prompts.py` for local models, selecting
 | opencode as subprocess wrapper | Not suitable for local models. Tool descriptions are Claude-specific and cause refusals. |
 | Goose as subprocess wrapper | Better fit. No restrictive tool descriptions. Model calls tools without refusal. |
 | gemma4 (4B) for agentic coding | Not viable. Cannot reliably apply file edits via tools across arbitrary repos and errors. |
+| devstral-small-2 (via Goose) | Partially viable. Correctly identified and fixed the bug in one run. Blocked by: (1) never outputs completion sentinel — always says "Task completed."; (2) occasionally rewrites entire source files instead of making surgical edits. Sentinel must be detected out-of-band by Helix. |
 | Any sub-7B model for this task | Likely not viable. The task requires reading test output, reasoning about the fix, and applying it via a tool call - a multi-step agentic loop that small models cannot execute consistently. |
 
 ## Recommended Next Step
