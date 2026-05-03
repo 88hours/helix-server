@@ -149,6 +149,8 @@ def build_tdd(
     hint_one, hint_all = _test_commands(language, test_file_path, test_name)
 
     return f"""\
+The repository is already cloned in the current working directory. Do NOT ask for files. Do NOT write a plan. Start immediately by running pytest on the test file. Take action now.
+
 You are fixing a production bug for incident {incident_id} (attempt {iteration}/3).
 
 ## Bug Context
@@ -234,6 +236,40 @@ Follow these steps exactly:
       <one paragraph: what you tried and why it did not work>
 
 Do not output anything else after the sentinel line and explanation.
+"""
+
+
+def build_tdd_short(
+    test_file_path: str,
+    test_name: str,
+    summary: str,
+    prior_attempts: list[str] | None = None,
+) -> str:
+    """
+    Compact TDD prompt for local/small models (goose + ollama).
+
+    Skips the multi-language environment-discovery matrix from build_tdd() —
+    local models tend to treat that as an invitation to plan rather than act.
+    """
+    prior_section = ""
+    if prior_attempts:
+        prior_section = "\nPrevious attempts that did not work:\n"
+        for i, attempt in enumerate(prior_attempts, start=1):
+            prior_section += f"  {i}. {attempt}\n"
+
+    return f"""\
+You are fixing a bug. The repo is cloned in the current directory.
+
+Run this exact command: pytest {test_file_path} -x
+Read the failure.
+Edit the source file to fix the bug.
+Run pytest again.
+If tests pass output: TESTS_PASSED
+If tests still fail output: TESTS_FAILED
+
+Test file: {test_file_path}
+Test function: {test_name}
+Bug summary: {summary}{prior_section}
 """
 
 

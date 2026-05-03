@@ -33,6 +33,11 @@ demo: false
 #                 supports Ollama and other backends; configure the model in
 #                 OpenCode's own config or via HELIX_DEV_OPENCODE_MODEL
 #                 (no Anthropic key required)
+#   goose       — invokes the Goose CLI via subprocess (Dev Agent only)
+#                 model-agnostic tool descriptions work better with local models
+#                 configure via Goose's own profile or HELIX_DEV_GOOSE_MODEL
+#                 override Goose's default system prompt via HELIX_DEV_GOOSE_SYSTEM
+#                 (recommended for local models to force tool-first behaviour)
 #
 # Per-agent overrides: HELIX_<AGENT>_PROVIDER and HELIX_<AGENT>_MODEL
 #   e.g. HELIX_DEV_PROVIDER=anthropic, HELIX_DEV_MODEL=claude-sonnet-4-6

@@ -8,6 +8,8 @@ Provider override examples:
     HELIX_DEV_PROVIDER=opencode uv run python -m scripts.run_dev_agent
     HELIX_DEV_PROVIDER=claude-code uv run python -m scripts.run_dev_agent
     HELIX_DEV_OPENCODE_MODEL=ollama/qwen2.514b HELIX_DEV_PROVIDER=opencode uv run python -m scripts.run_dev_agent
+    HELIX_DEV_PROVIDER=goose uv run python -m scripts.run_dev_agent
+    HELIX_DEV_GOOSE_MODEL=ollama/gemma4 HELIX_DEV_PROVIDER=goose uv run python -m scripts.run_dev_agent
 
 Clones 88hours/helix-test. Push and PR creation are stubbed out.
 Repo left at /tmp/helix-dev-debug after the run — inspect with git status / git diff.
@@ -17,9 +19,6 @@ import asyncio
 import logging
 import os
 import shutil
-
-from dotenv import load_dotenv
-load_dotenv()
 
 from unittest.mock import AsyncMock
 
@@ -71,24 +70,36 @@ logging.basicConfig(
 
 async def main() -> None:
     os.environ.setdefault("HELIX_GITHUB_REPO", "88hours/helix-test")
-    os.environ.setdefault("HELIX_DEV_PROVIDER", "claude-code")
-    os.environ.setdefault("HELIX_DEV_OPENCODE_MODEL", "ollama/qwen2.514b")
+    os.environ.setdefault("HELIX_DEV_PROVIDER", "goose")
+    os.environ.setdefault("HELIX_DEV_GOOSE_MODEL", "ollama/gemma4")
+    os.environ.setdefault(
+        "HELIX_DEV_GOOSE_SYSTEM",
+        "You are a coding agent. Use your shell tool to run commands immediately. "
+        "Do not introduce yourself. Do not ask questions. Do not search the web. "
+        "Read files and run tests using your tools. "
+        "The repository is already cloned in the current working directory.",
+    )
     os.environ.setdefault("GITHUB_TOKEN", "dummy")
-
+    os.environ.setdefault("LOG_LEVEL", "DEBUG")
     redis_client = _make_fake_redis()
 
     crash_report = CrashReport(
         incident_id="debug-001",
-        project_id="test-project",
+        project_id="helix-test",
         source_item_id="sentry-123",
         source="sentry",
         severity=Severity.high,
         error_type="KeyError",
-        error_message="'user_id'",
-        stack_trace="File auth/login.py line 42 in login\n  return session['user_id']",
-        affected_component="auth",
-        affected_endpoint="/login",
-        summary="KeyError raised when user_id is missing from session dict in login handler.",
+        error_message="'amount'",
+        stack_trace=(
+            "File fastapi_error.py in trigger_key_error\n"
+            "  process_payment({\"card_last4\": \"4242\"})\n"
+            "File fastapi_error.py in process_payment\n"
+            "  return f\"Charging ${payload['amount']} to card {payload.get('card_last4', 'xxxx')}\""
+        ),
+        affected_component="payment",
+        affected_endpoint="/error/key",
+        summary="KeyError raised because process_payment is called without the required 'amount' key in the payload.",
         language="python",
     )
 
@@ -98,12 +109,12 @@ async def main() -> None:
         ticket_url=None,
         ticket_action=TicketAction.created,
         test_case=TestCase(
-            file_path="tests/test_auth.py",
-            test_name="test_login_missing_user_id",
+            file_path="tests/test_payment.py",
+            test_name="test_process_payment_missing_amount",
             content=(
-                "def test_login_missing_user_id():\n"
-                "    from auth.login import login\n"
-                "    assert login({}) is not None\n"
+                "def test_process_payment_missing_amount():\n"
+                "    from fastapi_error import trigger_key_error\n"
+                "    trigger_key_error()  # must not raise KeyError\n"
             ),
             format=TestFormat.pytest,
         ),

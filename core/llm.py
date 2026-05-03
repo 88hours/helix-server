@@ -329,6 +329,83 @@ async def _complete_opencode(prompt: str, cwd: Optional[str]) -> tuple[str, dict
     return stdout_text, {}
 
 
+async def _complete_goose(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
+    """
+    Invoke the Goose CLI as a subprocess: goose run --text "<prompt>"
+
+    Drop-in alternative to opencode. Goose has model-agnostic tool descriptions
+    so local models (e.g. Gemma via Ollama) call tools reliably without refusing.
+    Configure the model via Goose's own profile or HELIX_DEV_GOOSE_MODEL (maps
+    to Goose's --model flag).
+
+    Args:
+        prompt: The full prompt to pass via --text.
+        cwd:    Working directory for the subprocess (root of the cloned repo).
+
+    Returns:
+        Tuple of (CLI stdout output, empty dict — token usage not available).
+
+    Raises:
+        RuntimeError: If the CLI exits with a non-zero status.
+        asyncio.TimeoutError: If the subprocess exceeds _SUBPROCESS_TIMEOUT seconds.
+    """
+    cmd = ["goose", "run", "--no-session"]
+    model = os.environ.get("HELIX_DEV_GOOSE_MODEL")
+    if model:
+        # Strip provider prefix (e.g. "ollama/gemma4" → "gemma4") — opencode uses
+        # this convention but goose expects just the bare model name.
+        bare_model = model.split("/", 1)[-1]
+        cmd += ["--model", bare_model]
+    system_prompt = os.environ.get("HELIX_DEV_GOOSE_SYSTEM")
+    if system_prompt:
+        cmd += ["--system", system_prompt]
+    if logger.isEnabledFor(logging.DEBUG):
+        cmd.append("--debug")
+    cmd += ["--text", prompt]
+
+    logger.info("goose command: %s (cwd=%s)", " ".join(cmd[:-1]) + " [prompt]", cwd)
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
+    logger.info("goose subprocess started (pid=%s, cwd=%s)", process.pid, cwd)
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=_SUBPROCESS_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        raise asyncio.TimeoutError(
+            f"goose subprocess timed out after {_SUBPROCESS_TIMEOUT}s"
+        )
+
+    stderr_text = stderr.decode().strip()
+    stdout_text = stdout.decode().strip()
+
+    logger.info(
+        "goose subprocess finished (rc=%s)", process.returncode,
+        extra={"pid": process.pid},
+    )
+    if stderr_text:
+        logger.debug("goose stderr:\n%s", stderr_text)
+    logger.debug("goose stdout:\n%s", stdout_text)
+
+    if process.returncode != 0:
+        raise RuntimeError(
+            f"goose exited with code {process.returncode}: {stderr_text or stdout_text}"
+        )
+
+    # Goose exits 0 even on network/config errors — detect and surface them.
+    if "Network error:" in stdout_text or "Could not connect" in stdout_text:
+        raise RuntimeError(f"goose network error: {stdout_text}")
+
+    return stdout_text, {}
+
+
 async def _complete_claude_code(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
     """
     Invoke the Claude Code CLI as a subprocess: claude -p "<prompt>"
@@ -451,10 +528,12 @@ async def complete(
             response, usage = await _complete_claude_code(prompt, cwd)
         elif resolved.provider == "opencode":
             response, usage = await _complete_opencode(prompt, cwd)
+        elif resolved.provider == "goose":
+            response, usage = await _complete_goose(prompt, cwd)
         else:
             raise ValueError(
                 f"Unknown provider '{resolved.provider}' for agent '{agent}'. "
-                "Must be 'anthropic', 'openrouter', 'ollama', 'claude-code', or 'opencode'."
+                "Must be 'anthropic', 'openrouter', 'ollama', 'claude-code', 'opencode', or 'goose'."
             )
 
         span.set_attribute("helix.input_tokens", usage.get("input_tokens", 0))

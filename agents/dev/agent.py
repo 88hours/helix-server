@@ -30,7 +30,7 @@ import redis.asyncio as redis
 from agents.dev import prompts
 from typing import Optional
 
-from core.config import ProjectConfig, get_github_config, get_pipeline_config
+from core.config import ProjectConfig, get_agent_config, get_github_config, get_pipeline_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, PRResult, Project, QAResult
@@ -313,18 +313,27 @@ async def _tdd_loop(
                 redis_client, incident_id, "agent_step", "dev",
                 f"TDD iteration {iteration}/{MAX_ITERATIONS} — running Claude Code…",
             )
-            prompt = prompts.build_tdd(
-                incident_id=incident_id,
-                error_type=crash_report.error_type,
-                error_message=crash_report.error_message,
-                summary=crash_report.summary,
-                test_file_path=qa_result.test_case.file_path,
-                test_name=qa_result.test_case.test_name,
-                iteration=iteration,
-                prior_attempts=prior_attempts,
-                fix_suggestion=fix_suggestion if iteration == 1 else "",
-                language=crash_report.language,
-            )
+            dev_config = get_agent_config("dev")
+            if dev_config.provider == "goose" or "ollama" in (dev_config.model or ""):
+                prompt = prompts.build_tdd_short(
+                    test_file_path=qa_result.test_case.file_path,
+                    test_name=qa_result.test_case.test_name,
+                    summary=crash_report.summary,
+                    prior_attempts=prior_attempts,
+                )
+            else:
+                prompt = prompts.build_tdd(
+                    incident_id=incident_id,
+                    error_type=crash_report.error_type,
+                    error_message=crash_report.error_message,
+                    summary=crash_report.summary,
+                    test_file_path=qa_result.test_case.file_path,
+                    test_name=qa_result.test_case.test_name,
+                    iteration=iteration,
+                    prior_attempts=prior_attempts,
+                    fix_suggestion=fix_suggestion if iteration == 1 else "",
+                    language=crash_report.language,
+                )
 
             logger.info(
                 "dev agent tdd iteration",
