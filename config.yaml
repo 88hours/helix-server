@@ -305,7 +305,7 @@ pipeline:
   # Maximum number of fix attempts the Dev Agent makes before escalating.
   # Counts across both test-suite failures and code-quality rejections.
   # Override: HELIX_DEV_MAX_ITERATIONS
-  dev_max_iterations: 3
+  dev_max_iterations: 1
 
   # Hard wall-clock budget in seconds for the entire TDD loop
   # (environment setup → clone → fix → PR).  Increase for large repos or
@@ -322,6 +322,11 @@ pipeline:
   # Maximum characters read per source file by the QA Agent.
   # Override: HELIX_QA_MAX_FILE_CHARS
   qa_max_file_chars: 4000
+
+  # Maximum number of LLM retries the QA Agent makes when the generated test
+  # fails validation before raising an error.
+  # Override: HELIX_QA_MAX_TEST_RETRIES
+  qa_max_test_retries: 1
 
 # ---------------------------------------------------------------------------
 # LangSmith (LLM observability and evals)

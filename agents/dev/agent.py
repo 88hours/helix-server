@@ -47,7 +47,7 @@ from integrations import github
 logger = logging.getLogger(__name__)
 
 # Maximum total fix attempts across all retries.
-MAX_ITERATIONS = 3
+MAX_ITERATIONS: int = get_pipeline_config()["dev_max_iterations"]
 
 # Maximum characters to read per source file passed to the LLM.
 _MAX_FILE_CHARS = 4_000

@@ -24,7 +24,7 @@ import redis.asyncio as redis
 from agents.qa import prompts
 from typing import Optional
 
-from core.config import ProjectConfig, get_github_config
+from core.config import ProjectConfig, get_github_config, get_pipeline_config
 from core.models import Project
 from core.events import publish
 from core.llm import complete
@@ -38,13 +38,13 @@ from integrations import github
 logger = logging.getLogger(__name__)
 
 # Maximum number of source files to read and pass to the LLM.
-_MAX_SOURCE_FILES = 8
+_MAX_SOURCE_FILES: int = get_pipeline_config()["qa_max_source_files"]
 
 # Maximum characters to read per source file (keeps prompt size manageable).
-_MAX_FILE_CHARS = 4_000
+_MAX_FILE_CHARS: int = get_pipeline_config()["qa_max_file_chars"]
 
 # Maximum number of times to retry LLM generation when the test fails validation.
-_MAX_TEST_RETRIES = 2
+_MAX_TEST_RETRIES: int = get_pipeline_config()["qa_max_test_retries"]
 
 
 async def handle(
