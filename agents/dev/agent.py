@@ -319,7 +319,7 @@ async def _tdd_loop(
                     test_file_path=qa_result.test_case.file_path,
                     test_name=qa_result.test_case.test_name,
                     summary=crash_report.summary,
-                    prior_attempts=prior_attempts,
+                    language=crash_report.language,
                 )
             else:
                 prompt = prompts.build_tdd(

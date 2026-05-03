@@ -243,7 +243,7 @@ def build_tdd_short(
     test_file_path: str,
     test_name: str,
     summary: str,
-    prior_attempts: list[str] | None = None,
+    language: str = "python",
 ) -> str:
     """
     Compact TDD prompt for local/small models (goose + ollama).
@@ -251,26 +251,35 @@ def build_tdd_short(
     Skips the multi-language environment-discovery matrix from build_tdd() —
     local models tend to treat that as an invitation to plan rather than act.
     """
-    prior_section = ""
-    if prior_attempts:
-        prior_section = "\nPrevious attempts that did not work:\n"
-        for i, attempt in enumerate(prior_attempts, start=1):
-            prior_section += f"  {i}. {attempt}\n"
+    run_one, _ = _test_commands(language, test_file_path, test_name)
 
-    return f"""\
-You are fixing a bug. The repo is cloned in the current directory.
+    return f"""The repository is already cloned in the current working directory.
+You have the shell tool. Use it immediately. Do not write explanations. Do not describe what you will do. Just run commands.
 
-Run this exact command: pytest {test_file_path} -x
-Read the failure.
-Edit the source file to fix the bug.
-Run pytest again.
-If tests pass output: TESTS_PASSED
-If tests still fail output: TESTS_FAILED
+Step 1: Install dependencies.
+Run: uv run --no-project pip install -e . -q 2>/dev/null || true
 
-Test file: {test_file_path}
-Test function: {test_name}
-Bug summary: {summary}{prior_section}
-"""
+Step 2: Run the test to see the failure.
+Run: {run_one} 2>&1
+
+Step 3: Read the traceback. Find the source file and line number that contains the bug. Do not touch the test file. Fix the source file using the shell tool with a command like:
+uv run --no-project python -c "
+with open('path/to/source.py') as f:
+    code = f.read()
+code = code.replace('broken line', 'fixed line')
+with open('path/to/source.py', 'w') as f:
+    f.write(code)
+"
+
+Step 4: Run the test again.
+Run: {run_one} 2>&1
+
+Step 5: Output exactly one of these two lines and nothing else:
+TESTS_PASSED
+TESTS_FAILED
+
+Bug description: {summary}
+Language: {language}"""
 
 
 def _test_commands(language: str, test_file_path: str, test_name: str) -> tuple[str, str]:
