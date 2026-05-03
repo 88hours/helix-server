@@ -132,7 +132,12 @@ async def handle(
         source_files=source_files,
     )
     logger.info("dev agent calling llm for fix suggestion", extra={"incident_id": incident_id})
-    fix_suggestion = await complete(agent="dev", prompt=suggestion_prompt)
+    dev_cfg = get_agent_config("dev")
+    if dev_cfg.provider in ("goose", "claude-code", "opencode"):
+        fix_suggestion = ""
+        logger.info("skipping fix suggestion — agentic provider", extra={"incident_id": incident_id, "provider": dev_cfg.provider})
+    else:
+        fix_suggestion = await complete(agent="dev", prompt=suggestion_prompt)
     await publish_tool_event(redis_client, incident_id, "dev", "llm", "complete", "success", "fix suggestion")
     logger.debug(
         "llm fix suggestion received",
@@ -345,10 +350,17 @@ async def _tdd_loop(
                 "claude-code response",
                 extra={"incident_id": incident_id, "iteration": iteration, "response": response},
             )
-            tdd_status = "success" if _tests_passed(response) else "failed"
+
+            dev_config = get_agent_config("dev")
+            if dev_config.provider in ("goose", "claude-code", "opencode"):
+                passed = _check_result_file(repo_dir)
+            else:
+                passed = _tests_passed(response)
+
+            tdd_status = "success" if passed else "failed"
             await publish_tool_event(redis_client, incident_id, "dev", "claude_code", "tdd_iterate", tdd_status, f"iteration {iteration}/{MAX_ITERATIONS}")
 
-            if _tests_passed(response):
+            if passed:
                 fix_summary = _extract_explanation(response)
                 files_changed = await _get_changed_files(repo_dir)
 
@@ -448,6 +460,22 @@ async def _tdd_loop(
     raise RuntimeError(
         f"Dev Agent for incident {incident_id} exhausted all {MAX_ITERATIONS} iterations."
     )
+
+
+def _check_result_file(repo_dir: str) -> bool:
+    """Check for task_passed / task_failed sentinel files left by the agentic runner."""
+    import os as _os
+    passed_path = _os.path.join(repo_dir, "task_passed")
+    failed_path = _os.path.join(repo_dir, "task_failed")
+    passed = _os.path.exists(passed_path)
+    # Clean up so the file doesn't persist into the next iteration.
+    for p in (passed_path, failed_path):
+        try:
+            _os.remove(p)
+        except FileNotFoundError:
+            pass
+    logger.info("result file check", extra={"passed": passed, "repo_dir": repo_dir})
+    return passed
 
 
 def _tests_passed(response: str) -> bool:

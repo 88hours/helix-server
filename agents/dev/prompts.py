@@ -254,29 +254,29 @@ def build_tdd_short(
     run_one, _ = _test_commands(language, test_file_path, test_name)
 
     return f"""The repository is already cloned in the current working directory.
-You have the shell tool. Use it immediately. Do not write explanations. Do not describe what you will do. Just run commands.
+Run commands immediately. Do not explain. Do not plan.
 
-Step 1: Install dependencies.
-Run: uv run --no-project pip install -e . -q 2>/dev/null || true
+RULE: NEVER edit {test_file_path}. The test file is correct. Only fix source files.
 
-Step 2: Run the test to see the failure.
-Run: {run_one} 2>&1
+Step 1: Run the failing test.
+Run: PYTHONPATH=. {run_one}
 
-Step 3: Read the traceback. Find the source file and line number that contains the bug. Do not touch the test file. Fix the source file using the shell tool with a command like:
-uv run --no-project python -c "
-with open('path/to/source.py') as f:
-    code = f.read()
-code = code.replace('broken line', 'fixed line')
-with open('path/to/source.py', 'w') as f:
-    f.write(code)
+Step 2: Read the traceback. Identify the source file that contains the bug. Read that file:
+Run: cat <the source file named in the traceback — not {test_file_path}>
+
+Step 3: Fix the bug in that source file using a python one-liner:
+python3 -c "
+content = open('SOURCE_FILE.py').read()
+content = content.replace('BROKEN_LINE', 'FIXED_LINE')
+open('SOURCE_FILE.py', 'w').write(content)
 "
 
-Step 4: Run the test again.
-Run: {run_one} 2>&1
+Step 4: Run the test again to verify.
+Run: PYTHONPATH=. {run_one}
 
-Step 5: Output exactly one of these two lines and nothing else:
-TESTS_PASSED
-TESTS_FAILED
+Step 5: Create a result file based on the outcome:
+If tests passed: touch task_passed
+If tests still fail: touch task_failed
 
 Bug description: {summary}
 Language: {language}"""

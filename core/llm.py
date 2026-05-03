@@ -329,7 +329,7 @@ async def _complete_opencode(prompt: str, cwd: Optional[str]) -> tuple[str, dict
     return stdout_text, {}
 
 
-async def _complete_goose(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
+async def _complete_goose(prompt: str, cwd: Optional[str], system: str = "") -> tuple[str, dict]:
     """
     Invoke the Goose CLI as a subprocess: goose run --text "<prompt>"
 
@@ -356,7 +356,9 @@ async def _complete_goose(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
         # this convention but goose expects just the bare model name.
         bare_model = model.split("/", 1)[-1]
         cmd += ["--model", bare_model]
-    system_prompt = os.environ.get("HELIX_DEV_GOOSE_SYSTEM")
+    system_prompt = system or os.environ.get("HELIX_DEV_GOOSE_SYSTEM", "")
+    if cwd:
+        system_prompt = (system_prompt + f"\nYour working directory is: {cwd}. Do not leave this directory.").strip()
     if system_prompt:
         cmd += ["--system", system_prompt]
     if logger.isEnabledFor(logging.DEBUG):
@@ -529,7 +531,7 @@ async def complete(
         elif resolved.provider == "opencode":
             response, usage = await _complete_opencode(prompt, cwd)
         elif resolved.provider == "goose":
-            response, usage = await _complete_goose(prompt, cwd)
+            response, usage = await _complete_goose(prompt, cwd, system=system)
         else:
             raise ValueError(
                 f"Unknown provider '{resolved.provider}' for agent '{agent}'. "

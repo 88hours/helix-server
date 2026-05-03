@@ -41,6 +41,8 @@ def _make_fake_redis():
     return r
 
 
+os.environ.setdefault("HELIX_DEV_MAX_ITERATIONS", "3")
+
 import agents.dev.agent as _dev_agent
 import integrations.github as _github
 
@@ -62,16 +64,21 @@ from core.models import (
     Severity,
 )
 
+_LOG_FILE = "/tmp/helix-dev-agent.log"
+_log_handler = logging.FileHandler(_LOG_FILE, mode="w")
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "DEBUG"),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    handlers=[logging.StreamHandler(), _log_handler],
 )
+print(f"Logging to {_LOG_FILE}")
 
 
 async def main() -> None:
     os.environ.setdefault("HELIX_GITHUB_REPO", "88hours/helix-test")
     os.environ.setdefault("HELIX_DEV_PROVIDER", "goose")
-    os.environ.setdefault("HELIX_DEV_GOOSE_MODEL", "ollama/gemma4")
+    os.environ.setdefault("HELIX_DEV_GOOSE_MODEL", "ollama/devstral-small-2:latest")
     os.environ.setdefault(
         "HELIX_DEV_GOOSE_SYSTEM",
         "You are a coding agent. Use your shell tool to run commands immediately. "
