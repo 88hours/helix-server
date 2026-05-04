@@ -89,6 +89,14 @@ JIRA_PROJECT_KEY
 # Optional: model overrides (see config.yaml)
 HELIX_<AGENT>_PROVIDER
 HELIX_<AGENT>_MODEL
+
+# Optional: pipeline tuning (all have defaults — only set to override)
+HELIX_QA_MAX_SOURCE_FILES    # max source files passed to QA LLM (default 8)
+HELIX_QA_MAX_FILE_CHARS      # max chars per source file (default 4000)
+HELIX_QA_MAX_TEST_RETRIES    # extra QA generation retries after first attempt (default 1)
+HELIX_DEV_MAX_ITERATIONS     # max fix attempts before escalating (default 3)
+HELIX_DEV_TDD_TIMEOUT        # seconds before TDD subprocess times out (default 480)
+HELIX_OLLAMA_NUM_CTX         # Ollama context window tokens (default 16384)
 ```
 
 ## Dev Agent behaviour
