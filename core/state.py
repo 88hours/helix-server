@@ -95,6 +95,30 @@ async def read_crash_report(client: redis.Redis, incident_id: str) -> Optional[C
 
 
 # ---------------------------------------------------------------------------
+# Raw LLM response cache (for debugging)
+# ---------------------------------------------------------------------------
+
+async def write_llm_response(
+    client: redis.Redis,
+    incident_id: str,
+    agent: str,
+    attempt: int,
+    raw: str,
+) -> None:
+    """
+    Save a raw LLM response to Redis immediately on receipt.
+
+    Key: helix:incident:{id}:llm:{agent}:{attempt}
+    TTL: same 7-day window as other incident keys.
+    This lets engineers inspect what the model actually returned even if the
+    agent crashes during JSON parsing.
+    """
+    key = _key(incident_id, f"llm:{agent}:{attempt}")
+    await client.set(key, raw, ex=_TTL_SECONDS)
+    logger.debug("llm response saved", extra={"key": key, "len": len(raw)})
+
+
+# ---------------------------------------------------------------------------
 # QA result (test case)
 # ---------------------------------------------------------------------------
 

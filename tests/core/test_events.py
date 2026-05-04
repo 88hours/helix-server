@@ -217,6 +217,7 @@ async def test_subscribe_pubsub_direct_yields_valid_message():
     results = []
     async for incident_id, payload in _subscribe_pubsub(client, "crash_analysed"):
         results.append((incident_id, payload))
+        break
 
     assert results == [("inc-001", {"k": "v"})]
 

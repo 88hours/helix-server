@@ -564,6 +564,7 @@ def get_pipeline_config() -> dict:
         "dev_tdd_timeout": _int("HELIX_DEV_TDD_TIMEOUT", "dev_tdd_timeout", 480),
         "qa_max_source_files": _int("HELIX_QA_MAX_SOURCE_FILES", "qa_max_source_files", 8),
         "qa_max_file_chars": _int("HELIX_QA_MAX_FILE_CHARS", "qa_max_file_chars", 4000),
+        "qa_max_test_retries": _int("HELIX_QA_MAX_TEST_RETRIES", "qa_max_test_retries", 1),
     }
 
 

@@ -149,6 +149,8 @@ def build_tdd(
     hint_one, hint_all = _test_commands(language, test_file_path, test_name)
 
     return f"""\
+The repository is already cloned in the current working directory. Do NOT ask for files. Do NOT write a plan. Start immediately by running pytest on the test file. Take action now.
+
 You are fixing a production bug for incident {incident_id} (attempt {iteration}/3).
 
 ## Bug Context
