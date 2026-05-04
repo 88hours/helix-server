@@ -83,3 +83,11 @@ fail_under = 0          # raise this over time as coverage improves
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "respx>=0.22",
+]
