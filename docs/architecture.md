@@ -223,6 +223,7 @@ Redis is the shared state store. Agents read and write state keyed by `incident_
 | `helix:incident:{id}:pr` | String (JSON) | Serialised `PRResult` (PR URL, branch, fix summary) |
 | `helix:incident:{id}:status` | String | Current pipeline stage |
 | `helix:incident:{id}:iterations` | String (int) | Dev Agent retry count |
+| `helix:incident:{id}:llm:{agent}:{attempt}` | String | Raw LLM response for debug (written immediately on receipt) |
 | `helix:repo_lock:{repo}` | String | Dev Agent per-repo mutex (`SET NX EX 600`) |
 | `helix:ui:{id}` | Pub/Sub channel | Ephemeral dashboard progress events |
 | `helix:ui:{id}:events` | List | Persisted SSE events for replay on page load |
