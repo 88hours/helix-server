@@ -30,7 +30,7 @@ import redis.asyncio as redis
 from agents.dev import prompts
 from typing import Optional
 
-from core.config import ProjectConfig, get_github_config, get_pipeline_config
+from core.config import ProjectConfig, get_agent_config, get_github_config, get_pipeline_config
 from core.events import publish
 from core.llm import complete
 from core.models import CrashReport, PRResult, Project, QAResult
@@ -47,7 +47,7 @@ from integrations import github
 logger = logging.getLogger(__name__)
 
 # Maximum total fix attempts across all retries.
-MAX_ITERATIONS = 3
+MAX_ITERATIONS: int = get_pipeline_config()["dev_max_iterations"]
 
 # Maximum characters to read per source file passed to the LLM.
 _MAX_FILE_CHARS = 4_000
@@ -132,7 +132,12 @@ async def handle(
         source_files=source_files,
     )
     logger.info("dev agent calling llm for fix suggestion", extra={"incident_id": incident_id})
-    fix_suggestion = await complete(agent="dev", prompt=suggestion_prompt)
+    dev_cfg = get_agent_config("dev")
+    if dev_cfg.provider in ("goose", "claude-code", "opencode"):
+        fix_suggestion = ""
+        logger.info("skipping fix suggestion — agentic provider", extra={"incident_id": incident_id, "provider": dev_cfg.provider})
+    else:
+        fix_suggestion = await complete(agent="dev", prompt=suggestion_prompt)
     await publish_tool_event(redis_client, incident_id, "dev", "llm", "complete", "success", "fix suggestion")
     logger.debug(
         "llm fix suggestion received",

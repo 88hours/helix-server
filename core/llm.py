@@ -235,9 +235,8 @@ async def _complete_ollama(
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
-    num_ctx = os.environ.get("HELIX_OLLAMA_NUM_CTX")
-    if num_ctx:
-        kwargs["extra_body"] = {"options": {"num_ctx": int(num_ctx)}}
+    num_ctx = int(os.environ.get("HELIX_OLLAMA_NUM_CTX", "16384"))
+    kwargs["extra_body"] = {"options": {"num_ctx": num_ctx}}
 
     response = await client.chat.completions.create(**kwargs)
     usage = {
@@ -245,7 +244,7 @@ async def _complete_ollama(
         "output_tokens": response.usage.completion_tokens if response.usage else 0,
     }
     content = response.choices[0].message.content or ""
-    logger.debug("ollama raw response", extra={"agent": config.agent, "content_len": len(content), "content_preview": content[:200]})
+    logger.debug("ollama raw response", extra={"agent": config.agent, "content_len": len(content), "content": content})
 
     # Some reasoning models (qwen3, deepseek-r1) prepend <think>…</think> blocks
     # even when JSON mode is requested via an older Ollama version. Strip them so
