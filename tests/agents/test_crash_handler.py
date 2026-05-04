@@ -348,6 +348,7 @@ def test_webhook_valid_request_returns_202():
 
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)), \
+         patch("agents.crash_handler.main.is_duplicate_occurrence", new=AsyncMock(return_value=False)), \
          patch("agents.crash_handler.main.handle", new=AsyncMock(return_value=mock_report)):
         from agents.crash_handler.main import app
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -851,6 +852,7 @@ def test_create_project_returns_201(monkeypatch):
          patch("agents.crash_handler.main.upsert_user", new=AsyncMock()), \
          patch("agents.crash_handler.main.insert_project", new=AsyncMock()), \
          patch("agents.crash_handler.main.upsert_project_settings", new=AsyncMock()), \
+         patch("agents.crash_handler.main.get_installation_for_user", new=AsyncMock(return_value=None)), \
          patch("agents.crash_handler.main.get_project", new=AsyncMock(return_value=created_row)):
         from agents.crash_handler.main import app
         client = TestClient(app, raise_server_exceptions=False)
@@ -1226,6 +1228,7 @@ def test_sentry_webhook_processes_event(monkeypatch):
     body = json.dumps(payload).encode()
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.crash_handler.main._load_project_or_404", new=AsyncMock(return_value=mock_project)), \
+         patch("agents.crash_handler.main.is_duplicate_occurrence", new=AsyncMock(return_value=False)), \
          patch("agents.crash_handler.main.handle", new=AsyncMock(return_value=mock_report)):
         from agents.crash_handler.main import app
         with TestClient(app, raise_server_exceptions=False) as client:
