@@ -125,7 +125,7 @@ LLM_FIX = (
 # ---------------------------------------------------------------------------
 
 async def test_handle_posts_fix_comment(crash_report, qa_result, mock_redis, pr_result):
-    """handle() must post the LLM fix suggestion as a GitHub Issue comment."""
+    """handle() must post a Helix comment to the GitHub Issue."""
     add_comment = AsyncMock()
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
@@ -137,8 +137,7 @@ async def test_handle_posts_fix_comment(crash_report, qa_result, mock_redis, pr_
 
     add_comment.assert_awaited_once()
     _, kwargs = add_comment.call_args
-    assert "Suggested fix" in kwargs["comment"]
-    assert LLM_FIX in kwargs["comment"]
+    assert "[Helix]" in kwargs["comment"]
 
 
 async def test_handle_publishes_fix_suggested_event(crash_report, qa_result, mock_redis, pr_result):
@@ -171,8 +170,8 @@ async def test_handle_calls_tdd_loop(crash_report, qa_result, mock_redis, pr_res
     assert result == pr_result
 
 
-async def test_handle_passes_fix_suggestion_to_tdd_loop(crash_report, qa_result, mock_redis, pr_result):
-    """handle() must pass the LLM response to _tdd_loop as fix_suggestion."""
+async def test_handle_passes_diagnosis_to_tdd_loop(crash_report, qa_result, mock_redis, pr_result):
+    """handle() must pass a diagnosis (or None) to _tdd_loop."""
     tdd_loop = AsyncMock(return_value=pr_result)
     with patch("core.config._load_yaml", return_value=SAMPLE_YAML), \
          patch("agents.dev.agent._fetch_source_files", new=AsyncMock(return_value={})), \
@@ -183,7 +182,7 @@ async def test_handle_passes_fix_suggestion_to_tdd_loop(crash_report, qa_result,
         await handle(qa_result, crash_report, mock_redis)
 
     _, kwargs = tdd_loop.call_args
-    assert kwargs["fix_suggestion"] == LLM_FIX
+    assert "diagnosis" in kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +362,7 @@ async def test_tdd_loop_returns_pr_result_on_first_pass(qa_result, crash_report,
         result = await _tdd_loop(
             qa_result=qa_result,
             crash_report=crash_report,
-            fix_suggestion="Fix the null check",
+            diagnosis=None,
             redis_client=mock_redis,
             permissions=permissions,
         )
@@ -390,7 +389,7 @@ async def test_tdd_loop_raises_when_max_iterations_already_reached(qa_result, cr
             await _tdd_loop(
                 qa_result=qa_result,
                 crash_report=crash_report,
-                fix_suggestion="fix",
+                diagnosis=None,
                 redis_client=mock_redis,
                 permissions=permissions,
             )
@@ -422,7 +421,7 @@ async def test_tdd_loop_raises_after_all_iterations_fail(qa_result, crash_report
             await _tdd_loop(
                 qa_result=qa_result,
                 crash_report=crash_report,
-                fix_suggestion="fix",
+                diagnosis=None,
                 redis_client=mock_redis,
                 permissions=permissions,
             )
@@ -446,7 +445,7 @@ async def test_tdd_loop_raises_when_repo_lock_not_acquired(qa_result, crash_repo
             await _tdd_loop(
                 qa_result=qa_result,
                 crash_report=crash_report,
-                fix_suggestion="fix",
+                diagnosis=None,
                 redis_client=mock_redis,
                 permissions=permissions,
             )
