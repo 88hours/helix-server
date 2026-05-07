@@ -72,7 +72,7 @@ agents:
         - publish:duplicate_detected
 
   dev:
-    provider: anthropic
+    provider: claude-code
     model: claude-sonnet-4-6
     permissions:
       github:

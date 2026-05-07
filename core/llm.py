@@ -67,9 +67,10 @@ logger = logging.getLogger(__name__)
 # (Dev Agent writing code) are served by claude-code which has no hard limit here.
 _MAX_TOKENS = 8192
 
-# Timeout in seconds for the claude-code subprocess. Dev Agent iterations
-# can be long — allow up to 10 minutes per call.
+# Timeout in seconds for the claude-code / opencode subprocess.
 _SUBPROCESS_TIMEOUT = 600
+# Goose runs local models which are slower to start but shorter per-iteration.
+_GOOSE_TIMEOUT = 120
 
 # Fallback model used when Anthropic returns 529 Overloaded for the primary model.
 _HAIKU_FALLBACK = "claude-haiku-4-5-20251001"
@@ -329,6 +330,67 @@ async def _complete_opencode(prompt: str, cwd: Optional[str]) -> tuple[str, dict
     return stdout_text, {}
 
 
+async def _complete_goose(prompt: str, cwd: Optional[str], system: str = "") -> tuple[str, dict]:
+    """
+    Invoke the Goose CLI as a subprocess: goose run --text "<prompt>"
+
+    Drop-in alternative to opencode. Goose has model-agnostic tool descriptions
+    so local models (e.g. Gemma via Ollama) call tools reliably without refusing.
+    Configure the model via HELIX_DEV_GOOSE_MODEL (maps to Goose's --model flag).
+    """
+    cmd = ["goose", "run", "--no-session"]
+    model = os.environ.get("HELIX_DEV_GOOSE_MODEL")
+    if model:
+        bare_model = model.split("/", 1)[-1]
+        cmd += ["--model", bare_model]
+    system_prompt = system or os.environ.get("HELIX_DEV_GOOSE_SYSTEM", "")
+    if cwd:
+        system_prompt = (system_prompt + f"\nYour working directory is: {cwd}. Do not leave this directory.").strip()
+    if system_prompt:
+        cmd += ["--system", system_prompt]
+    if logger.isEnabledFor(logging.DEBUG):
+        cmd.append("--debug")
+    cmd += ["--text", prompt]
+
+    logger.info("goose command: %s (cwd=%s)", " ".join(cmd[:-1]) + " [prompt]", cwd)
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
+    logger.info("goose subprocess started (pid=%s, cwd=%s)", process.pid, cwd)
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=_GOOSE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        raise asyncio.TimeoutError(
+            f"goose subprocess timed out after {_GOOSE_TIMEOUT}s"
+        )
+
+    stderr_text = stderr.decode().strip()
+    stdout_text = stdout.decode().strip()
+
+    logger.info("goose subprocess finished (rc=%s)", process.returncode, extra={"pid": process.pid})
+    if stderr_text:
+        logger.debug("goose stderr:\n%s", stderr_text)
+    logger.debug("goose stdout:\n%s", stdout_text)
+
+    if process.returncode != 0:
+        raise RuntimeError(
+            f"goose exited with code {process.returncode}: {stderr_text or stdout_text}"
+        )
+
+    if "Network error:" in stdout_text or "Could not connect" in stdout_text:
+        raise RuntimeError(f"goose network error: {stdout_text}")
+
+    return stdout_text, {}
+
+
 async def _complete_claude_code(prompt: str, cwd: Optional[str]) -> tuple[str, dict]:
     """
     Invoke the Claude Code CLI as a subprocess: claude -p "<prompt>"
@@ -358,26 +420,41 @@ async def _complete_claude_code(prompt: str, cwd: Optional[str]) -> tuple[str, d
     )
     logger.info("claude-code subprocess started", extra={"pid": process.pid, "cwd": cwd})
 
+    async def _stream_stderr(stream: asyncio.StreamReader) -> str:
+        lines: list[str] = []
+        async for raw in stream:
+            line = raw.decode().rstrip()
+            lines.append(line)
+            logger.info("claude-code | %s", line)
+        return "\n".join(lines)
+
+    async def _stream_stdout(stream: asyncio.StreamReader) -> str:
+        lines: list[str] = []
+        async for raw in stream:
+            line = raw.decode().rstrip()
+            lines.append(line)
+            logger.info("claude-code out | %s", line)
+        return "\n".join(lines).strip()
+
     try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(),
+        stderr_text, stdout_text = await asyncio.wait_for(
+            asyncio.gather(
+                _stream_stderr(process.stderr),
+                _stream_stdout(process.stdout),
+            ),
             timeout=_SUBPROCESS_TIMEOUT,
         )
+        await process.wait()
     except asyncio.TimeoutError:
         process.kill()
         raise asyncio.TimeoutError(
             f"claude-code subprocess timed out after {_SUBPROCESS_TIMEOUT}s"
         )
 
-    stderr_text = stderr.decode().strip()
-    stdout_text = stdout.decode().strip()
-
     logger.info(
         "claude-code subprocess finished",
         extra={"pid": process.pid, "returncode": process.returncode},
     )
-    if stderr_text:
-        logger.debug("claude-code stderr", extra={"stderr": stderr_text})
     logger.debug("claude-code stdout", extra={"stdout": stdout_text})
 
     if process.returncode != 0:
@@ -451,10 +528,12 @@ async def complete(
             response, usage = await _complete_claude_code(prompt, cwd)
         elif resolved.provider == "opencode":
             response, usage = await _complete_opencode(prompt, cwd)
+        elif resolved.provider == "goose":
+            response, usage = await _complete_goose(prompt, cwd, system=system)
         else:
             raise ValueError(
                 f"Unknown provider '{resolved.provider}' for agent '{agent}'. "
-                "Must be 'anthropic', 'openrouter', 'ollama', 'claude-code', or 'opencode'."
+                "Must be 'anthropic', 'openrouter', 'ollama', 'claude-code', 'opencode', or 'goose'."
             )
 
         span.set_attribute("helix.input_tokens", usage.get("input_tokens", 0))

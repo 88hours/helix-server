@@ -12,6 +12,31 @@ def _make_config(provider: str, model: str = "claude-test") -> AgentConfig:
     return AgentConfig(agent="test", provider=provider, model=model)
 
 
+class _FakeStream:
+    def __init__(self, data: bytes):
+        self._lines = [l + b"\n" for l in data.splitlines() if l]
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        for line in self._lines:
+            yield line
+
+    async def read(self, n=-1):
+        return b"".join(self._lines)
+
+
+def _make_proc(stdout: bytes, stderr: bytes = b"", returncode: int = 0):
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.stdout = _FakeStream(stdout)
+    proc.stderr = _FakeStream(stderr)
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    return proc
+
+
 # ---------------------------------------------------------------------------
 # get_langsmith_config
 # ---------------------------------------------------------------------------
@@ -138,14 +163,12 @@ async def test_complete_openrouter_adds_metadata_to_run_tree(monkeypatch):
 
 async def test_complete_claude_code_adds_metadata_no_tokens(monkeypatch):
     """claude-code backend adds provider/model metadata but no token counts."""
-    mock_proc = AsyncMock()
-    mock_proc.returncode = 0
-    mock_proc.communicate.return_value = (b"fixed the bug", b"")
+    proc = _make_proc(stdout=b"fixed the bug")
 
     mock_rt = MagicMock()
 
     with patch("core.llm.get_agent_config", return_value=_make_config("claude-code")):
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
             with patch("core.llm._get_run_tree", return_value=mock_rt):
                 result = await complete("dev", "fix this", cwd="/tmp/repo")
 

@@ -277,6 +277,26 @@ class QAResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Dev Agent — structured diagnosis
+# ---------------------------------------------------------------------------
+
+class BugDiagnosis(BaseModel):
+    """
+    Structured bug diagnosis produced by the Dev Agent's initial LLM call.
+
+    Validated against the actual source file before being used to guide the
+    TDD loop.  If validation fails the diagnosis is discarded and the agent
+    falls back to unguided behaviour.
+    """
+    root_cause: str        # one sentence
+    fix_description: str   # one sentence describing the change
+    file_to_edit: str      # exact relative path, e.g. "app/payments.py"
+    line_to_edit: int      # 1-indexed line number
+    current_line: str      # exact current text of that line
+    fixed_line: str        # exact replacement text
+
+
+# ---------------------------------------------------------------------------
 # Dev Agent output
 # ---------------------------------------------------------------------------
 

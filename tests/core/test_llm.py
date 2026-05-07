@@ -84,38 +84,59 @@ async def test_complete_openrouter_missing_key_raises(monkeypatch):
 # Claude Code CLI backend
 # ---------------------------------------------------------------------------
 
+class _FakeStream:
+    """Minimal async-iterable stream for mocking asyncio subprocess pipes."""
+    def __init__(self, data: bytes):
+        self._lines = [l + b"\n" for l in data.splitlines() if l]
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        for line in self._lines:
+            yield line
+
+    async def read(self, n=-1):
+        return b"".join(self._lines)
+
+
+def _make_proc(stdout: bytes, stderr: bytes = b"", returncode: int = 0):
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.stdout = _FakeStream(stdout)
+    proc.stderr = _FakeStream(stderr)
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    return proc
+
+
 async def test_complete_claude_code_success():
-    mock_proc = AsyncMock()
-    mock_proc.returncode = 0
-    mock_proc.communicate.return_value = (b"TESTS_PASSED\nFixed the bug.", b"")
+    proc = _make_proc(stdout=b"TESTS_PASSED\nFixed the bug.")
 
     with patch("core.llm.get_agent_config", return_value=_make_config("claude-code")):
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await complete("dev", "fix this bug", cwd="/tmp/repo")
 
     assert "TESTS_PASSED" in result
 
 
 async def test_complete_claude_code_nonzero_exit_raises():
-    mock_proc = AsyncMock()
-    mock_proc.returncode = 1
-    mock_proc.communicate.return_value = (b"", b"error output")
+    proc = _make_proc(stdout=b"", stderr=b"error output", returncode=1)
 
     with patch("core.llm.get_agent_config", return_value=_make_config("claude-code")):
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
             with pytest.raises(RuntimeError, match="claude-code exited"):
                 await complete("dev", "fix this")
 
 
 async def test_complete_claude_code_timeout_raises():
-    mock_proc = AsyncMock()
-    mock_proc.communicate.side_effect = asyncio.TimeoutError()
-    mock_proc.kill = MagicMock()
+    proc = _make_proc(stdout=b"", stderr=b"")
 
     with patch("core.llm.get_agent_config", return_value=_make_config("claude-code")):
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            with pytest.raises(asyncio.TimeoutError):
-                await complete("dev", "fix this")
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+                with pytest.raises(asyncio.TimeoutError):
+                    await complete("dev", "fix this")
 
 
 # ---------------------------------------------------------------------------

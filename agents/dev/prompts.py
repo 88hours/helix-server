@@ -3,21 +3,28 @@ LLM prompts for the Dev Agent.
 
 Two prompts are used in sequence:
 
-  build_suggestion() — sent to the Anthropic API to generate a human-readable
-      fix suggestion that is posted as a GitHub Issue comment.
+  build_diagnosis() — sent to the Anthropic API to produce a structured JSON
+      diagnosis: exactly which file and line to change, and the before/after
+      text.  The response is validated programmatically before being used.
+      A human-readable version is posted as a GitHub Issue comment.
 
   build_tdd() — sent to the claude-code CLI (running inside the cloned repo)
-      to implement the fix using a TDD loop. It receives the suggestion from
-      the first call as additional context so the CLI has a concrete starting
-      point.
+      to implement the fix using a TDD loop.  When a validated BugDiagnosis is
+      available it is injected so the CLI knows exactly what to change and only
+      needs to apply and verify — removing the "figure out what to fix" decision.
 
 The TDD prompt uses a sentinel protocol: the CLI must output either
 "TESTS_PASSED" or "TESTS_FAILED" followed by a short explanation so the
 agent can decide whether to commit the fix or retry.
 """
 
+from typing import Optional, TYPE_CHECKING
 
-def build_suggestion(
+if TYPE_CHECKING:
+    from core.models import BugDiagnosis
+
+
+def build_diagnosis(
     error_type: str,
     error_message: str,
     summary: str,
@@ -27,11 +34,11 @@ def build_suggestion(
     source_files: dict[str, str],
 ) -> str:
     """
-    Build the fix-suggestion prompt for the Anthropic API call.
+    Build the structured diagnosis prompt for the Anthropic API call.
 
-    The response is posted as a GitHub Issue comment for the engineering team
-    to review. It is also passed to build_tdd() as context for the
-    implementation step.
+    The model returns a JSON object identifying the exact file, line, and
+    text change needed.  The caller validates the response against the actual
+    source before trusting it.
 
     Args:
         error_type:     Exception class, e.g. "AttributeError".
@@ -49,12 +56,12 @@ def build_suggestion(
     if source_files:
         source_section = "\n## Relevant Source Files\n"
         for path, content in source_files.items():
-            source_section += f"\n### `{path}`\n```python\n{content}\n```\n"
+            source_section += f"\n### `{path}`\n```\n{content}\n```\n"
     else:
         source_section = "\n## Relevant Source Files\n_(No source files available.)_\n"
 
     return f"""\
-You are a senior software engineer reviewing a production bug.
+You are a senior software engineer diagnosing a production bug.
 
 ## Bug Summary
 - **Error type:** {error_type}
@@ -62,7 +69,7 @@ You are a senior software engineer reviewing a production bug.
 - **Summary:** {summary}
 
 ## Failing Test
-The following test was written to reproduce this bug. It currently fails.
+The following test reproduces this bug.
 
 **File:** `{test_file_path}`
 **Test:** `{test_name}`
@@ -73,22 +80,24 @@ The following test was written to reproduce this bug. It currently fails.
 {source_section}
 ## Your Task
 
-Write the minimal code change that makes the failing test pass without breaking other functionality.
+Identify the minimal single-line fix that makes the failing test pass.
 
-The test asserts the CORRECT behaviour — it does not assert that an exception is raised.
-Your fix must make the function return the expected value instead of crashing.
+Rules:
+- The test asserts correct behaviour — your fix must make the function return the expected value, not raise an exception.
+- Fix only the bug. Do not refactor or touch unrelated code.
+- Do not suggest changes to any test file.
+- The fix must be a single-line replacement (current_line → fixed_line).
 
-Your response must:
-1. Identify the root cause in one sentence.
-2. Show the exact code change using clearly labelled BEFORE and AFTER blocks.
-   - The AFTER block MUST include the defensive guard or fix — it must not be
-     identical to the BEFORE block.
-   - Example of a correct guard for a None-dereference bug:
-     BEFORE: `return f"Hello, {{user.get('name')}}!"`
-     AFTER:  `if user is None: return None` (then the original return)
-3. Explain why this change makes the test pass in 2–3 sentences.
+Return ONLY a JSON object with exactly these fields — no other text:
 
-Be concise. Do not refactor unrelated code. Do not add new dependencies.
+{{
+  "root_cause": "<one sentence>",
+  "fix_description": "<one sentence describing the change>",
+  "file_to_edit": "<exact relative path from the repo root>",
+  "line_to_edit": <1-indexed line number>,
+  "current_line": "<exact current text of that line, including indentation>",
+  "fixed_line": "<exact replacement text, including indentation>"
+}}
 """
 
 
@@ -101,7 +110,7 @@ def build_tdd(
     test_name: str,
     iteration: int,
     prior_attempts: list[str],
-    fix_suggestion: str = "",
+    diagnosis: "Optional[BugDiagnosis]" = None,
     language: str = "python",
 ) -> str:
     """
@@ -111,6 +120,10 @@ def build_tdd(
     claude-code CLI runs the failing test, applies a fix, and runs the full
     suite. It must output a TESTS_PASSED or TESTS_FAILED sentinel so the
     agent can decide whether to commit or retry.
+
+    When a validated BugDiagnosis is provided, the prompt tells the CLI
+    exactly which file and line to change so it only needs to apply and verify.
+    Without a diagnosis the CLI discovers the fix itself.
 
     Args:
         incident_id:    Helix incident ID (for traceability in commits/logs).
@@ -122,9 +135,8 @@ def build_tdd(
         test_name:      Test function name.
         iteration:      Current attempt number (1-indexed).
         prior_attempts: Summaries from previous failed attempts, oldest first.
-        fix_suggestion: The fix suggestion generated by build_suggestion() and
-                        already posted to the GitHub Issue. Used as a starting
-                        point — do not blindly copy it.
+        diagnosis:      Pre-validated structured fix, or None to let the CLI
+                        discover the fix from scratch.
         language:       Application language, e.g. "python", "javascript", "go".
 
     Returns:
@@ -136,17 +148,39 @@ def build_tdd(
         for i, attempt in enumerate(prior_attempts, start=1):
             prior_section += f"\n### Attempt {i}\n{attempt}\n"
 
-    suggestion_section = ""
-    if fix_suggestion:
-        suggestion_section = (
-            f"\n## Suggested Fix (hint only — may be incomplete or wrong)\n"
-            f"This was posted to the GitHub Issue as a starting point. "
-            f"Do NOT apply it blindly. Run the test first, read the actual error, "
-            f"then decide whether the suggestion is correct:\n\n"
-            f"{fix_suggestion}\n"
+    if diagnosis:
+        fix_section = (
+            f"\n## Pre-Computed Fix (validated against the source file)\n"
+            f"Apply this change exactly. Do not look for an alternative fix.\n\n"
+            f"- **File:** `{diagnosis.file_to_edit}`\n"
+            f"- **Line {diagnosis.line_to_edit} — replace:**\n\n"
+            f"  ```\n"
+            f"  - {diagnosis.current_line}\n"
+            f"  + {diagnosis.fixed_line}\n"
+            f"  ```\n\n"
+            f"Root cause: {diagnosis.root_cause}\n"
+        )
+        fix_step = (
+            "4. Apply the pre-computed fix above using the edit tool. "
+            "Do not change any other code. Do not modify the test file."
+        )
+    else:
+        fix_section = ""
+        fix_step = (
+            "4. Write the minimal code change that makes the test pass.\n"
+            "   - The test asserts correct behaviour (e.g. a return value) — not that an\n"
+            "     exception is raised. Your fix must make the function return the expected\n"
+            "     value rather than crash.\n"
+            "   - Fix only the bug — do not refactor, rename, or clean up unrelated code.\n"
+            "   - Do not modify the test file.\n"
+            "   - Do not add new dependencies."
         )
 
     hint_one, hint_all = _test_commands(language, test_file_path, test_name)
+
+    discover_step = "" if diagnosis else (
+        "\n3. Read the relevant source files to understand the bug.\n"
+    )
 
     return f"""\
 The repository is already cloned in the current working directory. Do NOT ask for files. Do NOT write a plan. Start immediately by running pytest on the test file. Take action now.
@@ -164,7 +198,7 @@ A test that reproduces this bug has already been written to:
   {test_file_path}
 
 Test function: {test_name}
-{prior_section}{suggestion_section}
+{prior_section}{fix_section}
 ## Your Task
 Follow these steps exactly:
 
@@ -211,16 +245,8 @@ Follow these steps exactly:
 
 2. Run the failing test to confirm it currently fails using the test runner
    you identified in step 1.
-
-3. Read the relevant source files to understand the bug.
-
-4. Write the minimal code change that makes the test pass.
-   - The test asserts correct behaviour (e.g. a return value) — not that an
-     exception is raised. Your fix must make the function return the expected
-     value rather than crash.
-   - Fix only the bug — do not refactor, rename, or clean up unrelated code.
-   - Do not modify the test file.
-   - Do not add new dependencies.
+{discover_step}
+{fix_step}
 
 5. Run the full test suite to check for regressions.
 
@@ -237,6 +263,7 @@ Follow these steps exactly:
 
 Do not output anything else after the sentinel line and explanation.
 """
+
 
 
 def _test_commands(language: str, test_file_path: str, test_name: str) -> tuple[str, str]:
