@@ -77,8 +77,8 @@ print(f"Logging to {_LOG_FILE}")
 
 async def main() -> None:
     os.environ.setdefault("HELIX_GITHUB_REPO", "88hours/helix-test")
-    os.environ.setdefault("HELIX_DEV_PROVIDER", "goose")
-    os.environ.setdefault("HELIX_DEV_GOOSE_MODEL", "ollama/qwen3.6:latest")
+    os.environ.setdefault("HELIX_DEV_PROVIDER", "claude-code")
+    os.environ.setdefault("HELIX_DEV_GOOSE_MODEL", "ollama/devstral-small-2:latest")
     os.environ.setdefault(
         "HELIX_DEV_GOOSE_SYSTEM",
         "You are a coding agent. Use your shell tool to run commands immediately. "
