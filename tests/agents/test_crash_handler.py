@@ -511,7 +511,7 @@ def test_load_project_or_404_returns_503_when_no_database_url(monkeypatch):
         import asyncio
         from fastapi import HTTPException as FHE
         with pytest.raises(FHE) as exc_info:
-            asyncio.get_event_loop().run_until_complete(_load_project_or_404("proj-001"))
+            asyncio.run(_load_project_or_404("proj-001"))
     assert exc_info.value.status_code == 503
 
 
