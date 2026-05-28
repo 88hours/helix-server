@@ -75,6 +75,52 @@ _GOOSE_TIMEOUT = 120
 # Fallback model used when Anthropic returns 529 Overloaded for the primary model.
 _HAIKU_FALLBACK = "claude-haiku-4-5-20251001"
 
+# Bedrock model ID mapping from Helix internal names to Bedrock ARN base IDs.
+_BEDROCK_MODEL_IDS = {
+    "claude-haiku-4-5":  "anthropic.claude-haiku-4-5-20251001-v1:0",
+    "claude-sonnet-4-6": "anthropic.claude-sonnet-4-6-20250514-v1:0",
+    "claude-opus-4-6":   "anthropic.claude-opus-4-6-20250514-v1:0",
+}
+# Cross-region inference profile prefix by AWS region prefix.
+_BEDROCK_REGION_PREFIXES = {"us": "us.", "eu": "eu.", "ap": "ap."}
+
+
+# ---------------------------------------------------------------------------
+# Bedrock backend
+# ---------------------------------------------------------------------------
+
+def _bedrock_model_id(model: str, region: str) -> str:
+    base = _BEDROCK_MODEL_IDS.get(model, model)
+    prefix = _BEDROCK_REGION_PREFIXES.get(region.split("-")[0], "")
+    return prefix + base
+
+
+def _get_bedrock_client(region: str):
+    import anthropic
+    return anthropic.AnthropicBedrock(aws_region=region)
+
+
+async def _complete_bedrock(
+    config: AgentConfig, prompt: str, system: str
+) -> tuple[str, dict]:
+    from core.config import get_bedrock_region
+    region = get_bedrock_region()
+    bedrock_model = _bedrock_model_id(config.model, region)
+    client = _get_bedrock_client(region)
+    kwargs: dict = {
+        "model": bedrock_model,
+        "max_tokens": _MAX_TOKENS,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if system:
+        kwargs["system"] = system
+    response = await asyncio.to_thread(client.messages.create, **kwargs)
+    usage = {
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+    }
+    return response.content[0].text, usage
+
 
 # ---------------------------------------------------------------------------
 # Anthropic backend
@@ -520,6 +566,8 @@ async def complete(
 
         if resolved.provider == "anthropic":
             response, usage = await _complete_anthropic(resolved, prompt, system)
+        elif resolved.provider == "bedrock":
+            response, usage = await _complete_bedrock(resolved, prompt, system)
         elif resolved.provider == "openrouter":
             response, usage = await _complete_openrouter(resolved, prompt, system)
         elif resolved.provider == "ollama":
@@ -533,7 +581,7 @@ async def complete(
         else:
             raise ValueError(
                 f"Unknown provider '{resolved.provider}' for agent '{agent}'. "
-                "Must be 'anthropic', 'openrouter', 'ollama', 'claude-code', 'opencode', or 'goose'."
+                "Must be 'anthropic', 'bedrock', 'openrouter', 'ollama', 'claude-code', 'opencode', or 'goose'."
             )
 
         span.set_attribute("helix.input_tokens", usage.get("input_tokens", 0))
