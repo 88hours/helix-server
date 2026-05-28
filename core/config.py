@@ -292,6 +292,13 @@ def get_redis_url() -> str:
     return _require_env(url_env)
 
 
+def get_bedrock_region() -> str:
+    """Return the AWS region for Bedrock calls. Reads AWS_BEDROCK_REGION env var, falls back to config.yaml settings.aws_bedrock_region, then us-east-1."""
+    raw = _load_yaml()
+    yaml_region = raw.get("settings", {}).get("aws_bedrock_region", "us-east-1")
+    return os.environ.get("AWS_BEDROCK_REGION", yaml_region)
+
+
 def get_redis_mode() -> str:
     """
     Return the Redis messaging mode: "streams" or "pubsub".
