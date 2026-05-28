@@ -4,6 +4,15 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def _agent_in_config(agent: str) -> bool:
+    from core.config import get_agent_config
+    try:
+        get_agent_config(agent)
+        return True
+    except KeyError:
+        return False
+
+
 def check_required_env():
     from core.config import get_agent_config
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
@@ -11,6 +20,7 @@ def check_required_env():
     has_bedrock = any(
         get_agent_config(a).provider == "bedrock"
         for a in ("crash_handler", "qa", "dev")
+        if _agent_in_config(a)
     )
     if not (has_anthropic or has_openrouter or has_bedrock):
         raise RuntimeError(
